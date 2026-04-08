@@ -2641,7 +2641,7 @@
 </table>
 <div class="admonition info">
 <p class="admonition-title">Reconciling with BLIS Defaults</p>
-<p>The current BLIS default is <code>prefix-affinity:3,queue-depth:2,kv-utilization:2</code> (llm-d parity). Strategy Evolution discovered that <code>pa:4,qd:3</code> (no kv-util) performs better under KV pressure and at high load with admission control. The default is maintained for compatibility with the llm-d ecosystem. Users running Strategy Evolution experiments should consider the regime-dependent recommendation in RP-7 rather than assuming the default is optimal for all scenarios.</p>
+<p>The current BLIS default is <code>precise-prefix-cache:2,queue-depth:1,kv-utilization:1</code> (llm-d parity). Strategy Evolution discovered that <code>pa:4,qd:3</code> (no kv-util) performs better under KV pressure and at high load with admission control. The default is maintained for compatibility with the llm-d ecosystem. Users running Strategy Evolution experiments should consider the regime-dependent recommendation in RP-7 rather than assuming the default is optimal for all scenarios.</p>
 </div>
 <table>
 <thead>
@@ -2679,9 +2679,9 @@
 </tr>
 <tr>
 <td>RP-12</td>
-<td><strong>Staleness immunity comes from signal independence</strong> — PA reads synchronous PrefixCacheIndex, QD reads Immediate EffectiveLoad</td>
+<td><strong>Staleness immunity comes from signal independence</strong> — PA reads synchronous PrefixCacheIndex, QD reads QueueDepth (Periodic when interval&gt;0). Quantitative claims measured pre-#955 when QD read EffectiveLoad (included synchronous InFlightRequests); re-verification pending.</td>
 <td>Iter 16</td>
-<td><code>pa:3,qd:2</code> produced identical 65.45ms across all staleness levels and KV pressures</td>
+<td><code>pa:3,qd:2</code> produced identical 65.45ms across all staleness levels and KV pressures (pre-#955 EffectiveLoad behavior)</td>
 </tr>
 <tr>
 <td>RP-13</td>
