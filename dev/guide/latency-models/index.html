@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -2583,6 +2585,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2639,6 +2645,36 @@
   
   
     <li class="md-nav__item">
+      <a href="../../blog/category/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+    
+  
+  
+    <li class="md-nav__item">
       <a href="../../blog/category/capacity-planning/" class="md-nav__link">
         
   
@@ -2647,6 +2683,36 @@
     
   
     Capacity Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+    
+  
+  
+    <li class="md-nav__item">
+      <a href="../../blog/category/deep-dives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Dives
   
 
     
@@ -3000,7 +3066,7 @@
 <p>When choosing between TP and replication (more instances): TP reduces per-request latency, replication increases throughput. For capacity planning, simulate both configurations.</p>
 <div class="admonition note">
 <p class="admonition-title">Automatic KV block calculation</p>
-<p>When using roofline or crossmodel mode, <code>--total-kv-blocks</code> is automatically derived from model architecture and GPU memory if not explicitly set. The auto-calculated value accounts for TP (KV heads are sharded across ranks; total GPU memory scales with GPU count). Override with <code>--total-kv-blocks &lt;N&gt;</code> for non-standard deployments. The auto-calculation uses reference constants (90% GPU utilization, standard activation/overhead budgets matching the llm-d-benchmark capacity planner) and requires SwiGLU-family activations.</p>
+<p>For all latency backends (roofline, crossmodel, trained-roofline, trained-physics, blackbox), <code>--total-kv-blocks</code> is automatically derived from model architecture and GPU memory if not explicitly set. The auto-calculated value accounts for TP (KV heads are sharded across ranks; total GPU memory scales with GPU count). Override with <code>--total-kv-blocks &lt;N&gt;</code> for non-standard deployments. The auto-calculation uses reference constants (90% GPU utilization, standard activation/overhead budgets matching the llm-d-benchmark capacity planner) and requires SwiGLU-family activations.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Automatic MaxModelLen derivation</p>
@@ -3158,7 +3224,7 @@
 <tr>
 <td><strong>Data required</strong></td>
 <td>HF <code>config.json</code> + <code>--hardware</code> + <code>--tp</code></td>
-<td><code>defaults.yaml</code> entry for model/GPU/TP</td>
+<td><code>defaults.yaml</code> entry for model/GPU/TP (alpha/beta coefficients). HF <code>config.json</code> + <code>MemoryGiB</code> optional for KV block auto-calc (falls back to 1M default)</td>
 <td>HF <code>config.json</code> + <code>--hardware</code> + <code>--tp</code></td>
 <td>HF <code>config.json</code> + <code>--hardware</code> + <code>--tp</code> (global coefficients bundled)</td>
 <td>HF <code>config.json</code> + <code>--hardware</code> + <code>--tp</code> (global coefficients bundled)</td>
@@ -3339,6 +3405,12 @@
     
     
       <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mermaid-text-fix.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
     
   </body>
