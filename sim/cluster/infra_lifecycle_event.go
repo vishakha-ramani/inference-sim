@@ -109,10 +109,7 @@ func (e *NodeReadyEvent) Execute(cs *ClusterSimulator) {
 				}
 				nextReqs := onRequestDone(req, tick)
 				for _, next := range nextReqs {
-					heap.Push(&cs.clusterEvents, clusterEventEntry{
-						event: &ClusterArrivalEvent{time: next.ArrivalTime, request: next},
-						seqID: cs.nextSeqID(),
-					})
+					cs.pushArrival(next, next.ArrivalTime)
 				}
 				return nil // don't inject locally — route through cluster pipeline
 			}
@@ -330,10 +327,7 @@ func (d *drainRedirect) Drain(inst *InstanceSimulator, cs *ClusterSimulator) {
 			delete(inst.sim.Metrics.Requests, req.ID)
 		}
 		req.Redirected = true
-		heap.Push(&cs.clusterEvents, clusterEventEntry{
-			event: &ClusterArrivalEvent{time: cs.clock, request: req},
-			seqID: cs.nextSeqID(),
-		})
+		cs.pushArrival(req, cs.clock)
 	}
 
 	// I5 (known edge case): Arrival events already in the instance event queue for
