@@ -1385,7 +1385,7 @@
   <span class="md-ellipsis">
     
   
-    Supported Models
+    Model Compatibility
   
 
     
@@ -2903,8 +2903,8 @@
 <li><strong>Add CLI flags</strong> in <code>cmd/root.go</code> for new parameters (e.g., <code>--kv-nvme-blocks</code>) and wire them into the <code>KVCacheConfig</code> sub-config</li>
 <li><strong>Aggregate metrics</strong> — combine hit/miss/thrashing counters from all tiers; see <code>TieredKVCache.CacheHitRate()</code> for the 2-tier pattern</li>
 <li><strong>Add behavioral tests</strong> in <code>sim/kv/*_test.go</code></li>
-<li><strong>Preserve rollback semantics</strong> — <code>KVCacheState.AllocateKVBlocks</code> is transactional: on mid-loop failure, <code>rollbackAllocation()</code> undoes all mutations (UsedBlockCnt, CacheMisses, CacheHits, RefCount, InUse, free list, HashToBlock, RequestMap). If your tier adds mutations beyond what delegation to <code>gpu.AllocateKVBlocks()</code> handles, you must roll those back too. See <code>cachedBlockMutation</code> and <code>newBlockMutation</code> types in <code>sim/kv/cache.go</code>.</li>
-<li><strong><code>GetCachedBlocks</code> is a pure query</strong> — it returns cached block IDs without side effects. <code>CacheHits</code> are counted by <code>AllocateKVBlocks</code> when cached blocks are committed to an allocation (and rolled back on failure). This was fixed in the Phase 3 hardening PR; the previous implementation incremented CacheHits in GetCachedBlocks, causing double-counting in tiered mode.</li>
+<li><strong>Check-then-act allocation (no rollback)</strong> — <code>KVCacheState.AllocateKVBlocks</code> uses a pre-check gate: it computes the total blocks needed (new blocks + cached blocks leaving the free list) and compares against <code>countFreeBlocks()</code> before any state mutation. If insufficient, it returns <code>false</code> immediately with zero side effects. Post-pre-check <code>popFreeBlock() == nil</code> is a <code>panic</code> (INV-4 violation, structurally unreachable in single-threaded DES). This mirrors vLLM's <code>kv_cache_manager.py:334-336</code> universal pre-check. If your tier adds mutations before delegating to <code>gpu.AllocateKVBlocks()</code>, ensure the inner pre-check sees the updated <code>FreeBlockCnt</code> (e.g., <code>commitCachedBlocks</code> calls <code>removeFromFreeList</code> which decrements <code>FreeBlockCnt</code> before the inner call).</li>
+<li><strong><code>GetCachedBlocks</code> is a pure query</strong> — it returns cached block IDs without side effects. <code>CacheHits</code> are counted by <code>AllocateKVBlocks</code> when cached blocks are committed to an allocation. The pre-check accounts for cached blocks with <code>!InUse</code> (on the free list) via the <code>cachedFromFreeList</code> budget, mirroring vLLM's <code>num_evictable_blocks</code>.</li>
 </ol>
 <p>Examples:
 - See <code>TieredKVCache</code> in <code>sim/kv/tiered.go</code> for 2-tier GPU+CPU composition
@@ -2934,16 +2934,14 @@
 <li><code>PostDecodeFixedOverhead() int64</code> — fixed per-request completion overhead (return 0 if not applicable)</li>
 <li><strong>All <code>float64 → int64</code> conversions MUST use <code>clampToInt64(v)</code> (defined in <code>sim/latency/latency.go</code>).</strong> Direct <code>int64(v)</code> casts on float64 values are undefined behavior in Go when the value is out of range. <code>clampToInt64</code> handles NaN and positive overflow correctly.</li>
 <li><strong>Register the backend name</strong> in <code>sim/bundle.go</code>: add <code>"your-backend": true</code> to <code>validLatencyBackends</code> map.</li>
-<li><strong>Register in <code>NewLatencyModel</code> factory</strong> in <code>sim/latency/latency.go</code>: add a <code>case</code> branch in the <code>switch hw.Backend</code> block. The backend string (e.g., <code>"trained-roofline"</code>) is set by the <code>--latency-model</code> CLI flag and stored in <code>ModelHardwareConfig.Backend</code>. The factory signature is <code>NewLatencyModel(LatencyCoeffs, ModelHardwareConfig)</code>.</li>
+<li><strong>Register in <code>NewLatencyModel</code> factory</strong> in <code>sim/latency/latency.go</code>: add a <code>case</code> branch in the <code>switch hw.Backend</code> block. The backend string (e.g., <code>"trained-physics"</code>) is set by the <code>--latency-model</code> CLI flag and stored in <code>ModelHardwareConfig.Backend</code>. The factory signature is <code>NewLatencyModel(LatencyCoeffs, ModelHardwareConfig)</code>.</li>
 <li><strong>Add CLI wiring</strong> (if needed) in <code>cmd/root.go</code>: add a loading block for your backend's coefficients from <code>defaults.yaml</code>. If your backend needs a custom defaults section, add a struct to <code>cmd/default_config.go</code>.</li>
 <li><strong>Add behavioral tests</strong> in <code>sim/latency/</code> — monotonicity (more tokens → longer step time), positive output, boundary cases (empty batch)</li>
 <li>Extension friction: <strong>3-5 touch points</strong> (implementation + bundle map + factory branch; optionally CLI wiring + defaults struct)</li>
 </ol>
 <p>Examples:
-- See <code>BlackboxLatencyModel</code> in <code>sim/latency/latency.go</code> for a simple stateless model (alpha/beta regression)
-- See <code>RooflineLatencyModel</code> in <code>sim/latency/latency.go</code> for a model that uses hardware config (FLOPs/bandwidth)
-- See <code>CrossModelLatencyModel</code> in <code>sim/latency/crossmodel.go</code> for a physics-informed model that derives step time from HuggingFace architecture features (MoE-aware)
-- See <code>TrainedRooflineLatencyModel</code> in <code>sim/latency/trained_roofline.go</code> for a data-driven model with roofline basis functions × learned corrections (zero-allocation hot path, 7% MAPE)</p>
+- See <code>RooflineLatencyModel</code> in <code>sim/latency/latency.go</code> for a simple stateless analytical model (FLOPs/bandwidth roofline)
+- See <code>TrainedPhysicsModel</code> in <code>sim/latency/trained_physics_model.go</code> for a physics-informed model with roofline basis functions, learned corrections, and MoE-aware overhead modeling</p>
 <h2 id="adding-new-batch-formation-strategies">Adding New Batch Formation Strategies<a class="headerlink" href="#adding-new-batch-formation-strategies" title="Permanent link">&para;</a></h2>
 <p>To add a new batch formation strategy (e.g., disaggregated prefill/decode, speculative decoding, continuous batching without preemption):</p>
 <ol>
@@ -2953,11 +2951,11 @@
 <li>The implementation MUST update <code>ctx.ComputedTokens[req.ID]</code> for each request that receives new tokens (Phase 2 of <code>Step()</code> reads this map to advance <code>ProgressIndex</code>)</li>
 <li>The implementation may mutate <code>WaitQ</code> (dequeue/prepend) and <code>KVCache</code> (allocate/release) during batch formation</li>
 <li>The implementation MUST NOT schedule events or record metrics — return decisions in <code>BatchResult</code>, the Simulator applies them</li>
-<li><strong>Register in <code>NewBatchFormation</code> factory</strong> in <code>sim/batch_formation.go</code>: add a selection branch. The factory signature is <code>NewBatchFormation()</code> — a future PR will add a strategy selection parameter (e.g., a string field in <code>PolicyConfig</code> or <code>BatchConfig</code>)</li>
+<li><strong>Register in <code>NewBatchFormation</code> factory</strong> in <code>sim/batch_formation.go</code>: add a selection branch. The factory signature is <code>NewBatchFormation(preemptionPolicy string, sloMap *SLOPriorityMap)</code>. For a new batch formation <em>strategy</em> (not just a preemption variant), add a <code>BatchFormation string</code> field to <code>PolicyConfig</code> and a selection branch in <code>NewBatchFormation</code></li>
 <li><strong>Add behavioral tests</strong> — token budget enforcement, batch size limits, KV conservation, preemption behavior (if applicable), FCFS ordering</li>
 <li>Extension friction: <strong>2 touch points</strong> (implementation + factory registration)</li>
 </ol>
-<p><strong>Note:</strong> Currently only <code>VLLMBatchFormation</code> exists. Adding a second strategy will also require: (a) a <code>BatchFormation string</code> field in <code>PolicyConfig</code> or <code>BatchConfig</code> (in <code>sim/config.go</code>), (b) a CLI flag in <code>cmd/root.go</code>, (c) validation in <code>sim/bundle.go</code>, (d) selection logic in <code>NewBatchFormation</code>.</p>
+<p><strong>Note:</strong> Currently only <code>VLLMBatchFormation</code> exists (with configurable preemption via <code>--preemption-policy fcfs|priority</code>). Adding a second batch formation strategy will also require: (a) a <code>BatchFormation string</code> field in <code>PolicyConfig</code> or <code>BatchConfig</code> (in <code>sim/config.go</code>), (b) a CLI flag in <code>cmd/root.go</code>, (c) validation in <code>sim/bundle.go</code>, (d) selection logic in <code>NewBatchFormation</code>. For adding a new <em>preemption</em> variant (not a new strategy), add a constant to <code>batch_formation.go</code>, a case to the <code>switch</code> in <code>preemptForTokens</code>, and an entry in <code>validPreemptionPolicies</code> in <code>bundle.go</code>.</p>
 <p>Examples:
 - See <code>VLLMBatchFormation</code> in <code>sim/batch_formation.go</code> for the vLLM FCFS + chunked-prefill + preemption strategy
 - See <code>preemptForTokens</code> for the KV allocation + eviction loop pattern</p>
