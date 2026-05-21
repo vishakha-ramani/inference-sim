@@ -394,6 +394,46 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 		switch config.PDDecider {
 		case "prefix-threshold":
 			cs.disaggregationDecider = sim.NewPrefixThresholdDecider(config.PDPrefixThreshold, int(config.BlockSizeTokens), cs.cacheQueryFn)
+		case "bernoulli":
+			cs.disaggregationDecider = sim.NewBernoulliDisaggregate(config.BernoulliF, rng.ForSubsystem("bernoulli-decider"))
+		case "dpp":
+			// Compute expected KV transfer time ΔT for the DPP threshold using the configured
+			// bandwidth. Uses 512 representative input tokens (empirical default for this topology).
+			var dppTransferTimeUs float64
+			if kvBPT, err := latency.KVBytesPerToken(config.ModelConfig, config.EffectivePrefillTP()); err == nil {
+				blockSizeTokens := int64(config.BlockSizeTokens)
+				if blockSizeTokens <= 0 {
+					blockSizeTokens = 16
+				}
+				const representativeInputTokens = int64(512)
+				numBlocks := (representativeInputTokens + blockSizeTokens - 1) / blockSizeTokens
+				transferBytes := float64(numBlocks) * float64(blockSizeTokens) * kvBPT
+				bandwidthBytesPerUs := config.PDTransferBandwidthGBps * 1000.0
+				baseLatUs := config.PDTransferBaseLatencyMs * 1000.0
+				if bandwidthBytesPerUs > 0 {
+					dppTransferTimeUs = baseLatUs + transferBytes/bandwidthBytesPerUs
+				} else {
+					dppTransferTimeUs = baseLatUs
+				}
+			} else {
+				dppTransferTimeUs = 3406.0 // fallback: 512 tokens at 25 GB/s + 50 μs base
+			}
+			eta := config.DPPEta
+			if eta <= 0 {
+				eta = 1.0
+			}
+			ttftSloD := config.DPPTTFTSloD
+			if ttftSloD <= 0 {
+				ttftSloD = 50.0
+			}
+			cs.disaggregationDecider = sim.NewDriftPlusPenaltyDecider(
+				config.DPPV,
+				eta,
+				ttftSloD*1000.0, // ms → μs
+				dppTransferTimeUs,
+				29900.0, // W_P: mean prefill service time in μs (empirical baseline)
+				13000.0, // c_D: decode cost per token in μs (ITL target)
+			)
 		default:
 			cs.disaggregationDecider = sim.NewDisaggregationDecider(config.PDDecider)
 		}
@@ -1212,6 +1252,15 @@ func (c *ClusterSimulator) detectDecodeCompletions(inst *InstanceSimulator) {
 		delete(c.pendingDecodeCompletions, subReqID)
 		c.pdDecodeCompletedCount++
 
+		// Notify TTFT-sensitive deciders (e.g., DriftPlusPenaltyDecider) so they can
+		// update the virtual TTFT queue Z. Use TransferCompleteTime - ArrivalTime as
+		// a proxy for the user-visible TTFT (arrival → first decode token available).
+		if c.disaggregationDecider != nil {
+			if updater, ok := c.disaggregationDecider.(sim.TTFTUpdater); ok && parent.TransferCompleteTime > 0 {
+				updater.UpdateTTFT(float64(parent.TransferCompleteTime - parent.ArrivalTime))
+			}
+		}
+
 		// Issue #884: trigger session follow-up for the original (parent) request.
 		// The per-instance OnRequestDone fires for the decode sub-request (no
 		// SessionID), so SessionManager never sees PD completions. We call
@@ -1859,6 +1908,9 @@ func (cs *ClusterSimulator) executeDisaggregatedRouting(req *sim.Request, time i
 	// pod's cacheQueryFn closure for per-pod prefix cache state (matches llm-d's
 	// PrefixBasedPDDecider reading endpoint.Get(PrefixCacheMatchInfoKey)).
 	state.SelectedInstance = decodeDecision.TargetInstance
+	// Populate prefill-pool snapshots for deciders that need Q_P (e.g., DriftPlusPenaltyDecider).
+	// Existing deciders (never/always/prefix-threshold/bernoulli) ignore PrefillSnapshots.
+	state.PrefillSnapshots = cs.buildPoolFilteredSnapshots(PoolRolePrefill)
 	disaggDecision := cs.disaggregationDecider.Decide(req, state)
 	logrus.Debugf("[cluster] req %s: disaggregate=%v", req.ID, disaggDecision.Disaggregate)
 

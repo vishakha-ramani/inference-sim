@@ -140,6 +140,10 @@ var (
 	decodeInstances        int     // Number of instances dedicated to decode
 	prefillDecodeInstances int     // Number of shared-role instances (both prefill and decode), issue #1276
 	pdDecider              string  // Disaggregation decider name
+	bernoulliF             float64 // Bernoulli disaggregation probability
+	dppV                   float64 // DPP penalty parameter V
+	dppEta                 float64 // DPP queue weight ratio η
+	dppTTFTSloD            float64 // DPP TTFT SLO target in ms
 	pdTransferBandwidth    float64 // Inter-instance KV transfer bandwidth in GB/s
 	pdTransferBaseLatency  float64 // Inter-instance KV transfer base latency in ms
 	pdTransferContention   bool    // Enable fair-share bandwidth contention model
@@ -1019,7 +1023,11 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&prefillInstances, "prefill-instances", 0, "Number of instances dedicated to prefill (0 = disabled)")
 	cmd.Flags().IntVar(&decodeInstances, "decode-instances", 0, "Number of instances dedicated to decode (0 = disabled)")
 	cmd.Flags().IntVar(&prefillDecodeInstances, "prefill-decode-instances", 0, "Number of shared-role instances serving both prefill and decode (llm-d 'prefill-decode'/'both' parity; 0 = disabled). Must satisfy --prefill-instances + --decode-instances + --prefill-decode-instances <= --num-instances.")
-	cmd.Flags().StringVar(&pdDecider, "pd-decider", "never", "PD disaggregation decider: never (default), always, prefix-threshold")
+	cmd.Flags().StringVar(&pdDecider, "pd-decider", "never", "PD disaggregation decider: never (default), always, prefix-threshold, bernoulli, dpp")
+	cmd.Flags().Float64Var(&bernoulliF, "bernoulli-f", 0.5, "Disaggregation probability for bernoulli decider (0.0=never, 1.0=always)")
+	cmd.Flags().Float64Var(&dppV, "dpp-v", 100, "DPP penalty parameter V: larger V trades TTFT for lower ITL (Theorem 1, Eq. 78)")
+	cmd.Flags().Float64Var(&dppEta, "dpp-eta", 1.0, "DPP queue weight ratio η (default 1.0)")
+	cmd.Flags().Float64Var(&dppTTFTSloD, "dpp-ttft-slo-d", 50.0, "DPP TTFT SLO target d in ms; Z grows when TTFT exceeds this, suppressing disaggregation")
 	cmd.Flags().Float64Var(&pdTransferBandwidth, "pd-transfer-bandwidth", 25.0, "PD KV transfer bandwidth in GB/s (NIXL RDMA default)")
 	cmd.Flags().Float64Var(&pdTransferBaseLatency, "pd-transfer-base-latency", 0.05, "PD KV transfer base latency in ms")
 	cmd.Flags().BoolVar(&pdTransferContention, "pd-transfer-contention", false, "Enable fair-share bandwidth contention model for concurrent KV transfers (INV-P2-2)")
@@ -1635,6 +1643,10 @@ var runCmd = &cobra.Command{
 			EncodeDecider:                   encodeDecider,
 			PDDecider:                       pdDecider,
 			PDPrefixThreshold:               pdPrefixThreshold,
+			BernoulliF:                      bernoulliF,
+			DPPV:                            dppV,
+			DPPEta:                          dppEta,
+			DPPTTFTSloD:                     dppTTFTSloD,
 			PDTransferBandwidthGBps:         pdTransferBandwidth,
 			PDTransferBaseLatencyMs:         pdTransferBaseLatency,
 			PDTransferContention:            pdTransferContention,

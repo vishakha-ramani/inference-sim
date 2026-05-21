@@ -67,8 +67,12 @@ type DeploymentConfig struct {
 	// assigns PoolRolePrefillDecode to the last `shared` indices after
 	// the prefill-only and decode-only ranges.
 	SharedInstances   int
-	PDDecider         string // Disaggregation decider: "" or "never" (default), "always", "prefix-threshold"
-	PDPrefixThreshold int    // Non-cached token threshold for prefix-threshold decider (PR6)
+	PDDecider         string  // Disaggregation decider: "" or "never" (default), "always", "prefix-threshold", "bernoulli", "dpp"
+	PDPrefixThreshold int     // Non-cached token threshold for prefix-threshold decider (PR6)
+	BernoulliF        float64 // Disaggregation probability for bernoulli decider (default 0.5)
+	DPPV              float64 // DPP penalty parameter V (larger V → more disaggregation → lower ITL)
+	DPPEta            float64 // DPP queue weight ratio η (default 1.0)
+	DPPTTFTSloD       float64 // DPP TTFT SLO target d in ms (default 50.0)
 
 	// E/P/D disaggregation configuration (GAP-4, issue #1264).
 	// When EncodeInstances == 0 (default), the encode stage is disabled and the

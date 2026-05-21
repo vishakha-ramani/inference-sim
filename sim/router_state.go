@@ -11,7 +11,8 @@ package sim
 // (InstanceScheduler) receive parameters directly.
 // This prevents import cycles: sim/cluster/ imports sim/, not the reverse.
 type RouterState struct {
-	Snapshots        []RoutingSnapshot // One per routable instance (Active + WarmingUp)
+	Snapshots        []RoutingSnapshot // One per routable instance in the decode pool (Active + WarmingUp)
+	PrefillSnapshots []RoutingSnapshot // One per routable instance in the prefill pool; nil when no prefill pool or not populated
 	// One per Loading instance. Populated fields: ID, Model, GPUType, TPDegree, CostPerHour,
 	// TotalKvCapacityTokens. QueueDepth, BatchSize, KVUtilization, FreeKVBlocks, CacheHitRate,
 	// InFlightRequests, KvTokensInUse remain zero.

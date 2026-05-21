@@ -2,6 +2,7 @@ package sim
 
 import (
 	"fmt"
+	"math"
 )
 
 // DisaggregationDecision encapsulates the prefill-decode disaggregation decision for a request.
@@ -57,6 +58,95 @@ func (a *AlwaysDisaggregate) Decide(_ *Request, _ *RouterState) DisaggregationDe
 	return DisaggregationDecision{Disaggregate: true}
 }
 
+// TTFTUpdater is an optional interface for disaggregation deciders that maintain
+// internal state based on observed request TTFT. Implemented by DriftPlusPenaltyDecider
+// to update the virtual TTFT queue Z after each completed disaggregated request.
+type TTFTUpdater interface {
+	UpdateTTFT(ttftUs float64)
+}
+
+// BernoulliDisaggregate implements SR(f) stochastic routing: each request is
+// independently disaggregated with probability f. Used as the reference baseline
+// for optimal stationary disaggregation fraction.
+type BernoulliDisaggregate struct {
+	f   float64
+	rng interface{ Float64() float64 }
+}
+
+// NewBernoulliDisaggregate creates a BernoulliDisaggregate with disaggregation
+// probability f in [0,1]. Panics if f is outside [0,1] (R3).
+func NewBernoulliDisaggregate(f float64, rng interface{ Float64() float64 }) *BernoulliDisaggregate {
+	if f < 0 || f > 1 {
+		panic(fmt.Sprintf("NewBernoulliDisaggregate: f must be in [0,1], got %v", f))
+	}
+	return &BernoulliDisaggregate{f: f, rng: rng}
+}
+
+func (b *BernoulliDisaggregate) Decide(_ *Request, _ *RouterState) DisaggregationDecision {
+	return DisaggregationDecision{Disaggregate: b.rng.Float64() < b.f}
+}
+
+// DriftPlusPenaltyDecider implements the Drift-Plus-Penalty threshold policy
+// (paper Theorem 1, Eq. 78). Disaggregates iff:
+//
+//	η·Q_D + V·c_D/2 > Q_P + Z·ΔT/W_P
+//
+// where Q_P and Q_D are aggregate prefill/decode queue depths, V is the penalty
+// weight controlling the ITL vs TTFT tradeoff, Z is a virtual TTFT queue updated
+// as Z(t+1) = max(0, Z(t) + TTFT_last - d), ΔT is the KV transfer time, and
+// W_P is the mean prefill service time.
+type DriftPlusPenaltyDecider struct {
+	v                float64 // penalty parameter V
+	eta              float64 // queue weight ratio η
+	ttftSloUs        float64 // TTFT SLO target d (μs)
+	transferTimeUs   float64 // ΔT: expected KV transfer time (μs)
+	prefillServiceUs float64 // W_P: mean prefill service time (μs)
+	decodeCostUs     float64 // c_D: decode cost per token (μs, i.e. ITL target)
+	virtualQueueZ    float64 // stateful virtual TTFT queue Z
+}
+
+// NewDriftPlusPenaltyDecider creates a DriftPlusPenaltyDecider.
+// eta must be > 0 and prefillServiceUs must be > 0 (R3).
+func NewDriftPlusPenaltyDecider(v, eta, ttftSloUs, transferTimeUs, prefillServiceUs, decodeCostUs float64) *DriftPlusPenaltyDecider {
+	if eta <= 0 {
+		panic(fmt.Sprintf("NewDriftPlusPenaltyDecider: eta must be > 0, got %v", eta))
+	}
+	if prefillServiceUs <= 0 {
+		panic(fmt.Sprintf("NewDriftPlusPenaltyDecider: prefillServiceUs must be > 0, got %v", prefillServiceUs))
+	}
+	return &DriftPlusPenaltyDecider{
+		v:                v,
+		eta:              eta,
+		ttftSloUs:        ttftSloUs,
+		transferTimeUs:   transferTimeUs,
+		prefillServiceUs: prefillServiceUs,
+		decodeCostUs:     decodeCostUs,
+	}
+}
+
+// Decide implements the DPP threshold: disaggregate iff η·Q_D + V·c_D/2 > Q_P + Z·ΔT/W_P.
+// Handles nil state gracefully (Q_P = Q_D = 0).
+func (d *DriftPlusPenaltyDecider) Decide(_ *Request, state *RouterState) DisaggregationDecision {
+	var qD, qP float64
+	if state != nil {
+		for _, s := range state.Snapshots {
+			qD += float64(s.QueueDepth)
+		}
+		for _, s := range state.PrefillSnapshots {
+			qP += float64(s.QueueDepth)
+		}
+	}
+	lhs := d.eta*qD + d.v*d.decodeCostUs/2
+	rhs := qP + d.virtualQueueZ*d.transferTimeUs/d.prefillServiceUs
+	return DisaggregationDecision{Disaggregate: lhs > rhs}
+}
+
+// UpdateTTFT updates the virtual TTFT queue Z after observing a completed
+// disaggregated request's TTFT. Z(t+1) = max(0, Z(t) + ttftUs - d).
+func (d *DriftPlusPenaltyDecider) UpdateTTFT(ttftUs float64) {
+	d.virtualQueueZ = math.Max(0, d.virtualQueueZ+ttftUs-d.ttftSloUs)
+}
+
 // NewDisaggregationDecider creates a disaggregation decider by name.
 // Valid names are defined in validDisaggregationDeciders (bundle.go).
 // An empty string defaults to NeverDisaggregate.
@@ -73,6 +163,10 @@ func NewDisaggregationDecider(name string) DisaggregationDecider {
 		return &AlwaysDisaggregate{}
 	case "prefix-threshold":
 		panic("use NewPrefixThresholdDecider(threshold, blockSize, cacheQuery) to construct prefix-threshold decider")
+	case "bernoulli":
+		panic("use NewBernoulliDisaggregate(f, rng) to construct bernoulli decider")
+	case "dpp":
+		panic("use NewDriftPlusPenaltyDecider(v, eta, ttftSloUs, transferTimeUs, prefillServiceUs, decodeCostUs) to construct dpp decider")
 	default:
 		panic(fmt.Sprintf(
 			"disaggregation decider %q is registered in validDisaggregationDeciders (bundle.go) "+
@@ -154,6 +248,9 @@ var (
 	_ DisaggregationDecider = (*NeverDisaggregate)(nil)
 	_ DisaggregationDecider = (*AlwaysDisaggregate)(nil)
 	_ DisaggregationDecider = (*PrefixThresholdDecider)(nil)
+	_ DisaggregationDecider = (*BernoulliDisaggregate)(nil)
+	_ DisaggregationDecider = (*DriftPlusPenaltyDecider)(nil)
+	_ TTFTUpdater           = (*DriftPlusPenaltyDecider)(nil)
 )
 
 // ---------------------------------------------------------------------------
