@@ -1,0 +1,27 @@
+metadata:
+  iteration: 2
+  family: "dpp-v-sweep"
+  research_question: "Does DPP's Z-feedback mechanism produce a V/SLO regime where partial disaggregation outperforms PrefixThreshold(N=16) on mean ITL, or is partial disaggregation a dominated strategy in the 1P+1D topology?"
+
+# Arm selection rationale:
+# - h-main: Tests the core prediction that DPP partial disaggregation cannot beat PT on ITL
+# - h-robustness: Tests DPP's advantage at saturation (completion rate vs ITL)
+# - h-control-negative: Validates the Z-dominance mechanism by showing the binary SLO transition
+# No h-ablation needed (we're testing flag variations, not removing components)
+# No h-super-additivity (no two factors to combine)
+
+arms:
+  - type: h-main
+    prediction: "At rate=30 (sub-saturation), DPP with V∈{1,3,5,10,20,50} and SLO=20ms will produce mean ITL consistently higher than PrefixThreshold's 28.65ms. The ITL will follow a U-shaped curve: low V (1-5) gives ITL≈33-36ms (Z suppresses disaggregation → mostly-local), high V (50) gives ITL≈30ms (V dominates Z → mostly-disaggregate, approaching PT). No V value in this range will match or beat PT's ITL because partial disaggregation leaves more requests competing for decode compute locally."
+    mechanism: "DPP's Z-feedback creates a self-reinforcing suppression loop: each disaggregated request observes TTFT≈50ms > SLO=20ms, growing Z by ~30000μs. After ~10 disaggregated requests, Z·ΔT/W_P ≈ Z·0.114 exceeds the V·c_D/2 = V·6500 term for V≤50, suppressing further disaggregation. Most requests then process locally on the decode instance (no P/D split), facing the same ITL penalty as NeverDisaggregate (~33ms at rate=30). The V·c_D/2 constant in the LHS only overcomes Z when V is large enough to make the system always-disaggregate, reproducing PT behavior rather than improving on it. There is no intermediate equilibrium where partial disaggregation helps because decode throughput (not prefill capacity) is the binding constraint."
+    diagnostic: "If any V achieves ITL < 28.65ms, examine disaggregation_fraction at that V. If it's near 100%, the improvement comes from a different routing pattern (not partial disaggregation). If it's genuinely partial (30-70%), investigate whether DPP selectively disaggregates the long-prefix requests (which benefit most) while keeping short-prefix requests local — this would indicate cache-blind routing accidentally correlating with request characteristics."
+
+  - type: h-robustness
+    prediction: "At rate=40 (near-saturation), DPP with V≤10 and SLO=20ms will complete ≥95% of requests (vs PT's ~86%) while producing mean ITL within 5ms of NeverDisaggregate. DPP achieves higher completion by keeping most requests local, avoiding decode KV cache exhaustion that causes PT's 14% drop rate. The trade-off is that DPP's TTFT will be catastrophic (>2000ms) due to monolithic queueing, while PT maintains TTFT<100ms for completed requests."
+    mechanism: "At rate=40, disaggregating policies send most requests to the dedicated decode instance, which has limited KV cache capacity. With 128 output tokens per request and ~25 req/s decode throughput, the decode KV fills and requests are preempted/dropped. DPP(V≤10, SLO=20ms) disaggregates only ~10-20% of requests (Z grows rapidly from early disaggregated TTFT violations), keeping ~80-90% local on the decode instance. Local requests share KV cache across fewer concurrent decode-phase requests, avoiding the capacity cliff. However, the monolithic processing causes severe head-of-line blocking on TTFT, producing the same catastrophic queueing pattern as NeverDisaggregate."
+    diagnostic: "If DPP drops >10% at V=10, check whether the disaggregated fraction at rate=40 is higher than at rate=30 (Q_D growth at saturation might push LHS up, increasing disaggregation). If TTFT is not catastrophic (<500ms), check whether decode instance has lower queue depth than expected (capacity headroom not being saturated)."
+
+  - type: h-control-negative
+    prediction: "Sweeping SLO from 15ms to 30ms at V=5, rate=30 will produce a sharp binary transition in disaggregation fraction: SLO≤22ms yields disaggregation <15%, SLO≥25ms yields disaggregation >99%. There will be no stable intermediate operating point (e.g., 40-60% disaggregation). This confirms that Z-feedback is a binary switch, not a proportional controller."
+    mechanism: "The Z queue integrates TTFT violations: Z(t+1) = max(0, Z + TTFT - SLO). When SLO < steady-state disaggregated TTFT (~50ms for disaggregated requests at rate=30 due to KV transfer + prefill), every disaggregated request grows Z by (50000-SLO) μs. The RHS term Z·ΔT/W_P = Z·3406/29900 = Z·0.114 grows approximately 3400-5700μs per disaggregated request (depending on SLO). After 5-10 disaggregated requests, this exceeds V·c_D/2=32500 and disaggregation stops entirely. Z then decays only when Z > 0 AND a request disaggregates with TTFT < SLO, which rarely happens once Z is high. When SLO ≥ steady-state TTFT, Z stays at 0 (max(0, negative) = 0), RHS collapses to Q_P≈0, and V·c_D/2 always dominates."
+    diagnostic: "If a stable intermediate point exists (e.g., SLO=23ms gives 40-60% disaggregation), investigate whether Z oscillates (grows → disaggregation suppressed → Z decays via floor at 0 → disaggregation resumes). This would indicate DPP has bang-bang behavior with a duty cycle rather than true steady partial disaggregation."

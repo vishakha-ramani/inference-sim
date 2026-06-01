@@ -1,0 +1,42 @@
+version: "1"
+seed: 42
+category: language
+aggregate_rate: 30
+num_requests: 2000
+
+clients:
+  # Group 1 (50%): Prefix-heavy — 480/512 tokens cached → 32 uncached tokens
+  # PrefixThreshold(N=16) will disaggregate these (32 > 16)
+  - id: "prefix-heavy"
+    slo_class: "standard"
+    rate_fraction: 0.50
+    streaming: false
+    arrival:
+      process: poisson
+    input_distribution:
+      type: constant
+      params:
+        value: 512
+    output_distribution:
+      type: constant
+      params:
+        value: 128
+    prefix_group: "shared-system-prompt"
+    prefix_length: 480
+
+  # Group 2 (50%): No prefix — all 512 tokens uncached
+  # PrefixThreshold(N=16) will also disaggregate these (512 > 16)
+  - id: "no-prefix"
+    slo_class: "standard"
+    rate_fraction: 0.50
+    streaming: false
+    arrival:
+      process: poisson
+    input_distribution:
+      type: constant
+      params:
+        value: 512
+    output_distribution:
+      type: constant
+      params:
+        value: 128

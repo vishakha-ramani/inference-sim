@@ -1,0 +1,91 @@
+# BLIS workload — mirror of inference-perf workload-catalog/interactive-chat
+# Source: github.com/kubernetes-sigs/inference-perf/blob/main/workload-catalog/interactive-chat/config.json
+# Target model: meta-llama/llama-3.3-70b-instruct (128K context)
+#
+# Catalog → BLIS mapping
+#   shared_system_prompt_len (fixed 1000 tok)
+#   + dynamic_system_prompt_len (lognormal μ=4000, σ=2500, [500,15000])
+#                                              → prefix_length: 5000
+#       The catalog has TWO prefix dimensions: a fixed shared prompt across all
+#       conversations (1000 tok) and a per-conversation dynamic prompt (lognormal
+#       mean 4000). BLIS prefix_length is a single fixed value — we collapse both
+#       into prefix_length = 1000 + 4000 = 5000 (shared + dynamic mean).
+#       Lost: per-conversation prefix variation (the [500,15000] spread) and
+#       session-level prefix-cache fragmentation. Mean ISL is preserved.
+#
+#   input_sequence_length_per_turn             → input_distribution (lognormal)
+#       (μ=50, σ=40, [10,1000])                  per-round input delta;
+#                                                 multi_turn + accumulate produces
+#                                                 the catalog's whole-prompt ISL
+#                                                 over rounds.
+#   output_sequence_length (normal μ=300 σ=150) → output_distribution (gaussian)
+#   number_of_turns (lognormal μ=4 σ=2.5)        → max_rounds: 4
+#       Catalog median ≈ 3.4 turns, mean = 4. Single fixed value is a reasonable
+#       approximation for this workload (low-variance turn count).
+#       Lost: per-conversation turn-count variation.
+#   time_between_turns (lognormal μ=45s σ=40s)  → think_time_us: 45_000_000
+#       Constant at catalog mean. Lost: heavy-tailed think-time variation.
+#       Acceptable since think time only affects round arrival, not steady load.
+#   multi_turn: true                            → reasoning.multi_turn (accumulate)
+#
+# Lognormal (μ, σ) for input_per_turn computed from catalog (mean, std):
+#   sigma² = ln(1 + (std/mean)²) = ln(1 + 0.64)   = 0.4947 → sigma ≈ 0.7034
+#   mu     = ln(mean) − sigma²/2  = ln(50) − 0.247 ≈ 3.665
+#
+# Context budget (128K) is comfortably met:
+#   prefix(5000) + 4 rounds × (≤1000 in + ≤1000 out) ≤ 13K worst case.
+#
+# Remaining gaps vs catalog (cannot fix without BLIS schema changes):
+#   - Per-conversation prefix variation (lognormal in catalog → constant here)
+#   - Per-conversation turn-count variation (single max_rounds value)
+#   - Per-turn think-time variation (single think_time_us value)
+#   - Open-loop Poisson arrival vs catalog's closed-loop concurrency stages.
+#     BLIS forbids mixing concurrency clients with multi-turn (CLAUDE.md).
+#
+# Run:
+#   ./blis run --model meta-llama/llama-3.3-70b-instruct \
+#     --workload-spec examples/inference-perf-interactive-chat.yaml \
+#     --num-instances 4 --routing-policy weighted
+
+version: "2"
+seed: 42
+category: reasoning
+aggregate_rate: 5.0
+num_requests: 1000
+
+clients:
+  - id: "interactive-chat"
+    tenant_id: "chat-users"
+    slo_class: "standard"
+    rate_fraction: 1.0
+    streaming: true
+    arrival:
+      process: poisson
+    input_distribution:
+      type: lognormal
+      params:
+        mu: 3.665
+        sigma: 0.7034
+        min: 10
+        max: 1000
+    output_distribution:
+      type: gaussian
+      params:
+        mean: 300
+        std_dev: 150
+        min: 10
+        max: 1000
+    prefix_group: "interactive-chat-system-prompt"
+    prefix_length: 5000
+    reasoning:
+      reason_ratio_distribution:
+        type: gaussian
+        params:
+          mean: 0
+          std_dev: 0
+          min: 0
+          max: 0
+      multi_turn:
+        max_rounds: 4
+        think_time_us: 45000000
+        context_growth: accumulate

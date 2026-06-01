@@ -1,0 +1,26 @@
+metadata:
+  iteration: 1
+  family: "disaggregation-policy-characterization"
+  research_question: "Does DPP(V=100, SLO=50ms) produce measurably different ITL or TTFT compared to PrefixThreshold(N=16) across a load sweep (rate 5-50 req/s) in a 1P+1D topology with prefix-heavy workloads?"
+
+# Arms chosen:
+# - h-main: Tests the core prediction about DPP vs PrefixThreshold equivalence at default V.
+# - h-control-negative: Never-disaggregate validates that disaggregation IS helping (mechanism specificity).
+# - h-robustness: Tests whether the result holds at saturation (rate=50) where behavior diverges.
+# No h-ablation or h-super-additivity: inappropriate for a baseline characterization iteration.
+
+arms:
+  - type: h-main
+    prediction: "At load rates 5-30 req/s (sub-saturation), DPP(V=100, SLO=50ms) will produce ITL and TTFT values within 1% of AlwaysDisaggregate, because V·c_D/2 = 650000 overwhelms all queue-depth and Z-feedback terms in the threshold equation, making DPP functionally equivalent to always-disaggregate."
+    mechanism: "The DPP threshold equation (sim/disaggregation.go:139) computes LHS = η·Q_D + V·c_D/2. With V=100 and c_D=13000μs (hardcoded at sim/cluster/cluster.go:435), the constant term V·c_D/2 = 650000 dominates the RHS (Q_P + Z·ΔT/W_P) even when Z grows (since ΔT/W_P ≈ 0.114). The Z-feedback never accumulates enough to overcome the massive V-driven bias toward disaggregation."
+    diagnostic: "If DPP shows >1% difference from Always, inspect the queue depth snapshots (state.Snapshots, state.PrefillSnapshots) at decision time — a Q_P >> 650000 would indicate extreme prefill queueing that overcomes the V term. Also check whether transferTimeUs was computed differently than the 3406μs fallback."
+
+  - type: h-control-negative
+    prediction: "NeverDisaggregate will produce consistently higher mean ITL than PrefixThreshold at all rates ≥10, with the ITL gap increasing monotonically with load (from ~3% at rate=10 to ~15%+ at rate=30), because local processing on the single decode instance cannot parallelize prefill and decode across dedicated hardware."
+    mechanism: "With pd-decider=never, the decode instance must perform both prefill and decode for every request sequentially. Its batch formation (sim/scheduler.go FormBatch) can overlap token generation for concurrent requests, but cannot offload the prefill computation. At higher loads, the decode instance's prefill overhead grows (each 512-token prefill takes ~30ms), reducing batch throughput and increasing ITL. With disaggregation, the prefill instance absorbs this cost, freeing the decode instance for pure decode steps."
+    diagnostic: "If Never matches PrefixThreshold at any rate, check whether the decode instance is somehow parallelizing prefill across requests (unexpected behavior), or if the prefill instance is becoming the bottleneck (starving the decode instance of work)."
+
+  - type: h-robustness
+    prediction: "At rate=50 (saturation regime), NeverDisaggregate's mean TTFT will exceed 1000ms (catastrophic queueing) while both PrefixThreshold and DPP maintain TTFT below 100ms. The disaggregating policies survive saturation by distributing work across both instances, whereas Never concentrates all load on the decode instance."
+    mechanism: "At rate=50 with 512+128 token requests, the single decode instance in Never mode reaches capacity (~35 req/s throughput per prior probes). Excess requests queue, causing TTFT to grow linearly with queue depth. Disaggregating policies split the prefill load to the prefill instance, effectively doubling the cluster's prefill capacity and preventing queue buildup. At rate=50, probing showed Never TTFT=6293ms vs PrefixThreshold TTFT=57ms — a 100x difference."
+    diagnostic: "If Never's TTFT stays low at rate=50, the throughput estimate is wrong — check completed_requests vs num_requests (if <2000, the horizon expired before all arrived). If disaggregating policies also degrade, the prefill instance is saturating — check prefill throughput in PD metrics."

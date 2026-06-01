@@ -1,0 +1,29 @@
+metadata:
+  iteration: 3
+  family: "dpp-vs-prefix-threshold"
+  research_question: "Does DPP's ranking invert vs PrefixThreshold in a 2P+2D topology? Specifically, does DPP(V<=10, SLO=20ms) achieve lower mean ITL than PT while maintaining higher completion rate at near-saturation loads, because its disaggregation-suppression strategy avoids decode KV exhaustion when decode capacity is distributed across multiple instances?"
+
+arms:
+  - type: h-main
+    prediction: "In a 2P+2D topology across a rate sweep from 30-60 req/s, DPP(V=5, SLO=20ms) will consistently achieve lower mean ITL than PrefixThreshold(N=16) at every tested rate point. At sub-saturation (rate=30-35), DPP ITL will be 20-25% lower than PT (probe: 18.8ms vs 24.8ms at rate=30). At near-saturation (rate=40-55), DPP will maintain 100% completion while PT drops 5-32% of requests (probe: PT drops 375/2000 at rate=45 while DPP completes all 2000). The mechanism is disaggregation suppression: DPP keeps ~90% of requests local on decode instances, avoiding KV transfer overhead (6.6ms mean) and decode KV exhaustion, while PT disaggregates ~99% and overloads the decode pool."
+    mechanism: "In 2P+2D, PrefixThreshold disaggregates nearly all requests (prefix_tokens=480 > threshold=16), sending prefill to 2 prefill-only instances then transferring KV to 2 decode-only instances. This concentrates ALL decode work on just 2 instances plus adds KV transfer overhead (~6.6ms per request). DPP(V=5, SLO=20ms) has Z grow from the first disaggregated request (TTFT~54ms >> SLO=20ms), suppressing further disaggregation after ~10% of initial requests. The remaining ~90% execute both prefill+decode locally on the decode pods. Since prefill for 32 uncached tokens (512-480=32) is fast (~1ms), local execution avoids the 6.6ms KV transfer and the decode KV pressure from remote blocks. With 2 decode instances sharing 30-60 req/s, per-pod queue depth remains manageable and ITL stays low."
+    diagnostic: "If DPP does NOT beat PT on ITL in 2P+2D, investigate: (1) Check whether DPP actually suppresses disaggregation (disagg count should be <15% at SLO=20). If disagg is high, Z may not be accumulating — check TTFT values for disaggregated requests. (2) If disagg is suppressed but ITL is still high, the decode pods may be saturated at 90% local traffic — check per-instance ITL for the 2 decode pods. (3) If PT ITL is lower than expected, check whether the 2 prefill instances are absorbing enough prefill work to reduce decode scheduling delays."
+
+  - type: h-control-negative
+    prediction: "DPP(V=5, SLO=22ms) in 2P+2D will produce disaggregation fractions >90% at all tested rates (matching PT's ~99%), completion rates within 10% of PT (similar drop counts), and ITL within 5% of PT. This confirms the Z-suppression mechanism (SLO below minimum TTFT) is the cause of DPP's advantage, not some other DPP property."
+    mechanism: "At SLO=22ms (above the ~21ms minimum disaggregated TTFT), the first few requests at empty queue observe TTFT < SLO, so Z stays at 0 and DPP freely disaggregates. Once queue builds up and TTFT exceeds 22ms, Z begins to grow — but by then the system is already committed to full disaggregation with decode KV loaded. The critical difference from SLO=20ms: at SLO=20ms, even the very first disaggregated request has TTFT~21ms > 20ms, immediately growing Z and permanently suppressing further disaggregation."
+    diagnostic: "If DPP(SLO=22) does NOT match PT behavior: (1) Check disaggregation fraction — if still low (<50%), the TTFT in 2P+2D at low queue depth may exceed 22ms (different from 1P+1D due to 2-prefill routing). (2) If disagg is high but drops are much lower than PT, the 2 decode pods may handle remote KV better than in 1P+1D due to double the cache capacity."
+
+  - type: h-robustness
+    prediction: "DPP(V=10, SLO=20ms) in 2P+2D will show the same qualitative pattern as DPP(V=5) — lower ITL than PT and higher completion rate — but with approximately 2x the disaggregation fraction (probe: 22% vs 12% at rate=45). V=10 will maintain 100% completion up to rate=45 (same as V=5) but may begin dropping at rate=50-55 due to higher decode KV pressure from the larger disaggregated fraction. V=10's ITL will be between V=5 and PT at all rates (probe: 26.9ms vs V5=24.6ms vs PT=31.8ms at rate=45)."
+    mechanism: "Higher V increases the LHS of the DPP inequality (η·Q_D + V·c_D/2), making disaggregation easier to trigger. V=10 gives V·c_D/2 = 65000 (vs V=5's 32500). The Z term (Z·ΔT/W_P where ΔT/W_P≈0.114) still dominates the RHS after accumulation, but Z needs to grow larger to overcome the higher LHS threshold. This results in more requests being disaggregated before Z catches up. The extra disaggregation adds decode KV pressure, creating a trade-off: slightly better prefill offloading but earlier onset of decode saturation."
+    diagnostic: "If V=10 drops requests at rates where V=5 doesn't: this confirms the decode KV exhaustion mechanism — higher disagg fraction → more remote KV blocks → earlier saturation. If V=10 doesn't drop at any tested rate: decode KV capacity in 2P+2D may be generous enough that 22% disaggregation doesn't trigger exhaustion."
+
+# Arm selection rationale:
+# - h-main: Tests the central claim that DPP beats PT in 2P+2D (the inversion hypothesis).
+# - h-control-negative: Uses SLO=22ms to disable DPP's suppression mechanism and confirm it's
+#   the causal factor (without Z-suppression, DPP should regress to PT-like behavior).
+# - h-robustness: Tests V=10 to verify the pattern holds at a different DPP operating point
+#   and characterize the V-disaggregation-completion trade-off in multi-instance topology.
+# - No h-ablation needed: DPP has no decomposable components to remove in this flag-variation
+#   experiment. The negative control effectively ablates the Z-mechanism via SLO tuning.

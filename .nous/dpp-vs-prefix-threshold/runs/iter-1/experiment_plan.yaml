@@ -1,0 +1,99 @@
+metadata:
+  iteration: 1
+  bundle_ref: "runs/iter-1/bundle.yaml"
+  description: "Rate sweep comparing 4 disaggregation policies (Never, Always, PrefixThreshold N=16, DPP V=100 SLO=50ms) on 1P+1D topology with prefix-heavy workload"
+
+setup:
+  - cmd: "go build -o blis ."
+    description: "Build BLIS binary"
+
+arms:
+  # h-main: Tests DPP(V=100) equivalence to AlwaysDisaggregate across load sweep
+  - arm_id: "h-main"
+    conditions:
+      # Rate sweep: Always vs DPP(V=100) — predicted to be within 1% at all rates
+      - name: "always_rate5"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider always --rate 5 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/always_rate5.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/always_rate5.json"
+
+      - name: "dpp_v100_slo50_rate5"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider dpp --dpp-v 100 --dpp-ttft-slo-d 50 --rate 5 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/dpp_v100_slo50_rate5.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/dpp_v100_slo50_rate5.json"
+
+      - name: "always_rate10"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider always --rate 10 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/always_rate10.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/always_rate10.json"
+
+      - name: "dpp_v100_slo50_rate10"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider dpp --dpp-v 100 --dpp-ttft-slo-d 50 --rate 10 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/dpp_v100_slo50_rate10.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/dpp_v100_slo50_rate10.json"
+
+      - name: "always_rate20"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider always --rate 20 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/always_rate20.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/always_rate20.json"
+
+      - name: "dpp_v100_slo50_rate20"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider dpp --dpp-v 100 --dpp-ttft-slo-d 50 --rate 20 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/dpp_v100_slo50_rate20.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/dpp_v100_slo50_rate20.json"
+
+      - name: "always_rate30"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider always --rate 30 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/always_rate30.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/always_rate30.json"
+
+      - name: "dpp_v100_slo50_rate30"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider dpp --dpp-v 100 --dpp-ttft-slo-d 50 --rate 30 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/dpp_v100_slo50_rate30.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-main/dpp_v100_slo50_rate30.json"
+
+  # h-control-negative: Never vs PrefixThreshold — ITL gap grows with load
+  - arm_id: "h-control-negative"
+    conditions:
+      - name: "never_rate5"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider never --rate 5 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/never_rate5.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/never_rate5.json"
+
+      - name: "pt16_rate5"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider prefix-threshold --pd-prefix-threshold 16 --rate 5 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/pt16_rate5.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/pt16_rate5.json"
+
+      - name: "never_rate10"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider never --rate 10 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/never_rate10.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/never_rate10.json"
+
+      - name: "pt16_rate10"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider prefix-threshold --pd-prefix-threshold 16 --rate 10 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/pt16_rate10.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/pt16_rate10.json"
+
+      - name: "never_rate20"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider never --rate 20 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/never_rate20.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/never_rate20.json"
+
+      - name: "pt16_rate20"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider prefix-threshold --pd-prefix-threshold 16 --rate 20 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/pt16_rate20.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/pt16_rate20.json"
+
+      - name: "never_rate30"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider never --rate 30 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/never_rate30.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/never_rate30.json"
+
+      - name: "pt16_rate30"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider prefix-threshold --pd-prefix-threshold 16 --rate 30 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/pt16_rate30.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-control-negative/pt16_rate30.json"
+
+  # h-robustness: Saturation regime (rate=50) — Never TTFT >1000ms, disaggregating <100ms
+  - arm_id: "h-robustness"
+    conditions:
+      - name: "never_rate50"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider never --rate 50 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-robustness/never_rate50.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-robustness/never_rate50.json"
+
+      - name: "pt16_rate50"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider prefix-threshold --pd-prefix-threshold 16 --rate 50 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-robustness/pt16_rate50.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-robustness/pt16_rate50.json"
+
+      - name: "always_rate50"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider always --rate 50 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-robustness/always_rate50.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-robustness/always_rate50.json"
+
+      - name: "dpp_v100_slo50_rate50"
+        cmd: "./blis run --model qwen/qwen3-14b --prefill-instances 1 --decode-instances 1 --num-instances 2 --pd-decider dpp --dpp-v 100 --dpp-ttft-slo-d 50 --rate 50 --num-requests 2000 --prompt-tokens 512 --prefix-tokens 480 --output-tokens 128 --seed 42 --metrics-path /Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-robustness/dpp_v100_slo50_rate50.json"
+        output: "/Users/vishakha/git-repos/llm-git-repos/inference-sim/.nous/dpp-vs-prefix-threshold/runs/iter-1/results/h-robustness/dpp_v100_slo50_rate50.json"
