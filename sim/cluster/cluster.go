@@ -434,6 +434,27 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 				29900.0, // W_P: mean prefill service time in μs (empirical baseline)
 				13000.0, // c_D: decode cost per token in μs (ITL target)
 			)
+		case "edpp":
+			edppSloD := config.EDPPTTFTSloD
+			if edppSloD <= 0 {
+				edppSloD = 100.0
+			}
+			edppITLTarget := config.EDPPITLTargetMs
+			if edppITLTarget <= 0 {
+				edppITLTarget = 30.0
+			}
+			cs.disaggregationDecider = sim.NewEmpiricalDPPDecider(sim.EmpiricalDPPConfig{
+				Eta:         config.EDPPEta,
+				TTFTSloMs:   edppSloD,
+				ITLTargetMs: edppITLTarget,
+				VInit:       config.EDPPVInit,
+				VMin:        config.EDPPVMin,
+				VMax:        config.EDPPVMax,
+				Alpha:       config.EDPPAlpha,
+				EpochSize:   config.EDPPEpochSize,
+				KappaInit:   0.114, // empirical ΔT/W_P from trained-physics runs
+				KappaAlpha:  0.05,
+			})
 		default:
 			cs.disaggregationDecider = sim.NewDisaggregationDecider(config.PDDecider)
 		}
@@ -1252,12 +1273,21 @@ func (c *ClusterSimulator) detectDecodeCompletions(inst *InstanceSimulator) {
 		delete(c.pendingDecodeCompletions, subReqID)
 		c.pdDecodeCompletedCount++
 
-		// Notify TTFT-sensitive deciders (e.g., DriftPlusPenaltyDecider) so they can
-		// update the virtual TTFT queue Z. Use TransferCompleteTime - ArrivalTime as
-		// a proxy for the user-visible TTFT (arrival → first decode token available).
-		if c.disaggregationDecider != nil {
-			if updater, ok := c.disaggregationDecider.(sim.TTFTUpdater); ok && parent.TransferCompleteTime > 0 {
-				updater.UpdateTTFT(float64(parent.TransferCompleteTime - parent.ArrivalTime))
+		// Notify TTFT-sensitive deciders so they can update virtual queue Z and
+		// empirical cost estimates. Use TransferCompleteTime - ArrivalTime as the
+		// user-visible TTFT proxy (arrival → first decode token available).
+		if c.disaggregationDecider != nil && parent.TransferCompleteTime > 0 {
+			ttftUs := float64(parent.TransferCompleteTime - parent.ArrivalTime)
+			if updater, ok := c.disaggregationDecider.(sim.TTFTUpdater); ok {
+				updater.UpdateTTFT(ttftUs)
+			}
+			// EmpiricalDPPDecider additionally needs the raw transfer duration and
+			// an approximate prefill service time to update κ̂.
+			if updater, ok := c.disaggregationDecider.(sim.ObservationUpdater); ok &&
+				parent.TransferStartTime > 0 {
+				transferUs := float64(parent.TransferCompleteTime - parent.TransferStartTime)
+				prefillApproxUs := float64(parent.TransferStartTime - parent.ArrivalTime)
+				updater.UpdateTransferObservation(transferUs, prefillApproxUs)
 			}
 		}
 

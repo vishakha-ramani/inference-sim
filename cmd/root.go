@@ -144,6 +144,14 @@ var (
 	dppV                   float64 // DPP penalty parameter V
 	dppEta                 float64 // DPP queue weight ratio η
 	dppTTFTSloD            float64 // DPP TTFT SLO target in ms
+	edppTTFTSloD           float64 // EDPP TTFT SLO target in ms
+	edppITLTargetMs        float64 // EDPP ITL target in ms (V adapts toward this)
+	edppEta                float64 // EDPP queue weight ratio η
+	edppVInit              float64 // EDPP initial V
+	edppVMin               float64 // EDPP minimum V
+	edppVMax               float64 // EDPP maximum V
+	edppAlpha              float64 // EDPP V adaptation step size
+	edppEpochSize          int     // EDPP requests per V update
 	pdTransferBandwidth    float64 // Inter-instance KV transfer bandwidth in GB/s
 	pdTransferBaseLatency  float64 // Inter-instance KV transfer base latency in ms
 	pdTransferContention   bool    // Enable fair-share bandwidth contention model
@@ -1023,11 +1031,19 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&prefillInstances, "prefill-instances", 0, "Number of instances dedicated to prefill (0 = disabled)")
 	cmd.Flags().IntVar(&decodeInstances, "decode-instances", 0, "Number of instances dedicated to decode (0 = disabled)")
 	cmd.Flags().IntVar(&prefillDecodeInstances, "prefill-decode-instances", 0, "Number of shared-role instances serving both prefill and decode (llm-d 'prefill-decode'/'both' parity; 0 = disabled). Must satisfy --prefill-instances + --decode-instances + --prefill-decode-instances <= --num-instances.")
-	cmd.Flags().StringVar(&pdDecider, "pd-decider", "never", "PD disaggregation decider: never (default), always, prefix-threshold, bernoulli, dpp")
+	cmd.Flags().StringVar(&pdDecider, "pd-decider", "never", "PD disaggregation decider: never (default), always, prefix-threshold, bernoulli, dpp, edpp")
 	cmd.Flags().Float64Var(&bernoulliF, "bernoulli-f", 0.5, "Disaggregation probability for bernoulli decider (0.0=never, 1.0=always)")
 	cmd.Flags().Float64Var(&dppV, "dpp-v", 100, "DPP penalty parameter V: larger V trades TTFT for lower ITL (Theorem 1, Eq. 78)")
 	cmd.Flags().Float64Var(&dppEta, "dpp-eta", 1.0, "DPP queue weight ratio η (default 1.0)")
 	cmd.Flags().Float64Var(&dppTTFTSloD, "dpp-ttft-slo-d", 50.0, "DPP TTFT SLO target d in ms; Z grows when TTFT exceeds this, suppressing disaggregation")
+	cmd.Flags().Float64Var(&edppTTFTSloD, "edpp-ttft-slo-d", 100.0, "EDPP TTFT SLO target d in ms (default 100ms; realistic production target)")
+	cmd.Flags().Float64Var(&edppITLTargetMs, "edpp-itl-target", 30.0, "EDPP ITL target in ms; V adapts up when observed ITL exceeds this, down otherwise")
+	cmd.Flags().Float64Var(&edppEta, "edpp-eta", 1.0, "EDPP queue weight ratio η")
+	cmd.Flags().Float64Var(&edppVInit, "edpp-v-init", 1.0, "EDPP initial V")
+	cmd.Flags().Float64Var(&edppVMin, "edpp-v-min", 0.05, "EDPP minimum V (floor preventing collapse to never-disaggregate)")
+	cmd.Flags().Float64Var(&edppVMax, "edpp-v-max", 50.0, "EDPP maximum V (ceiling preventing runaway to always-disaggregate)")
+	cmd.Flags().Float64Var(&edppAlpha, "edpp-alpha", 0.1, "EDPP V adaptation step size per epoch (fraction of relative ITL error)")
+	cmd.Flags().IntVar(&edppEpochSize, "edpp-epoch-size", 50, "EDPP number of completed requests per V update")
 	cmd.Flags().Float64Var(&pdTransferBandwidth, "pd-transfer-bandwidth", 25.0, "PD KV transfer bandwidth in GB/s (NIXL RDMA default)")
 	cmd.Flags().Float64Var(&pdTransferBaseLatency, "pd-transfer-base-latency", 0.05, "PD KV transfer base latency in ms")
 	cmd.Flags().BoolVar(&pdTransferContention, "pd-transfer-contention", false, "Enable fair-share bandwidth contention model for concurrent KV transfers (INV-P2-2)")
@@ -1647,6 +1663,14 @@ var runCmd = &cobra.Command{
 			DPPV:                            dppV,
 			DPPEta:                          dppEta,
 			DPPTTFTSloD:                     dppTTFTSloD,
+			EDPPEta:                         edppEta,
+			EDPPTTFTSloD:                    edppTTFTSloD,
+			EDPPITLTargetMs:                 edppITLTargetMs,
+			EDPPVInit:                       edppVInit,
+			EDPPVMin:                        edppVMin,
+			EDPPVMax:                        edppVMax,
+			EDPPAlpha:                       edppAlpha,
+			EDPPEpochSize:                   edppEpochSize,
 			PDTransferBandwidthGBps:         pdTransferBandwidth,
 			PDTransferBaseLatencyMs:         pdTransferBaseLatency,
 			PDTransferContention:            pdTransferContention,
