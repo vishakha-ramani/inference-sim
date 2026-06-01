@@ -601,6 +601,231 @@ func TestV2SaturationAnalyzer_PendingSupply_DoesNotAffectScaleDown(t *testing.T)
 	}
 }
 
+// TestV2SaturationAnalyzer_DynamicAvgInputTokens verifies T1: when AvgInTokens > 0 on a
+// replica the observed value is used for demand, not config.AvgInputTokens.
+func TestV2SaturationAnalyzer_DynamicAvgInputTokens(t *testing.T) {
+	cfg := V2SaturationAnalyzerConfig{
+		KvCacheThreshold:  1.0,
+		ScaleUpThreshold:  0.8,
+		ScaleDownBoundary: 0.3,
+		AvgInputTokens:    512, // config fallback
+	}
+
+	// Observed average is much smaller than config (e.g. short-context workload).
+	// With config=512 and queue=10: demand = 0 + 10*512 = 5120.
+	// With observed=64:             demand = 0 + 10*64  = 640.
+	// At supply=10000, config demand pushes utilization to 0.512 (no signal).
+	// Observed demand of 640 gives utilization 0.064 (even more idle → spare capacity).
+	// The key assertion: TotalDemand must match the observed value, not the config value.
+	observedAvgIn := 64.0
+	queue := 10
+
+	a := NewV2SaturationAnalyzer(cfg)
+	result := a.Analyze(ModelSignals{
+		ModelID: "m1",
+		Replicas: []ReplicaMetrics{
+			{
+				InstanceID:            "i1",
+				Variant:               NewVariantSpec("A100", 1),
+				TotalKvCapacityTokens: 10000,
+				KvTokensInUse:         0,
+				QueueDepth:            queue,
+				AvgInTokens:           observedAvgIn,
+				CostPerHour:           10.0,
+			},
+		},
+	})
+
+	wantDemand := float64(queue) * observedAvgIn
+	if math.Abs(result.TotalDemand-wantDemand) > 1e-6 {
+		t.Errorf("TotalDemand = %f, want %f (observed AvgInTokens=%f should override config=%f)",
+			result.TotalDemand, wantDemand, observedAvgIn, cfg.AvgInputTokens)
+	}
+}
+
+// TestV2SaturationAnalyzer_AvgInputTokensFallback verifies that config.AvgInputTokens is
+// used when AvgInTokens == 0 (cold start — no completed requests yet).
+func TestV2SaturationAnalyzer_AvgInputTokensFallback(t *testing.T) {
+	cfg := V2SaturationAnalyzerConfig{
+		KvCacheThreshold:  1.0,
+		ScaleUpThreshold:  0.8,
+		ScaleDownBoundary: 0.3,
+		AvgInputTokens:    256,
+	}
+	queue := 5
+
+	a := NewV2SaturationAnalyzer(cfg)
+	result := a.Analyze(ModelSignals{
+		ModelID: "m1",
+		Replicas: []ReplicaMetrics{
+			{
+				InstanceID:            "i1",
+				Variant:               NewVariantSpec("A100", 1),
+				TotalKvCapacityTokens: 10000,
+				KvTokensInUse:         0,
+				QueueDepth:            queue,
+				AvgInTokens:           0, // cold start
+				CostPerHour:           10.0,
+			},
+		},
+	})
+
+	wantDemand := float64(queue) * cfg.AvgInputTokens
+	if math.Abs(result.TotalDemand-wantDemand) > 1e-6 {
+		t.Errorf("TotalDemand = %f, want %f (should fall back to config AvgInputTokens=%f when AvgInTokens=0)",
+			result.TotalDemand, wantDemand, cfg.AvgInputTokens)
+	}
+}
+
+// TestV2SaturationAnalyzer_K2ComputeBound verifies T2: when MaxBatchSize, AvgInTokens, and
+// AvgOutTokens are all populated, k2 is derived from the WVA formula and — when
+// k2 < k1 — the effective capacity is capped at k2.
+func TestV2SaturationAnalyzer_K2ComputeBound(t *testing.T) {
+	// Scenario: short-context, many-output workload where compute saturates before KV.
+	// I=64 (short prompt), O=512 (long output), B=32 (max batch).
+	// nSteady = 32 * 512 / (64 + 512) = 16384 / 576 ≈ 28.44
+	// k2 = 28.44 * (64 + 256) = 28.44 * 320 ≈ 9101
+	// k1 = 100000 * 1.0 = 100000  (large KV — memory is NOT the bottleneck)
+	// effectiveCapacity = min(100000, 9101) = 9101
+	//
+	// Without k2: supply = 100000, demand = 1000 → no scale-up.
+	// With k2:    supply = 9101,   demand = 1000 → also no scale-up here, but supply is correctly bounded.
+	// To test scale-up: set demand > k2 * ScaleUpThreshold.
+	// demand > 9101 * 0.8 = 7281 → use KvTokensInUse=8000.
+	I := 64.0
+	O := 512.0
+	B := 32.0
+	nSteady := B * O / (I + O)
+	k2Expected := nSteady * (I + O/2) // ≈ 9101
+
+	cfg := V2SaturationAnalyzerConfig{
+		KvCacheThreshold:  1.0,
+		ScaleUpThreshold:  0.8,
+		ScaleDownBoundary: 0.3,
+		AvgInputTokens:    64,
+	}
+	a := NewV2SaturationAnalyzer(cfg)
+
+	// First call seeds the rolling history with one sample.
+	result := a.Analyze(ModelSignals{
+		ModelID: "m1",
+		Replicas: []ReplicaMetrics{
+			{
+				InstanceID:            "i1",
+				Variant:               NewVariantSpec("A100", 1),
+				TotalKvCapacityTokens: 100000, // k1 >> k2 — memory is not the bottleneck
+				KvTokensInUse:         8000,   // demand > k2*threshold → should trigger scale-up
+				QueueDepth:            0,
+				AvgInTokens:           I,
+				AvgOutTokens:          O,
+				MaxBatchSize:          B,
+				CostPerHour:           10.0,
+			},
+		},
+	})
+
+	// Supply must be bounded by k2 (≈ 9101), not k1 (100000).
+	// A single sample rolling average equals the derived value exactly.
+	if math.Abs(result.TotalSupply-k2Expected) > 1.0 {
+		t.Errorf("TotalSupply = %.1f, want ≈%.1f (k2 from WVA formula should bound supply, not k1=100000)",
+			result.TotalSupply, k2Expected)
+	}
+
+	// With supply ≈ 9101 and KvTokensInUse=8000:
+	// demand/ScaleUpThreshold = 8000/0.8 = 10000 > supply(9101) → RequiredCapacity > 0.
+	if result.RequiredCapacity <= 0 {
+		t.Errorf("RequiredCapacity = %f, want > 0 (demand 8000 exceeds k2-bounded supply %.1f * threshold 0.8)",
+			result.RequiredCapacity, k2Expected)
+	}
+}
+
+// TestV2SaturationAnalyzer_K2FallbackToK1 verifies that when batch parameters are absent
+// (cold start: AvgInTokens=0 or AvgOutTokens=0 or MaxBatchSize=0), k2 falls back to k1
+// and the effective capacity is unchanged from the memory-bound value.
+func TestV2SaturationAnalyzer_K2FallbackToK1(t *testing.T) {
+	cfg := V2SaturationAnalyzerConfig{
+		KvCacheThreshold:  0.8,
+		ScaleUpThreshold:  0.8,
+		ScaleDownBoundary: 0.3,
+		AvgInputTokens:    512,
+	}
+	a := NewV2SaturationAnalyzer(cfg)
+
+	// No AvgInTokens, AvgOutTokens, or MaxBatchSize → k2 = k1.
+	// k1 = 10000 * 0.8 = 8000. With demand=1000, supply should be 8000.
+	result := a.Analyze(ModelSignals{
+		ModelID: "m1",
+		Replicas: []ReplicaMetrics{
+			{
+				InstanceID:            "i1",
+				Variant:               NewVariantSpec("A100", 1),
+				TotalKvCapacityTokens: 10000,
+				KvTokensInUse:         1000,
+				QueueDepth:            0,
+				AvgInTokens:           0, // no data
+				AvgOutTokens:          0,
+				MaxBatchSize:          0,
+				CostPerHour:           10.0,
+			},
+		},
+	})
+
+	wantSupply := 10000.0 * 0.8 // k1 = k2 fallback
+	if math.Abs(result.TotalSupply-wantSupply) > 1e-6 {
+		t.Errorf("TotalSupply = %f, want %f (k2 should fall back to k1 when batch params absent)",
+			result.TotalSupply, wantSupply)
+	}
+}
+
+// TestV2SaturationAnalyzer_K2RollingAverage verifies that k2 converges toward the rolling
+// average over multiple Analyze calls rather than using only the most recent derived value.
+func TestV2SaturationAnalyzer_K2RollingAverage(t *testing.T) {
+	cfg := V2SaturationAnalyzerConfig{
+		KvCacheThreshold:  1.0,
+		ScaleUpThreshold:  0.8,
+		ScaleDownBoundary: 0.3,
+		AvgInputTokens:    512,
+	}
+	a := NewV2SaturationAnalyzer(cfg)
+
+	// Seed with 5 calls at k2≈1000, then switch to k2≈5000.
+	// After the switch, the rolling average should be between 1000 and 5000
+	// (not immediately jump to 5000).
+
+	// k2 = nSteady*(I+O/2) where nSteady = B*O/(I+O).
+	// Call with I=100, O=100, B=40: nSteady=20, k2=20*(100+50)=3000 → seed value.
+	replica := func(avgIn, avgOut, maxBatch float64) ReplicaMetrics {
+		return ReplicaMetrics{
+			InstanceID:            "i1",
+			Variant:               NewVariantSpec("A100", 1),
+			TotalKvCapacityTokens: 1000000, // huge — k1 never binds
+			KvTokensInUse:         100,
+			QueueDepth:            0,
+			AvgInTokens:           avgIn,
+			AvgOutTokens:          avgOut,
+			MaxBatchSize:          maxBatch,
+			CostPerHour:           10.0,
+		}
+	}
+
+	// I=100, O=100, B=40: nSteady=40*100/200=20, k2=20*150=3000
+	for i := 0; i < 5; i++ {
+		a.Analyze(ModelSignals{ModelID: "m1", Replicas: []ReplicaMetrics{replica(100, 100, 40)}})
+	}
+
+	// Switch to I=10, O=900, B=40: nSteady=40*900/910≈39.6, k2=39.6*(10+450)≈18200
+	// (much larger k2 — long output, compute is less of a bottleneck)
+	result := a.Analyze(ModelSignals{ModelID: "m1", Replicas: []ReplicaMetrics{replica(10, 900, 40)}})
+
+	// After 5 samples of ≈3000 and 1 sample of ≈18200, rolling average should be between 3000 and 18200.
+	if result.TotalSupply <= 3000 {
+		t.Errorf("TotalSupply = %.1f: rolling average should be > seed value 3000 after high-k2 sample", result.TotalSupply)
+	}
+	if result.TotalSupply >= 18200 {
+		t.Errorf("TotalSupply = %.1f: rolling average should be < single high-k2 sample 18200 (history smoothing)", result.TotalSupply)
+	}
+}
+
 // TestV2SaturationAnalyzerConfigValidation verifies constructor rejects invalid configs.
 func TestV2SaturationAnalyzerConfigValidation(t *testing.T) {
 	tests := []struct {

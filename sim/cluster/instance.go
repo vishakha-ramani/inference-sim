@@ -293,6 +293,26 @@ func (i *InstanceSimulator) MaxBatchSize() int {
 	return int(i.maxRunningReqs)
 }
 
+// AvgInputTokens returns the cumulative average input tokens per completed request.
+// Returns 0 when no requests have completed. O(1): reads two counters.
+// Used by buildRouterState to populate RoutingSnapshot.AvgInTokens for the autoscaler.
+func (i *InstanceSimulator) AvgInputTokens() float64 {
+	if i.sim == nil || i.sim.Metrics == nil || i.sim.Metrics.CompletedRequests == 0 {
+		return 0
+	}
+	return float64(i.sim.Metrics.TotalInputTokens) / float64(i.sim.Metrics.CompletedRequests)
+}
+
+// AvgOutputTokens returns the cumulative average output tokens per completed request.
+// Returns 0 when no requests have completed. O(1): reads two counters.
+// Used by buildRouterState to populate RoutingSnapshot.AvgOutTokens for the autoscaler.
+func (i *InstanceSimulator) AvgOutputTokens() float64 {
+	if i.sim == nil || i.sim.Metrics == nil || i.sim.Metrics.CompletedRequests == 0 {
+		return 0
+	}
+	return float64(i.sim.Metrics.TotalOutputTokens) / float64(i.sim.Metrics.CompletedRequests)
+}
+
 // GetCachedBlockCount returns the number of consecutive cached prefix blocks
 // matching the given token sequence. Used by precise prefix cache scoring.
 func (i *InstanceSimulator) GetCachedBlockCount(tokens []int) int {

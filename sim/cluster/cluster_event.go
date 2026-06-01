@@ -84,6 +84,8 @@ func buildRouterState(cs *ClusterSimulator, req *sim.Request) *sim.RouterState {
 		snap.TPDegree = inst.TPDegree
 		snap.CostPerHour = inst.CostPerHour
 		snap.MaxBatchSize = float64(inst.MaxBatchSize()) // float64: QueueingModelAnalyzer uses it in float arithmetic
+		snap.AvgInTokens  = inst.AvgInputTokens()
+		snap.AvgOutTokens = inst.AvgOutputTokens()
 		snapshots = append(snapshots, snap)
 	}
 	// Collect Loading instances as pending supply information for the autoscaler.

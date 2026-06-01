@@ -1,7 +1,7 @@
 // saturation_analyzer.go implements the V2 token-based saturation analyzer,
 // adapted from llm-d WVA's internal/engines/analyzers/saturation_v2.
 // Capacity is measured in token units: k1 (memory-bound) and k2 (compute-bound).
-// Effective capacity = min(k1, k2). Demand = tokensInUse + queueLength * avgInputTokens.
+// Demand = tokensInUse + queueDepth * avgInputTokens (observed, with config fallback).
 package cluster
 
 import (
@@ -12,20 +12,62 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// k2HistorySize is the number of ticks retained in the per-replica k2 rolling average.
+// Matches WVA's RollingAverageWindowSize constant.
+const k2HistorySize = 10
+
+// rollingAverage is a fixed-size circular sliding-window average.
+// Not safe for concurrent use — V2SaturationAnalyzer is single-goroutine in simulation.
+type rollingAverage struct {
+	values  []float64
+	maxSize int
+}
+
+func newRollingAverage(maxSize int) *rollingAverage {
+	return &rollingAverage{maxSize: maxSize}
+}
+
+func (r *rollingAverage) Add(v float64) {
+	if len(r.values) >= r.maxSize {
+		r.values = r.values[1:]
+	}
+	r.values = append(r.values, v)
+}
+
+func (r *rollingAverage) Average() float64 {
+	if len(r.values) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range r.values {
+		sum += v
+	}
+	return sum / float64(len(r.values))
+}
+
+func (r *rollingAverage) Len() int { return len(r.values) }
+
 // V2SaturationAnalyzerConfig configures the V2 token-based saturation analyzer.
 type V2SaturationAnalyzerConfig struct {
 	KvCacheThreshold  float64 // Fraction of KV capacity considered usable (0,1]; k1 = totalKvCapTokens * this
 	ScaleUpThreshold  float64 // Utilization fraction triggering scale-up; RequiredCapacity = max(0, totalDemand/this - (totalReadySupply + pendingSupply)) where pendingSupply = PendingTotalKvCapacityTokens * KvCacheThreshold
 	ScaleDownBoundary float64 // Utilization fraction below which scale-down is safe; SpareCapacity = max(0, totalSupply - totalDemand/this)
-	AvgInputTokens    float64 // Average input tokens per request; used to convert queue depth to token demand
+	AvgInputTokens    float64 // Fallback average input tokens per request when no observed data is available (cold-start or operator override)
 }
 
-// V2SaturationAnalyzer implements the Analyzer interface using WVA V2's
-// token-based capacity model. Per-replica capacity = min(k1, k2) where
-// k1 = TotalKvCapacityTokens * KvCacheThreshold (memory-bound) and
-// k2 is derived from batch parameters or falls back to k1.
+// V2SaturationAnalyzer implements the Analyzer interface using WVA V2's token-based
+// capacity model. Per-replica capacity = min(k1, k2) where:
+//   - k1 (memory-bound) = TotalKvCapacityTokens * KvCacheThreshold
+//   - k2 (compute-bound) = WVA formula nSteady*(I+O/2); falls back to k1 until observed
+//
+// Demand per replica = KvTokensInUse + QueueDepth * avgIn, where avgIn is the per-replica
+// observed average (AvgInTokens from completed requests), falling back to config.AvgInputTokens.
+//
+// k2 history is maintained as a per-replica rolling average (size k2HistorySize) so that
+// k2 adapts to workload shifts without being sensitive to a single atypical tick.
 type V2SaturationAnalyzer struct {
-	config V2SaturationAnalyzerConfig
+	config    V2SaturationAnalyzerConfig
+	k2History map[string]*rollingAverage // keyed by replica InstanceID
 }
 
 // NewV2SaturationAnalyzer constructs a V2SaturationAnalyzer. Panics on invalid config (R4).
@@ -46,18 +88,56 @@ func NewV2SaturationAnalyzer(cfg V2SaturationAnalyzerConfig) *V2SaturationAnalyz
 		panic(fmt.Sprintf("NewV2SaturationAnalyzer: ScaleDownBoundary (%f) must be < ScaleUpThreshold (%f)",
 			cfg.ScaleDownBoundary, cfg.ScaleUpThreshold))
 	}
-	return &V2SaturationAnalyzer{config: cfg}
+	return &V2SaturationAnalyzer{
+		config:    cfg,
+		k2History: make(map[string]*rollingAverage),
+	}
 }
 
 // Name returns the analyzer name for observability.
 func (a *V2SaturationAnalyzer) Name() string { return "v2-saturation" }
 
-// Analyze computes model-level supply and demand in token units.
-// Per-replica effective capacity = min(k1, k2) where:
-//   - k1 (memory-bound) = TotalKvCapacityTokens * KvCacheThreshold
-//   - k2 (compute-bound) = k1 fallback (initial implementation; future: derived from batch params)
+// computeK2 derives the compute-bound capacity for one replica using the WVA steady-state
+// batch formula and records it in the rolling history. Returns the rolling average k2.
 //
-// Demand per replica = KvTokensInUse + QueueDepth * AvgInputTokens.
+// Formula (WVA saturation_v2): at steady state with max batch size B, input length I, and
+// output length O, the fraction of decode steps is O/(I+O), giving nSteady = B*O/(I+O)
+// concurrent decode requests. Each decode request holds approximately I+O/2 KV tokens
+// (midpoint through its decode phase), so k2 = nSteady * (I + O/2).
+//
+// Falls back to k1 when observed averages are unavailable (cold start) or when the history
+// is empty and no batch parameters are present.
+func (a *V2SaturationAnalyzer) computeK2(instanceID string, r ReplicaMetrics, k1 float64) float64 {
+	if r.MaxBatchSize > 0 && r.AvgInTokens > 0 && r.AvgOutTokens > 0 {
+		I := r.AvgInTokens
+		O := r.AvgOutTokens
+		B := r.MaxBatchSize
+		nSteady := B * O / (I + O)
+		k2Derived := nSteady * (I + O/2)
+
+		h, ok := a.k2History[instanceID]
+		if !ok {
+			h = newRollingAverage(k2HistorySize)
+			a.k2History[instanceID] = h
+		}
+		h.Add(k2Derived)
+		avg := h.Average()
+		logrus.Debugf("[analyzer] replica %q: k2=%.0f (derived=%.0f I=%.0f O=%.0f B=%.0f history=%d samples)",
+			instanceID, avg, k2Derived, I, O, B, h.Len())
+		return avg
+	}
+
+	// No current batch parameters — use historical k2 if available.
+	if h, ok := a.k2History[instanceID]; ok && h.Len() > 0 {
+		logrus.Debugf("[analyzer] replica %q: k2=%.0f (historical, no current batch params)", instanceID, h.Average())
+		return h.Average()
+	}
+
+	// Cold start or missing data: fall back to k1 (memory-bound).
+	return k1
+}
+
+// Analyze computes model-level supply and demand in token units.
 // Model-level RequiredCapacity and SpareCapacity follow WVA V2 formulas.
 func (a *V2SaturationAnalyzer) Analyze(metrics ModelSignals) AnalyzerResult {
 	result := AnalyzerResult{ModelID: metrics.ModelID}
@@ -89,13 +169,23 @@ func (a *V2SaturationAnalyzer) Analyze(metrics ModelSignals) AnalyzerResult {
 				metrics.ModelID, r.InstanceID)
 			continue
 		}
+
 		// k1: memory-bound capacity
 		k1 := float64(r.TotalKvCapacityTokens) * a.config.KvCacheThreshold
-		// k2: compute-bound capacity — falls back to k1 in initial implementation
-		k2 := k1
+
+		// k2: compute-bound capacity from WVA steady-state batch formula.
+		// Falls back to historical rolling average, then to k1 (cold start).
+		k2 := a.computeK2(r.InstanceID, r, k1)
+
 		effectiveCapacity := math.Min(k1, k2)
 
-		demand := float64(r.KvTokensInUse) + float64(r.QueueDepth)*a.config.AvgInputTokens
+		// Demand: use per-replica observed average input tokens when available;
+		// fall back to config.AvgInputTokens during cold start or as operator override.
+		avgIn := a.config.AvgInputTokens
+		if r.AvgInTokens > 0 {
+			avgIn = r.AvgInTokens
+		}
+		demand := float64(r.KvTokensInUse) + float64(r.QueueDepth)*avgIn
 
 		agg, ok := variants[r.Variant]
 		if !ok {

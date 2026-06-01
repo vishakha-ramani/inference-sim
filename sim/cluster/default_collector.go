@@ -13,8 +13,10 @@ import (
 // Filters only structurally incomplete snapshots (empty Model, empty GPUType, or loading
 // snapshots with TotalKvCapacityTokens <= 0), emitting a Debugf for each skip. All valid
 // signals pass through unmodified — no thresholding, no business-logic suppression.
-// Latency fields (TTFT, ITL, DispatchRate, AvgInTokens, AvgOutTokens) are always zero
-// after #1382 removed LatencyStats() from buildRouterState(). MaxBatchSize is still populated.
+// TTFT, ITL, and DispatchRate remain zero (LatencyStats() was removed from the routing
+// hot path in #1382 — those fields require map iteration). AvgInTokens and AvgOutTokens
+// are now populated via the O(1) AvgInputTokens()/AvgOutputTokens() accessors added to
+// InstanceSimulator; MaxBatchSize is also populated.
 type DefaultCollector struct{}
 
 // Collect produces one ModelSignals per model present in either routable or loading snapshots.
