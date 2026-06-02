@@ -132,7 +132,7 @@ var (
 	validSchedulers        = map[string]bool{"": true, "fcfs": true, "priority-fcfs": true, "sjf": true, "reverse-priority": true}
 	validPreemptionPolicies  = map[string]bool{"": true, "fcfs": true, "priority": true}
 	validLatencyBackends          = map[string]bool{"": true, "roofline": true, "trained-physics": true}
-	validDisaggregationDeciders   = map[string]bool{"": true, "never": true, "always": true, "prefix-threshold": true}
+	validDisaggregationDeciders   = map[string]bool{"": true, "never": true, "always": true, "prefix-threshold": true, "edpp": true}
 	validEncodeDeciders           = map[string]bool{"": true, "never": true, "always": true, "multimodal": true}
 	validSaturationDetectors      = map[string]bool{"": true, "never": true, "utilization": true, "concurrency": true}
 	// Post-hoc backlog classifiers selected via --saturation-classifier (#1391, #1392).

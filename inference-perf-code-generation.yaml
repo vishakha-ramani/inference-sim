@@ -1,0 +1,110 @@
+# BLIS workload — mirror of inference-perf workload-catalog/code-generation
+# Source: github.com/kubernetes-sigs/inference-perf/blob/main/workload-catalog/code-generation/config.json
+# Target model: meta-llama/llama-3.3-70b-instruct (128K context)
+#
+# CONTEXT CAP — catalog targets 256K+ models, doesn't fit 128K as-is
+#   Catalog dynamic system prompt: lognormal μ≈11.41, σ≈1.07 → median ~90K,
+#   mean 160K, max 990K. The bulk of catalog conversations require >128K
+#   for the prefix alone. We model a representative lower-portion of the
+#   distribution as a fixed prefix (see mapping below).
+#
+# Catalog → BLIS mapping
+#   shared_system_prompt_len (fixed 3000 tok)
+#   + dynamic_system_prompt_len (lognormal mean=160K, [10K,990K])
+#                                              → prefix_length: 30000
+#       The catalog has TWO prefix dimensions: a fixed shared prompt (3000 tok)
+#       and a per-conversation dynamic prompt (repository map, mean 160K).
+#       BLIS prefix_length is a single fixed value. We approximate as
+#       3000 + 27000 = 30000 — captures the catalog's lower quartile of
+#       dynamic-prompt mass. This preserves the workload's prefill-bound
+#       character (the README's "Massive input contexts" / "Compute Bound
+#       Prefill" / "Prefix Caching Benefit") without breaking 128K context.
+#       Lost: the catalog's massive prefix tail (median 90K, max 990K) is
+#       truncated. A 256K-context model would be needed for full fidelity.
+#
+#   input_sequence_length_per_turn              → input_distribution (lognormal)
+#       (μ=1500, σ=1200, [100,10000] truncated to 5000)
+#                                                 per-round input delta.
+#   output_sequence_length (lognormal μ=425 σ=825, [50,10000] truncated to 4000)
+#                                              → output_distribution (lognormal)
+#   number_of_turns (lognormal mean=540 σ=48600, [1,3000])
+#                                              → max_rounds: 15
+#       Catalog distribution is extremely heavy-tailed (median ~6 turns; mean
+#       dominated by tail). 15 is a generous overestimate of typical session
+#       length and keeps p95 accumulated context within 128K (see budget below).
+#       Lost: rare very-long sessions (catalog tail to 3000 turns is
+#       unsupportable at any prefix length on 128K context).
+#   time_between_turns (lognormal mean=15s σ=55s)
+#                                              → think_time_us: 15_000_000
+#       Constant at catalog mean. Lost: heavy-tailed think-time variation.
+#   multi_turn: true                           → reasoning.multi_turn (accumulate)
+#
+# Lognormal (μ, σ) computed from catalog (mean, std):
+#   input_per_turn (mean=1500, std=1200):
+#     sigma² = ln(1 + 0.64)            = 0.4947 → sigma ≈ 0.7034
+#     mu     = ln(1500) − 0.2474       ≈ 7.066
+#   output       (mean=425,  std=825):
+#     sigma² = ln(1 + (825/425)²)      = 1.5621 → sigma ≈ 1.2498
+#     mu     = ln(425) − 0.7811        ≈ 5.271
+#
+# Context budget (128K):
+#   Mean accumulated:  30K + 15 × (1500 + 425)         = 58.9K  ✓
+#   p95 accumulated:   30K + 15 × (3900 + 2075)        ≈ 119.6K ✓
+#   Worst (truncated): 30K + 15 × (5000 + 4000)        = 165K   (server may truncate)
+#
+# Remaining gaps vs catalog (cannot fix without BLIS schema changes or larger context):
+#   - Per-conversation prefix variation (catalog: lognormal [10K,990K]; here: fixed 30K)
+#   - Catalog prefix tail (median 90K, mean 160K) is truncated to 30K
+#   - Per-conversation turn-count variation (single max_rounds value)
+#   - Catalog turn-count tail (max 3000 turns) is dropped
+#   - Per-turn think-time variation (single think_time_us value)
+#   - Open-loop Poisson arrival vs catalog's closed-loop concurrency stages.
+#     BLIS forbids mixing concurrency clients with multi-turn (CLAUDE.md).
+#
+# Run:
+#   ./blis run --model meta-llama/llama-3.3-70b-instruct \
+#     --workload-spec examples/inference-perf-code-generation.yaml \
+#     --num-instances 4 --routing-policy weighted
+
+version: "2"
+seed: 42
+category: reasoning
+aggregate_rate: 2.0
+num_requests: 500
+
+clients:
+  - id: "code-generation"
+    tenant_id: "code-agents"
+    slo_class: "standard"
+    rate_fraction: 1.0
+    streaming: true
+    arrival:
+      process: poisson
+    input_distribution:
+      type: lognormal
+      params:
+        mu: 7.066
+        sigma: 0.7034
+        min: 100
+        max: 5000
+    output_distribution:
+      type: lognormal
+      params:
+        mu: 5.271
+        sigma: 1.2498
+        min: 50
+        max: 4000
+    prefix_group: "code-generation-system-prompt"
+    prefix_length: 30000
+    reasoning:
+      reason_ratio_distribution:
+        type: gaussian
+        params:
+          mean: 0
+          std_dev: 0
+          min: 0
+          max: 0
+      multi_turn:
+        max_rounds: 15
+        think_time_us: 15000000
+        context_growth: accumulate

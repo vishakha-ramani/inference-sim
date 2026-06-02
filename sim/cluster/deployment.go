@@ -67,8 +67,19 @@ type DeploymentConfig struct {
 	// assigns PoolRolePrefillDecode to the last `shared` indices after
 	// the prefill-only and decode-only ranges.
 	SharedInstances   int
-	PDDecider         string // Disaggregation decider: "" or "never" (default), "always", "prefix-threshold"
+	PDDecider         string // Disaggregation decider: "" or "never" (default), "always", "prefix-threshold", "edpp"
 	PDPrefixThreshold int    // Non-cached token threshold for prefix-threshold decider (PR6)
+
+	// EmpiricalDPP (edpp) configuration. Zero values use sensible defaults
+	// (see NewEmpiricalDPPDecider for the defaulting logic).
+	EDPPEta         float64 // queue weight ratio η (default 1.0)
+	EDPPTTFTSloD    float64 // TTFT SLO target d in ms (default 100.0)
+	EDPPITLTargetMs float64 // ITL target in ms; V adapts to track this (default 30.0)
+	EDPPVInit       float64 // initial V (default 1.0)
+	EDPPVMin        float64 // minimum V (default 0.05)
+	EDPPVMax        float64 // maximum V (default 50.0)
+	EDPPAlpha       float64 // V step size per epoch (default 0.1)
+	EDPPEpochSize   int     // requests per V update (default 50)
 
 	// E/P/D disaggregation configuration (GAP-4, issue #1264).
 	// When EncodeInstances == 0 (default), the encode stage is disabled and the

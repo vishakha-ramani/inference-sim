@@ -398,6 +398,27 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 		switch config.PDDecider {
 		case "prefix-threshold":
 			cs.disaggregationDecider = sim.NewPrefixThresholdDecider(config.PDPrefixThreshold, int(config.BlockSizeTokens), cs.cacheQueryFn)
+		case "edpp":
+			edppSloD := config.EDPPTTFTSloD
+			if edppSloD <= 0 {
+				edppSloD = 100.0
+			}
+			edppITLTarget := config.EDPPITLTargetMs
+			if edppITLTarget <= 0 {
+				edppITLTarget = 30.0
+			}
+			cs.disaggregationDecider = sim.NewEmpiricalDPPDecider(sim.EmpiricalDPPConfig{
+				Eta:         config.EDPPEta,
+				TTFTSloMs:   edppSloD,
+				ITLTargetMs: edppITLTarget,
+				VInit:       config.EDPPVInit,
+				VMin:        config.EDPPVMin,
+				VMax:        config.EDPPVMax,
+				Alpha:       config.EDPPAlpha,
+				EpochSize:   config.EDPPEpochSize,
+				KappaInit:   0.114,
+				KappaAlpha:  0.05,
+			})
 		default:
 			cs.disaggregationDecider = sim.NewDisaggregationDecider(config.PDDecider)
 		}
@@ -1216,6 +1237,22 @@ func (c *ClusterSimulator) detectDecodeCompletions(inst *InstanceSimulator) {
 		delete(c.pendingDecodeCompletions, subReqID)
 		c.pdDecodeCompletedCount++
 
+		// Notify observation-aware deciders (e.g., EmpiricalDPPDecider) with
+		// per-request TTFT and KV-transfer timing for empirical parameter adaptation.
+		if c.disaggregationDecider != nil && parent.TransferCompleteTime > 0 {
+			ttftUs := float64(parent.TransferCompleteTime - parent.ArrivalTime)
+			if updater, ok := c.disaggregationDecider.(sim.TTFTUpdater); ok {
+				updater.UpdateTTFT(ttftUs)
+			}
+			if updater, ok := c.disaggregationDecider.(sim.ObservationUpdater); ok &&
+				parent.TransferStartTime > 0 {
+				updater.UpdateTransferObservation(
+					float64(parent.TransferCompleteTime-parent.TransferStartTime),
+					float64(parent.TransferStartTime-parent.ArrivalTime),
+				)
+			}
+		}
+
 		// Issue #884: trigger session follow-up for the original (parent) request.
 		// The per-instance OnRequestDone fires for the decode sub-request (no
 		// SessionID), so SessionManager never sees PD completions. We call
@@ -1878,6 +1915,8 @@ func (cs *ClusterSimulator) executeDisaggregatedRouting(req *sim.Request, time i
 	// pod's cacheQueryFn closure for per-pod prefix cache state (matches llm-d's
 	// PrefixBasedPDDecider reading endpoint.Get(PrefixCacheMatchInfoKey)).
 	state.SelectedInstance = decodeDecision.TargetInstance
+	// Populate prefill-pool snapshots for deciders that observe Q_P (e.g., EmpiricalDPPDecider).
+	state.PrefillSnapshots = cs.buildPoolFilteredSnapshots(PoolRolePrefill)
 	disaggDecision := cs.disaggregationDecider.Decide(req, state)
 	logrus.Debugf("[cluster] req %s: disaggregate=%v", req.ID, disaggDecision.Disaggregate)
 

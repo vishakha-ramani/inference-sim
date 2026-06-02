@@ -139,6 +139,14 @@ var (
 	decodeInstances        int     // Number of instances dedicated to decode
 	prefillDecodeInstances int     // Number of shared-role instances (both prefill and decode), issue #1276
 	pdDecider              string  // Disaggregation decider name
+	edppTTFTSloD           float64 // EDPP TTFT SLO target in ms
+	edppITLTargetMs        float64 // EDPP ITL target in ms
+	edppEta                float64 // EDPP queue weight ratio η
+	edppVInit              float64 // EDPP initial V
+	edppVMin               float64 // EDPP minimum V
+	edppVMax               float64 // EDPP maximum V
+	edppAlpha              float64 // EDPP V adaptation step size
+	edppEpochSize          int     // EDPP requests per V update
 	pdTransferBandwidth    float64 // Inter-instance KV transfer bandwidth in GB/s
 	pdTransferBaseLatency  float64 // Inter-instance KV transfer base latency in ms
 	pdTransferContention   bool    // Enable fair-share bandwidth contention model
@@ -1036,7 +1044,15 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&prefillInstances, "prefill-instances", 0, "Number of instances dedicated to prefill (0 = disabled)")
 	cmd.Flags().IntVar(&decodeInstances, "decode-instances", 0, "Number of instances dedicated to decode (0 = disabled)")
 	cmd.Flags().IntVar(&prefillDecodeInstances, "prefill-decode-instances", 0, "Number of shared-role instances serving both prefill and decode (llm-d 'prefill-decode'/'both' parity; 0 = disabled). Must satisfy --prefill-instances + --decode-instances + --prefill-decode-instances <= --num-instances.")
-	cmd.Flags().StringVar(&pdDecider, "pd-decider", "never", "PD disaggregation decider: never (default), always, prefix-threshold")
+	cmd.Flags().StringVar(&pdDecider, "pd-decider", "never", "PD disaggregation decider: never (default), always, prefix-threshold, edpp")
+	cmd.Flags().Float64Var(&edppTTFTSloD, "edpp-ttft-slo-d", 100.0, "EDPP TTFT SLO target d in ms; Z grows when disaggregated TTFT exceeds this, suppressing future disaggregation")
+	cmd.Flags().Float64Var(&edppITLTargetMs, "edpp-itl-target", 30.0, "EDPP ITL target in ms; V increases when observed ITL exceeds this, decreases otherwise")
+	cmd.Flags().Float64Var(&edppEta, "edpp-eta", 1.0, "EDPP queue weight ratio η (scales Q_D relative to Q_P in disaggregation threshold)")
+	cmd.Flags().Float64Var(&edppVInit, "edpp-v-init", 1.0, "EDPP initial V value")
+	cmd.Flags().Float64Var(&edppVMin, "edpp-v-min", 0.05, "EDPP minimum V (floor; prevents collapsing to never-disaggregate)")
+	cmd.Flags().Float64Var(&edppVMax, "edpp-v-max", 50.0, "EDPP maximum V (ceiling; prevents runaway to always-disaggregate)")
+	cmd.Flags().Float64Var(&edppAlpha, "edpp-alpha", 0.1, "EDPP V adaptation step size per epoch (fraction of relative ITL error)")
+	cmd.Flags().IntVar(&edppEpochSize, "edpp-epoch-size", 50, "EDPP number of completed requests per V update epoch")
 	cmd.Flags().Float64Var(&pdTransferBandwidth, "pd-transfer-bandwidth", 25.0, "PD KV transfer bandwidth in GB/s (NIXL RDMA default)")
 	cmd.Flags().Float64Var(&pdTransferBaseLatency, "pd-transfer-base-latency", 0.05, "PD KV transfer base latency in ms")
 	cmd.Flags().BoolVar(&pdTransferContention, "pd-transfer-contention", false, "Enable fair-share bandwidth contention model for concurrent KV transfers (INV-P2-2)")
@@ -1652,6 +1668,14 @@ var runCmd = &cobra.Command{
 			EncodeDecider:                   encodeDecider,
 			PDDecider:                       pdDecider,
 			PDPrefixThreshold:               pdPrefixThreshold,
+			EDPPEta:                         edppEta,
+			EDPPTTFTSloD:                    edppTTFTSloD,
+			EDPPITLTargetMs:                 edppITLTargetMs,
+			EDPPVInit:                       edppVInit,
+			EDPPVMin:                        edppVMin,
+			EDPPVMax:                        edppVMax,
+			EDPPAlpha:                       edppAlpha,
+			EDPPEpochSize:                   edppEpochSize,
 			PDTransferBandwidthGBps:         pdTransferBandwidth,
 			PDTransferBaseLatencyMs:         pdTransferBaseLatency,
 			PDTransferContention:            pdTransferContention,
