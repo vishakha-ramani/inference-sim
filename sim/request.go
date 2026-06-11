@@ -97,6 +97,12 @@ type Request struct {
 	// Flow control timestamps (issue #882). Zero when flow control is disabled.
 	GatewayEnqueueTime  int64 // microseconds: when request entered the gateway queue
 	GatewayDispatchTime int64 // microseconds: when request was dispatched from the gateway queue
+
+	// DisaggUncachedTokens carries the uncached input-token count computed by
+	// EmpiricalDPPDecider.Decide so the matching completion observation can
+	// attribute the prefill rate to the correct (LOCAL/REMOTE) population.
+	// Input-only (INV-9 safe); unused by other deciders.
+	DisaggUncachedTokens int
 }
 
 // This method returns a human-readable string representation of a Request.

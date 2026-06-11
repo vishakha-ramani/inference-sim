@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/inference-sim/inference-sim/sim"
 	"github.com/inference-sim/inference-sim/sim/latency"
@@ -399,26 +400,13 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 		case "prefix-threshold":
 			cs.disaggregationDecider = sim.NewPrefixThresholdDecider(config.PDPrefixThreshold, int(config.BlockSizeTokens), cs.cacheQueryFn)
 		case "edpp":
-			edppSloD := config.EDPPTTFTSloD
-			if edppSloD <= 0 {
-				edppSloD = 100.0
-			}
-			edppITLTarget := config.EDPPITLTargetMs
-			if edppITLTarget <= 0 {
-				edppITLTarget = 30.0
-			}
 			cs.disaggregationDecider = sim.NewEmpiricalDPPDecider(sim.EmpiricalDPPConfig{
-				Eta:         config.EDPPEta,
-				TTFTSloMs:   edppSloD,
-				ITLTargetMs: edppITLTarget,
-				VInit:       config.EDPPVInit,
-				VMin:        config.EDPPVMin,
-				VMax:        config.EDPPVMax,
-				Alpha:       config.EDPPAlpha,
-				EpochSize:   config.EDPPEpochSize,
-				KappaInit:   0.114,
-				KappaAlpha:  0.05,
-			})
+				V:         config.EDPPV,
+				TTFTSloMs: config.EDPPTTFTSloD,
+				Epsilon:   config.EDPPEpsilon,
+				Beta:      config.EDPPBeta,
+				Seed:      config.Seed,
+			}, int(config.BlockSizeTokens), cs.cacheQueryFn)
 		default:
 			cs.disaggregationDecider = sim.NewDisaggregationDecider(config.PDDecider)
 		}
@@ -562,7 +550,10 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 	// admission → routing → instance injection. The callback returns nil so the per-instance
 	// simulator does not inject locally.
 	// Phase 1B-2a: also notify tenantTracker on completion when budgets are configured.
-	if onRequestDone != nil || cs.tenantTracker != nil || cs.evictionTracker != nil {
+	// EmpiricalDPP: a CompletionObserver decider also needs LOCAL (non-disaggregated)
+	// completions observed here, so the closure must be installed when one is active.
+	edppObs, _ := cs.disaggregationDecider.(sim.CompletionObserver)
+	if onRequestDone != nil || cs.tenantTracker != nil || cs.evictionTracker != nil || edppObs != nil {
 		for _, inst := range cs.instances {
 			inst.sim.OnRequestDone = func(req *sim.Request, tick int64) []*sim.Request {
 				// Phase 1B-2a: release tenant in-flight slot on every terminal state.
@@ -572,6 +563,16 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 				// Remove from eviction tracker on normal completion (BC-3).
 				if cs.evictionTracker != nil {
 					cs.evictionTracker.Untrack(req.ID)
+				}
+				// EmpiricalDPP LOCAL observation: only genuine local completions
+				// (not PD sub-requests — those are observed as REMOTE in
+				// detectDecodeCompletions). FirstTokenTime is the BLIS prefill-time
+				// proxy (bundles queue wait; see EmpiricalDPPDecider doc).
+				if edppObs != nil && req.State == sim.StateCompleted &&
+					!req.IsDecodeSubRequest && !strings.HasSuffix(req.ID, "_prefill") &&
+					req.FirstTokenTime > 0 {
+					ttftUs := float64(req.FirstTokenTime)
+					edppObs.ObserveCompletion(false, ttftUs, meanITLUs(req.ITL), ttftUs, req.DisaggUncachedTokens)
 				}
 				if onRequestDone == nil {
 					return nil
@@ -586,6 +587,20 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 	}
 
 	return cs
+}
+
+// meanITLUs returns the mean inter-token latency (µs) over a request's per-step
+// ITL samples, or 0 when there are none (e.g. zero/one-output-token requests).
+// Used to feed EmpiricalDPPDecider's LOCAL ITL population.
+func meanITLUs(itl []int64) float64 {
+	if len(itl) == 0 {
+		return 0
+	}
+	var sum int64
+	for _, v := range itl {
+		sum += v
+	}
+	return float64(sum) / float64(len(itl))
 }
 
 // registerInstanceCacheQueryFn adds a cacheQueryFn entry for a single instance,
@@ -1237,20 +1252,16 @@ func (c *ClusterSimulator) detectDecodeCompletions(inst *InstanceSimulator) {
 		delete(c.pendingDecodeCompletions, subReqID)
 		c.pdDecodeCompletedCount++
 
-		// Notify observation-aware deciders (e.g., EmpiricalDPPDecider) with
-		// per-request TTFT and KV-transfer timing for empirical parameter adaptation.
-		if c.disaggregationDecider != nil && parent.TransferCompleteTime > 0 {
+		// Notify observation-aware deciders (e.g., EmpiricalDPPDecider) of this
+		// REMOTE (disaggregated) completion so they can update their per-action
+		// empirical estimates and the virtual TTFT queue. prefillTimeUs is the
+		// dedicated prefill pool's service time; uncached-token count is the
+		// value the decision used (stashed on the original request).
+		if obs, ok := c.disaggregationDecider.(sim.CompletionObserver); ok && parent.TransferCompleteTime > 0 {
 			ttftUs := float64(parent.TransferCompleteTime - parent.ArrivalTime)
-			if updater, ok := c.disaggregationDecider.(sim.TTFTUpdater); ok {
-				updater.UpdateTTFT(ttftUs)
-			}
-			if updater, ok := c.disaggregationDecider.(sim.ObservationUpdater); ok &&
-				parent.TransferStartTime > 0 {
-				updater.UpdateTransferObservation(
-					float64(parent.TransferCompleteTime-parent.TransferStartTime),
-					float64(parent.TransferStartTime-parent.ArrivalTime),
-				)
-			}
+			prefillTimeUs := float64(parent.PrefillCompleteTime - parent.PrefillEnqueueTime)
+			itlMeanUs := inst.Metrics().RequestITLs[subReqID]
+			obs.ObserveCompletion(true, ttftUs, itlMeanUs, prefillTimeUs, parent.OriginalRequest.DisaggUncachedTokens)
 		}
 
 		// Issue #884: trigger session follow-up for the original (parent) request.

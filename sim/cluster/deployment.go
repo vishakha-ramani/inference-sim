@@ -71,15 +71,12 @@ type DeploymentConfig struct {
 	PDPrefixThreshold int    // Non-cached token threshold for prefix-threshold decider (PR6)
 
 	// EmpiricalDPP (edpp) configuration. Zero values use sensible defaults
-	// (see NewEmpiricalDPPDecider for the defaulting logic).
-	EDPPEta         float64 // queue weight ratio η (default 1.0)
-	EDPPTTFTSloD    float64 // TTFT SLO target d in ms (default 100.0)
-	EDPPITLTargetMs float64 // ITL target in ms; V adapts to track this (default 30.0)
-	EDPPVInit       float64 // initial V (default 1.0)
-	EDPPVMin        float64 // minimum V (default 0.05)
-	EDPPVMax        float64 // maximum V (default 50.0)
-	EDPPAlpha       float64 // V step size per epoch (default 0.1)
-	EDPPEpochSize   int     // requests per V update (default 50)
+	// (see NewEmpiricalDPPDecider for the defaulting logic). The ε-exploration
+	// RNG is seeded from the embedded SimConfig.Seed.
+	EDPPV        float64 // fixed penalty weight V (default 1.0)
+	EDPPTTFTSloD float64 // TTFT SLO target d in ms (default 100.0)
+	EDPPEpsilon  float64 // ε-exploration probability (default 0.05)
+	EDPPBeta     float64 // EWMA smoothing factor (default 0.05)
 
 	// E/P/D disaggregation configuration (GAP-4, issue #1264).
 	// When EncodeInstances == 0 (default), the encode stage is disabled and the

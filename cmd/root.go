@@ -139,14 +139,10 @@ var (
 	decodeInstances        int     // Number of instances dedicated to decode
 	prefillDecodeInstances int     // Number of shared-role instances (both prefill and decode), issue #1276
 	pdDecider              string  // Disaggregation decider name
-	edppTTFTSloD           float64 // EDPP TTFT SLO target in ms
-	edppITLTargetMs        float64 // EDPP ITL target in ms
-	edppEta                float64 // EDPP queue weight ratio η
-	edppVInit              float64 // EDPP initial V
-	edppVMin               float64 // EDPP minimum V
-	edppVMax               float64 // EDPP maximum V
-	edppAlpha              float64 // EDPP V adaptation step size
-	edppEpochSize          int     // EDPP requests per V update
+	edppTTFTSloD           float64 // EDPP TTFT SLO target d in ms
+	edppV                  float64 // EDPP fixed penalty weight V
+	edppEpsilon            float64 // EDPP ε-exploration probability
+	edppBeta               float64 // EDPP EWMA smoothing factor
 	pdTransferBandwidth    float64 // Inter-instance KV transfer bandwidth in GB/s
 	pdTransferBaseLatency  float64 // Inter-instance KV transfer base latency in ms
 	pdTransferContention   bool    // Enable fair-share bandwidth contention model
@@ -211,14 +207,14 @@ var (
 	saturationConfidence float64 // Confidence level for slope CI (--saturation-ci)
 
 	// post-hoc backlog classifier policy (#1391, #1392)
-	saturationClassifier      string  // Classifier name: "drain-ratio" (default) or "slope-based" (--saturation-classifier)
-	saturationWarmupWindows   int     // Inject windows skipped as warmup (drain-ratio only) (--saturation-warmup-windows)
-	saturationTailWindows     int     // Inject windows skipped as tail (drain-ratio only) (--saturation-tail-windows)
-	saturationSaturatedRatio  float64 // DrainRatio < this → PERSISTENTLY_SATURATED (--saturation-drain-ratio-saturated)
-	saturationTransientRatio  float64 // DrainRatio < this → TRANSIENT_BACKLOG (--saturation-drain-ratio-transient)
+	saturationClassifier     string  // Classifier name: "drain-ratio" (default) or "slope-based" (--saturation-classifier)
+	saturationWarmupWindows  int     // Inject windows skipped as warmup (drain-ratio only) (--saturation-warmup-windows)
+	saturationTailWindows    int     // Inject windows skipped as tail (drain-ratio only) (--saturation-tail-windows)
+	saturationSaturatedRatio float64 // DrainRatio < this → PERSISTENTLY_SATURATED (--saturation-drain-ratio-saturated)
+	saturationTransientRatio float64 // DrainRatio < this → TRANSIENT_BACKLOG (--saturation-drain-ratio-transient)
 
 	// post-hoc saturation detector configuration (#1369)
-	postHocDetector      string  // Post-hoc saturation detector: "composite", "threshold", "none" (--post-hoc-detector)
+	postHocDetector     string  // Post-hoc saturation detector: "composite", "threshold", "none" (--post-hoc-detector)
 	saturationThreshold float64 // Threshold in ms for threshold detector (--saturation-threshold-ms)
 
 	// trace export
@@ -1045,14 +1041,10 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&decodeInstances, "decode-instances", 0, "Number of instances dedicated to decode (0 = disabled)")
 	cmd.Flags().IntVar(&prefillDecodeInstances, "prefill-decode-instances", 0, "Number of shared-role instances serving both prefill and decode (llm-d 'prefill-decode'/'both' parity; 0 = disabled). Must satisfy --prefill-instances + --decode-instances + --prefill-decode-instances <= --num-instances.")
 	cmd.Flags().StringVar(&pdDecider, "pd-decider", "never", "PD disaggregation decider: never (default), always, prefix-threshold, edpp")
-	cmd.Flags().Float64Var(&edppTTFTSloD, "edpp-ttft-slo-d", 100.0, "EDPP TTFT SLO target d in ms; Z grows when disaggregated TTFT exceeds this, suppressing future disaggregation")
-	cmd.Flags().Float64Var(&edppITLTargetMs, "edpp-itl-target", 30.0, "EDPP ITL target in ms; V increases when observed ITL exceeds this, decreases otherwise")
-	cmd.Flags().Float64Var(&edppEta, "edpp-eta", 1.0, "EDPP queue weight ratio η (scales Q_D relative to Q_P in disaggregation threshold)")
-	cmd.Flags().Float64Var(&edppVInit, "edpp-v-init", 1.0, "EDPP initial V value")
-	cmd.Flags().Float64Var(&edppVMin, "edpp-v-min", 0.05, "EDPP minimum V (floor; prevents collapsing to never-disaggregate)")
-	cmd.Flags().Float64Var(&edppVMax, "edpp-v-max", 50.0, "EDPP maximum V (ceiling; prevents runaway to always-disaggregate)")
-	cmd.Flags().Float64Var(&edppAlpha, "edpp-alpha", 0.1, "EDPP V adaptation step size per epoch (fraction of relative ITL error)")
-	cmd.Flags().IntVar(&edppEpochSize, "edpp-epoch-size", 50, "EDPP number of completed requests per V update epoch")
+	cmd.Flags().Float64Var(&edppTTFTSloD, "edpp-ttft-slo-d", 100.0, "EDPP TTFT SLO target d in ms; the virtual queue Z grows when observed TTFT exceeds this, suppressing future disaggregation")
+	cmd.Flags().Float64Var(&edppV, "edpp-v", 1.0, "EDPP fixed penalty weight V (trades ITL Δp against the queue drift term; not adapted)")
+	cmd.Flags().Float64Var(&edppEpsilon, "edpp-epsilon", 0.05, "EDPP ε-exploration probability (fraction of decisions flipped to keep both LOCAL/REMOTE populations fresh)")
+	cmd.Flags().Float64Var(&edppBeta, "edpp-beta", 0.05, "EDPP EWMA smoothing factor for the learned rate/ITL/TTFT estimates")
 	cmd.Flags().Float64Var(&pdTransferBandwidth, "pd-transfer-bandwidth", 25.0, "PD KV transfer bandwidth in GB/s (NIXL RDMA default)")
 	cmd.Flags().Float64Var(&pdTransferBaseLatency, "pd-transfer-base-latency", 0.05, "PD KV transfer base latency in ms")
 	cmd.Flags().BoolVar(&pdTransferContention, "pd-transfer-contention", false, "Enable fair-share bandwidth contention model for concurrent KV transfers (INV-P2-2)")
@@ -1668,14 +1660,10 @@ var runCmd = &cobra.Command{
 			EncodeDecider:                   encodeDecider,
 			PDDecider:                       pdDecider,
 			PDPrefixThreshold:               pdPrefixThreshold,
-			EDPPEta:                         edppEta,
+			EDPPV:                           edppV,
 			EDPPTTFTSloD:                    edppTTFTSloD,
-			EDPPITLTargetMs:                 edppITLTargetMs,
-			EDPPVInit:                       edppVInit,
-			EDPPVMin:                        edppVMin,
-			EDPPVMax:                        edppVMax,
-			EDPPAlpha:                       edppAlpha,
-			EDPPEpochSize:                   edppEpochSize,
+			EDPPEpsilon:                     edppEpsilon,
+			EDPPBeta:                        edppBeta,
 			PDTransferBandwidthGBps:         pdTransferBandwidth,
 			PDTransferBaseLatencyMs:         pdTransferBaseLatency,
 			PDTransferContention:            pdTransferContention,
