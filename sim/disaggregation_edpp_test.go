@@ -77,6 +77,33 @@ func TestEDPP_DriftDisaggregates(t *testing.T) {
 	}
 }
 
+// Mixed-prefill backlog term: a decode snapshot with NO decode-generation work
+// (AvgOutTokens=0, ITL=0) but pending local prefill (AvgInTokens>0) and a warmed
+// rate_D must still contribute to Q_D and disaggregate. Without the AvgInTokens·rate_D
+// term, Q_D would be 0 and the decision would be local — so this isolates the fix.
+func TestEDPP_MixedPrefillBacklog(t *testing.T) {
+	mk := func(avgIn float64) *EmpiricalDPPDecider {
+		d := newEDPP(1, 0.05)
+		d.rateD = ewma{v: 2.0, seen: true}
+		return d
+	}
+	// AvgInTokens=100 ⟹ Q_D = 10·(0·0 + 100·2) = 2000; drift = 10·(2000·2) = 40000 > 0.
+	state := &RouterState{Snapshots: []RoutingSnapshot{
+		{ID: "d0", QueueDepth: 10, AvgOutTokens: 0, ITL: 0, AvgInTokens: 100},
+	}}
+	if !mk(100).Decide(reqN(10), state).Disaggregate {
+		t.Error("pending mixed-prefill backlog (AvgInTokens·rate_D) should disaggregate")
+	}
+	// Same snapshot with AvgInTokens=0 ⟹ Q_D=0 ⟹ drift=0 ⟹ local. Confirms the
+	// new term — not the decode-gen term — is what flips the decision.
+	zeroIn := &RouterState{Snapshots: []RoutingSnapshot{
+		{ID: "d0", QueueDepth: 10, AvgOutTokens: 0, ITL: 0, AvgInTokens: 0},
+	}}
+	if mk(0).Decide(reqN(10), zeroIn).Disaggregate {
+		t.Error("zero decode backlog (no decode-gen, no pending prefill) should stay local")
+	}
+}
+
 // Z·ΔTTFT suppression: with the same positive drift, a large virtual queue Z
 // and ttft_remote > ttft_local push the RHS above the LHS ⟹ suppressed to local;
 // shrinking Z flips it back to disaggregate.

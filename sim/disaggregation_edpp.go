@@ -70,7 +70,8 @@ func (e ewma) value() float64 { return e.v }
 // where, for the request being decided:
 //
 //	u       — uncached input tokens (same signal PrefixThresholdDecider uses).
-//	Q_D     — Σ over decode snapshots of QueueDepth·AvgOutTokens·ITL  (decode backlog, µs).
+//	Q_D     — Σ over decode snapshots of QueueDepth·(AvgOutTokens·ITL + AvgInTokens·rate_D)
+//	          (decode backlog incl. pending mixed-prefill of queued local reqs, µs).
 //	Q_P     — Σ over prefill snapshots of QueueDepth·AvgInTokens·rate_P (prefill backlog, µs).
 //	rate_P  — learned prefill rate on the dedicated prefill pool (µs / uncached token), REMOTE pop.
 //	rate_D  — learned prefill rate on the mixed decode pool        (µs / uncached token), LOCAL pop.
@@ -207,7 +208,13 @@ func (e *EmpiricalDPPDecider) Decide(req *Request, state *RouterState) Disaggreg
 	var qD, qP float64
 	if state != nil {
 		for _, s := range state.Snapshots {
-			qD += float64(s.QueueDepth) * s.AvgOutTokens * s.ITL
+			// Decode backlog = decode-generation work (AvgOutTokens·ITL) PLUS the
+			// pending mixed-prefill work of queued LOCAL requests (AvgInTokens·rate_D).
+			// Remote (disaggregated) decode sub-requests contribute 0 input tokens to
+			// a decode instance's AvgInTokens (EnqueueDecodeSubRequest does not count
+			// them — they were counted on the prefill server), so AvgInTokens here is
+			// the mix-weighted local-prefill load and adds no remote double-count.
+			qD += float64(s.QueueDepth) * (s.AvgOutTokens*s.ITL + s.AvgInTokens*e.rateD.value())
 		}
 		for _, s := range state.PrefillSnapshots {
 			qP += float64(s.QueueDepth) * s.AvgInTokens * e.rateP.value()
