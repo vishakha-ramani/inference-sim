@@ -45,6 +45,10 @@ type DefaultConfig struct {
 	GPU               string `yaml:"GPU"`
 	TensorParallelism int    `yaml:"tensor_parallelism"`
 	HFRepo            string `yaml:"hf_repo,omitempty"`
+	// VllmVersion is accepted but unused: upstream #1403/#1423 removed vllm_version
+	// handling, but defaults.yaml files generated before that change still carry the
+	// key. omitempty + KnownFields(true) means we tolerate (not require) its presence.
+	VllmVersion string `yaml:"vllm_version,omitempty"`
 }
 
 func GetDefaultSpecs(LLM string) (GPU string, TensorParallelism int) {
