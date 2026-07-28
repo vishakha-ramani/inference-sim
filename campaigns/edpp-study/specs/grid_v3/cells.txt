@@ -1,0 +1,40 @@
+# Protocol v3 cell definitions. Supersedes specs/grid_v2/cells.txt.
+#
+# columns: name in out topo_kind capacity op_rate ttft_ms itl_ms e2e_ms
+#
+# capacity  = throughput plateau of never@3M in deep overload (repro_slo_derivation_v3.sh).
+#             NOT the old achieved/offered >= 0.95 knee, which measured the post-arrival
+#             drain and Poisson arrival-window variation and was non-monotone in rate
+#             (RESULTS_capacity.md section 4).
+# op_rate   = 0.7 x capacity, the operating point the targets were read at.
+# ttft/itl/e2e = MEAN latency never@3M delivers at op_rate (repro_slo_targets_v3.sh).
+#             Means, not p99s, per user directive. A target at the mean is aggressive by
+#             construction: the reference fleet misses roughly half its own requests at
+#             op_rate. That is deliberate. Under v2.1 the ITL target was so loose that not
+#             one request missed it in any cell.
+#
+# Concurrency limit is 256 (--max-num-running-reqs), the simulator default. Every v2.1
+# harness passed 16, which held ITL inside a 16.61-17.09 ms band where no target could
+# ever be violated and the ITL deficit queue never activated.
+#
+# Reference fleet for all five: --num-instances 3 --routing-scorers queue-depth:1
+# --pd-decider never, i.e. no prefill/decode split at all. Policies under test run 1P2D.
+decode        256   512 homog   55.69 38.99  49.5  21.93 11293.1
+mixed         2048  128 homog   67.19 47.04  94.8  28.51  3724.4
+prefill_lean  8192  64  homog   20.49 14.34 212.0  27.37  1946.8
+prefill_bound 16000 16  homog   11.86  8.30 343.3  26.23   739.8
+hetero        256   64  hetero 109.10 76.37  80.5  42.74  2783.3
+#
+# NOTES ON INDIVIDUAL CELLS
+#
+# hetero: the ITL spread is much wider here (mean 42.74, p99 101.11) because the slow
+#   instance's per-iteration baseline is 69.31 ms against the fast one's 16.61 ms. An ITL
+#   target of 42.74 ms therefore cannot be met by ANY request the slow instance decodes.
+#   That makes this cell a genuine ITL test rather than a structural artifact of an
+#   asserted target: the router either avoids the slow instance or accepts the misses.
+#   Note also that never@3M reaches only 109.10 req/s against an analytical 272, because
+#   the queue-depth scorer feeds the slow instance without knowing it is slow.
+#
+# decode: capacity is 55.69 req/s against the v2.1 operating rate of 3.0. The old cell ran
+#   at five percent of capacity, which is why always, never and Kairos were
+#   indistinguishable there.
