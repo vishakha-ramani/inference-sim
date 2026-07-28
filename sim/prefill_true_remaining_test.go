@@ -19,7 +19,7 @@ func TestRunningPrefillState_TrueRemainingNotOracleGated(t *testing.T) {
 			t.Fatalf("NewSimulator: %v", err)
 		}
 		// A request still in prefill: ProgressIndex (10) < inLen (32) ⇒ 22 remaining.
-		pf := &Request{ID: "pf", InputTokens: make([]int, 32), OutputTokens: make([]int, 5),
+		pf := &Request{ID: "pf", InputTokens: make([]TokenID, 32), OutputTokens: make([]TokenID, 5),
 			ProgressIndex: 10, NumNewTokens: 1, State: StateRunning}
 		s.RunningBatch = &Batch{Requests: []*Request{pf}}
 		return s
@@ -37,7 +37,7 @@ func TestRunningPrefillState_TrueRemainingNotOracleGated(t *testing.T) {
 	}
 
 	// Decode stays oracle-gated: with oracle OFF, decode TrueRemaining must be −1.
-	dec := &Request{ID: "dec", InputTokens: make([]int, 8), OutputTokens: make([]int, 20),
+	dec := &Request{ID: "dec", InputTokens: make([]TokenID, 8), OutputTokens: make([]TokenID, 20),
 		ProgressIndex: 12, NumNewTokens: 1, State: StateRunning}
 	s.RunningBatch = &Batch{Requests: []*Request{dec}}
 	decStates := s.RunningDecodeState()

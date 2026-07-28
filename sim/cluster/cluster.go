@@ -125,7 +125,7 @@ type ClusterSimulator struct {
 	// cacheQueryFn maps instance IDs to KV cache query functions for precise
 	// prefix cache scoring. Built after instance construction; deferred instances
 	// are added in NodeReadyEvent.Execute. Nil when no instances exist yet.
-	cacheQueryFn map[string]func([]int) int
+	cacheQueryFn map[string]func([]sim.TokenID) int
 
 	// Cache block staleness is managed by CachedSnapshotProvider via
 	// ObservabilityConfig.CacheBlocks (unified in #1060).
@@ -716,13 +716,13 @@ func (cs *ClusterSimulator) registerInstanceCacheQueryFn(id InstanceID, inst *In
 		// to CacheQuery at call time, picking up refreshed snapshots automatically.
 		cs.snapshotProvider.AddCacheInstance(id, inst)
 		idStr := string(id)
-		cs.cacheQueryFn[idStr] = func(tokens []int) int {
+		cs.cacheQueryFn[idStr] = func(tokens []sim.TokenID) int {
 			return cs.snapshotProvider.CacheQuery(idStr, tokens)
 		}
 	} else {
 		// Oracle mode: closure captures inst directly for live-state queries.
 		idStr := string(id)
-		cs.cacheQueryFn[idStr] = func(tokens []int) int {
+		cs.cacheQueryFn[idStr] = func(tokens []sim.TokenID) int {
 			return inst.GetCachedBlockCount(tokens)
 		}
 	}
@@ -2583,6 +2583,9 @@ func (cs *ClusterSimulator) executeDisaggregatedRouting(req *sim.Request, time i
 	cs.inFlightRequests[string(parent.DecodeInstanceID)]++
 
 	// Create prefill sub-request: same input, no output (completes after prefill).
+	// InputTokens is a slice-header alias of req.InputTokens (#1445) — the
+	// sub-request views the same underlying token buffer, no flatten. If
+	// Request.InputTokens ever becomes lazy/chained, this site must update.
 	prefillSubReq := &sim.Request{
 		ID:           parent.PrefillSubReqID,
 		InputTokens:  req.InputTokens,

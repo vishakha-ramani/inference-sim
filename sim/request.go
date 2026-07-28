@@ -6,7 +6,17 @@ package sim
 import (
 	"fmt"
 	"math/rand"
+
+	"github.com/inference-sim/inference-sim/sim/internal/tokenid"
 )
+
+// TokenID is the simulator's compact representation of a tokenizer ID.
+// Re-exported from sim/internal/tokenid as an alias at the package boundary,
+// so callers write sim.TokenID. The underlying type (tokenid.TokenID) is a
+// defined type (NOT a Go type alias of int32), so assignments from int still
+// require an explicit conversion — the compile-time mixed-arithmetic check
+// is the point.
+type TokenID = tokenid.TokenID
 
 // Request models a single request's lifecycle in the simulation.
 // Each request has:
@@ -30,8 +40,8 @@ const (
 type Request struct {
 	ID string // Unique identifier for the request
 
-	InputTokens  []int // Prompt tokens
-	OutputTokens []int // Pre-specified output tokens (already known for the simulation)
+	InputTokens  []TokenID // Prompt tokens
+	OutputTokens []TokenID // Pre-specified output tokens (already known for the simulation)
 	MaxOutputLen int   // Client output budget (vLLM max_tokens); 0 = no budget (input-only check, runtime stop enforces limit)
 
 	State         RequestState // queued, running, completed
@@ -115,12 +125,55 @@ func (req *Request) IsMultimodal() bool {
 	return req.ImageTokenCount > 0 || req.AudioTokenCount > 0 || req.VideoTokenCount > 0
 }
 
+// InputLen returns the total number of input tokens without forcing materialization.
+// Canonical replacement for `len(req.InputTokens)` and `util.Len64(req.InputTokens)`
+// at call sites that need only the length (#1445).
+func (req *Request) InputLen() int64 {
+	return int64(len(req.InputTokens))
+}
+
+// FullInputTokens returns the full input-token sequence as a flat slice. The slice
+// is already flat today (a view into a session-scoped shared buffer when produced
+// by multi-turn workloads); the accessor exists as a forward-compatible migration
+// point and to mark intent at call sites that need the whole sequence (trace
+// export, scorers that hash the full prefix) (#1445).
+//
+// The returned slice's capacity is capped at its length (three-index slice),
+// so a stray `append(req.FullInputTokens(), x)` by a caller allocates a fresh
+// array instead of silently overwriting the next round's tokens in the shared
+// session buffer. This converts the no-mutation contract into a runtime-
+// enforced guarantee.
+func (req *Request) FullInputTokens() []TokenID {
+	n := len(req.InputTokens)
+	return req.InputTokens[:n:n]
+}
+
+// InputTokenSlice returns the slice spanning the absolute index range [start, end).
+// Replaces direct `req.InputTokens[start:end]` reads — same view into the underlying
+// array, no copy (#1445).
+//
+// Panics with a decorated message if [start, end) is out of bounds. R6 prohibits
+// logrus.Fatalf in the sim/ package; the panic surfaces the request ID and length
+// so callers can debug from the stack trace.
+//
+// The returned slice's capacity is capped at `end` (three-index slice), so a
+// stray `append(slice, ...)` by a caller allocates a fresh backing array
+// instead of overwriting subsequent tokens in the shared session buffer.
+func (req *Request) InputTokenSlice(start, end int64) []TokenID {
+	n := int64(len(req.InputTokens))
+	if start < 0 || end < start || end > n {
+		panic(fmt.Sprintf("Request.InputTokenSlice: invalid range [%d, %d) for InputTokens len=%d (request %s)",
+			start, end, n, req.ID))
+	}
+	return req.InputTokens[start:end:end]
+}
+
 // GenerateRandomTokenIDs creates a slice of random token IDs in [0, MaxTokenID).
 // RNG calls: length × Intn(MaxTokenID).
-func GenerateRandomTokenIDs(rng *rand.Rand, length int) []int {
-	tokens := make([]int, length)
+func GenerateRandomTokenIDs(rng *rand.Rand, length int) []TokenID {
+	tokens := make([]TokenID, length)
 	for i := range tokens {
-		tokens[i] = rng.Intn(MaxTokenID)
+		tokens[i] = TokenID(rng.Intn(MaxTokenID))
 	}
 	return tokens
 }

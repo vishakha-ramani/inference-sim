@@ -143,7 +143,7 @@ func GenerateRequests(spec *WorkloadSpec, horizon int64, maxRequests int64) ([]*
 		}
 
 		// Get prefix for this client's group
-		var prefix []int
+		var prefix []sim.TokenID
 		if client.PrefixGroup != "" {
 			prefix = prefixes[client.PrefixGroup]
 		}
@@ -174,25 +174,19 @@ func GenerateRequests(spec *WorkloadSpec, horizon int64, maxRequests int64) ([]*
 				if client.Lifecycle != nil && !isInActiveWindow(startTime, client.Lifecycle) {
 					continue
 				}
+				// Prefix is passed in so reasoning.go can seed the shared session
+				// buffer once at index 0 — eliminating the per-round prefix copy
+				// that would otherwise defeat the sessionTokenBuffer storage win
+				// (#1445). reasoning.go sets req.PrefixLength accordingly.
 				reasoningReqs, err := GenerateReasoningRequests(
 					clientRNG, client.Reasoning,
 					inputSampler, outputSampler,
 					startTime,
 					client.ID, client.TenantID, client.SLOClass, client.Model,
+					prefix,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("client %q reasoning: %w", client.ID, err)
-				}
-				// Prepend shared prefix to each round's input (BC-1, #516).
-				// NOTE: reasoning.go builds contextPrefix from raw newInputTokens,
-				// NOT from req.InputTokens. The prefix must be prepended here in
-				// the caller, not passed into GenerateReasoningRequests, to avoid
-				// double-prepend with context accumulation.
-				if len(prefix) > 0 {
-					for _, req := range reasoningReqs {
-						req.InputTokens = append(append([]int{}, prefix...), req.InputTokens...)
-						req.PrefixLength = len(prefix)
-					}
 				}
 				// Set Deadline and SLOTargetUs on all reasoning requests (not set in reasoning.go)
 				for _, req := range reasoningReqs {
@@ -241,17 +235,12 @@ func GenerateRequests(spec *WorkloadSpec, horizon int64, maxRequests int64) ([]*
 					inputSampler, outputSampler,
 					currentTime,
 					client.ID, client.TenantID, client.SLOClass, client.Model,
+					prefix,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("client %q reasoning: %w", client.ID, err)
 				}
-				// Prepend shared prefix to each round's input (BC-2, #516)
-				if len(prefix) > 0 {
-					for _, req := range reasoningReqs {
-						req.InputTokens = append(append([]int{}, prefix...), req.InputTokens...)
-						req.PrefixLength = len(prefix)
-					}
-				}
+				// Prefix is seeded into the shared buffer inside reasoning.go (#1445).
 				// Set Deadline and SLOTargetUs on all reasoning requests (not set in reasoning.go)
 				for _, req := range reasoningReqs {
 					req.Deadline = computeDeadline(req.ArrivalTime, client.Timeout, true)
@@ -303,8 +292,8 @@ func GenerateRequests(spec *WorkloadSpec, horizon int64, maxRequests int64) ([]*
 				continue
 			}
 
-			var inputTokens []int
-			var outputTokens []int
+			var inputTokens []sim.TokenID
+			var outputTokens []sim.TokenID
 			var textCount, imageCount, audioCount, videoCount int
 
 			if client.Multimodal != nil {
@@ -326,7 +315,7 @@ func GenerateRequests(spec *WorkloadSpec, horizon int64, maxRequests int64) ([]*
 
 			var prefixLength int
 			if len(prefix) > 0 {
-				inputTokens = append(append([]int{}, prefix...), inputTokens...)
+				inputTokens = append(append([]sim.TokenID{}, prefix...), inputTokens...)
 				prefixLength = len(prefix)
 			}
 
@@ -459,14 +448,14 @@ func GenerateWorkload(spec *WorkloadSpec, horizon int64, maxRequests int64) (*Ge
 		// to pass to the SessionBlueprint for follow-up round generation.
 		// Match by ClientID to avoid conflating clients that share TenantID/SLOClass
 		// (e.g. all stages in a multi-stage workload share the same prefixGroup TenantID).
-		var prefixTokens []int
+		var prefixTokens []sim.TokenID
 		if client.PrefixGroup != "" && client.PrefixLength > 0 {
 			for _, req := range reqs {
 				if req.SessionID != "" && req.RoundIndex == 0 && req.ClientID == client.ID {
 					// The first PrefixLength tokens of InputTokens are the prefix
-					if len(req.InputTokens) >= client.PrefixLength {
-						prefixTokens = make([]int, client.PrefixLength)
-						copy(prefixTokens, req.InputTokens[:client.PrefixLength])
+					if req.InputLen() >= int64(client.PrefixLength) {
+						prefixTokens = make([]sim.TokenID, client.PrefixLength)
+						copy(prefixTokens, req.InputTokenSlice(0, int64(client.PrefixLength)))
 					}
 					break
 				}
@@ -576,7 +565,7 @@ func GenerateWorkload(spec *WorkloadSpec, horizon int64, maxRequests int64) (*Ge
 			return nil, fmt.Errorf("client %q output distribution: %w", client.ID, err)
 		}
 
-		var prefix []int
+		var prefix []sim.TokenID
 		if client.PrefixGroup != "" {
 			prefix = prefixes[client.PrefixGroup]
 		}
@@ -605,7 +594,7 @@ func GenerateWorkload(spec *WorkloadSpec, horizon int64, maxRequests int64) (*Ge
 
 			var prefixLength int
 			if len(prefix) > 0 {
-				inputTokens = append(append([]int{}, prefix...), inputTokens...)
+				inputTokens = append(append([]sim.TokenID{}, prefix...), inputTokens...)
 				prefixLength = len(prefix)
 			}
 
@@ -865,7 +854,7 @@ func generateRequestsForWindow(
 	allClients []ClientSpec,
 	aggregateRate float64,
 	rng *rand.Rand,
-	prefix []int,
+	prefix []sim.TokenID,
 ) ([]*sim.Request, error) {
 	// Step 1: Resolve parameters with fallback to client-level defaults.
 	arrival, inputDist, outputDist, _ := resolveWindowParameters(client, window)
@@ -934,20 +923,14 @@ func generateRequestsForWindow(
 				inputSampler, outputSampler,
 				startTime,
 				client.ID, client.TenantID, client.SLOClass, client.Model,
+				prefix,
 			)
 			if err != nil {
 				// BC-9: Propagate error with client ID context
 				return nil, fmt.Errorf("client %q reasoning: %w", client.ID, err)
 			}
 
-			// BC-2: Prepend shared prefix to each round's input
-			if len(prefix) > 0 {
-				for _, req := range reasoningReqs {
-					req.InputTokens = append(append([]int{}, prefix...), req.InputTokens...)
-					req.PrefixLength = len(prefix)
-				}
-			}
-
+			// BC-2: prefix is seeded into the shared buffer inside reasoning.go (#1445).
 			// BC-3: Set Deadline on all reasoning requests
 			for _, req := range reasoningReqs {
 				req.Deadline = computeDeadline(req.ArrivalTime, client.Timeout, true)
@@ -980,20 +963,14 @@ func generateRequestsForWindow(
 				inputSampler, outputSampler,
 				currentTime,
 				client.ID, client.TenantID, client.SLOClass, client.Model,
+				prefix,
 			)
 			if err != nil {
 				// BC-9: Propagate error with client ID context
 				return nil, fmt.Errorf("client %q reasoning: %w", client.ID, err)
 			}
 
-			// BC-2: Prepend shared prefix to each round's input
-			if len(prefix) > 0 {
-				for _, req := range reasoningReqs {
-					req.InputTokens = append(append([]int{}, prefix...), req.InputTokens...)
-					req.PrefixLength = len(prefix)
-				}
-			}
-
+			// BC-2: prefix is seeded into the shared buffer inside reasoning.go (#1445).
 			// BC-3: Set Deadline on all reasoning requests
 			for _, req := range reasoningReqs {
 				req.Deadline = computeDeadline(req.ArrivalTime, client.Timeout, true)

@@ -142,7 +142,7 @@ func BenchmarkDecide_ByBatchWidth(b *testing.B) {
 				b.Run(fmt.Sprintf("%s/%s/B=%d", mn, rule, bw), func(b *testing.B) {
 					decodeIDs, prefillIDs, state, prefill := benchFleet(2, 1, bw)
 					d := benchDecider(rule, models[mn], decodeIDs, prefillIDs, prefill)
-					req := &Request{ID: "r", InputTokens: make([]int, 2000), SLOClass: "batch"}
+					req := &Request{ID: "r", InputTokens: make([]TokenID, 2000), SLOClass: "batch"}
 					b.ReportAllocs()
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
@@ -164,7 +164,7 @@ func BenchmarkDecide_ByFleet(b *testing.B) {
 			b.Run(fmt.Sprintf("%s/%dP%dD", rule, f.nP, f.nD), func(b *testing.B) {
 				decodeIDs, prefillIDs, state, prefill := benchFleet(f.nD, f.nP, 16)
 				d := benchDecider(rule, model, decodeIDs, prefillIDs, prefill)
-				req := &Request{ID: "r", InputTokens: make([]int, 2000), SLOClass: "batch"}
+				req := &Request{ID: "r", InputTokens: make([]TokenID, 2000), SLOClass: "batch"}
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {

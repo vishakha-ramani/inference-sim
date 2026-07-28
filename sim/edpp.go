@@ -314,7 +314,7 @@ type edppNorm struct {
 type EDPPDecider struct {
 	cfg              EDPPConfig
 	model            LatencyModel
-	cacheQuery       map[string]func([]int) int // shared with precise-prefix-cache scorer; may be nil
+	cacheQuery       map[string]func([]TokenID) int // shared with precise-prefix-cache scorer; may be nil
 	prefillSnapshots func() []RoutingSnapshot   // prefill-pool backlogs; may be nil (⇒ Q_p = 0)
 
 	// Physics constants precomputed once at construction (class-independent).
@@ -432,7 +432,7 @@ func (d *EDPPDecider) SetCaptureAdmissionContext(v bool) { d.captureAdmissionCtx
 // model is retained for the deferred recalibration-drift watchdog (§4).
 // cacheQuery and prefillSnapshots may be nil (e.g. unit tests, or no prefill pool).
 // The per-class target maps are copied defensively.
-func NewEDPPDecider(cfg EDPPConfig, model LatencyModel, cacheQuery map[string]func([]int) int, prefillSnapshots func() []RoutingSnapshot) *EDPPDecider {
+func NewEDPPDecider(cfg EDPPConfig, model LatencyModel, cacheQuery map[string]func([]TokenID) int, prefillSnapshots func() []RoutingSnapshot) *EDPPDecider {
 	cfg.validate()
 	for gpu, c := range cfg.CoeffsByGPU {
 		if err := c.validate(); err != nil {

@@ -554,12 +554,12 @@ func RequestsToTraceRecords(requests []*sim.Request) []TraceRecord {
 		}
 
 		prefixLen := req.PrefixLength
-		inputTokens := len(req.InputTokens) - prefixLen
+		inputTokens := int(req.InputLen()) - prefixLen
 		if inputTokens < 0 {
 			// Safety: PrefixLength exceeds InputTokens (should not happen with well-formed data).
 			// Treat as no prefix. Detectable in output: PrefixLength=0 with non-empty PrefixGroup.
 			// R6: no logrus in sim/ — caller is responsible for detecting this via the record.
-			inputTokens = len(req.InputTokens)
+			inputTokens = int(req.InputLen())
 			prefixLen = 0
 		}
 
@@ -614,7 +614,7 @@ func TraceRecordsToRequests(records []TraceRecord) []*sim.Request {
 	for _, rec := range records {
 		req := &sim.Request{
 			ArrivalTime:  rec.ArrivalTimeUs,
-			OutputTokens: []int{rec.OutputTokens},
+			OutputTokens: []sim.TokenID{sim.TokenID(rec.OutputTokens)},
 		}
 
 		// TTFTSet and FirstTokenTime

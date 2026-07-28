@@ -339,7 +339,7 @@ func TestCollocPrefill_UnknownDecodeReducesToTTFTOnly(t *testing.T) {
 func TestVarReTiming_FullReTiming(t *testing.T) {
 	c := EDPPCoeffs{AlphaD: 10, AlphaP: 10, C0: 2, C1: 0.5, CPf: 1, CAttn: 0}
 	d := &EDPPDecider{cfg: EDPPConfig{ChunkTokens: 0}, coeffs: c}
-	req := &Request{InputTokens: make([]int, 100)} // Δkv_R = 100
+	req := &Request{InputTokens: make([]TokenID, 100)} // Δkv_R = 100
 
 	bDec, kv, sPf := 3, int64(500), int64(0)
 	chunk := 100

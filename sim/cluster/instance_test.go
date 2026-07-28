@@ -394,8 +394,8 @@ func TestInstanceSimulator_BatchSize_NilRunningBatch(t *testing.T) {
 	req := &sim.Request{
 		ID:           "req_0",
 		ArrivalTime:  0,
-		InputTokens:  make([]int, 16),
-		OutputTokens: make([]int, 1),
+		InputTokens:  make([]sim.TokenID, 16),
+		OutputTokens: make([]sim.TokenID, 1),
 		State:        sim.StateQueued,
 	}
 	inst.InjectRequest(req)
@@ -422,8 +422,8 @@ func TestInstanceSimulator_ProcessNextEvent_ReturnsEventsWithMonotonicTimestamps
 	req := &sim.Request{
 		ID:           "req_return",
 		ArrivalTime:  100,
-		InputTokens:  make([]int, 16),
-		OutputTokens: make([]int, 1),
+		InputTokens:  make([]sim.TokenID, 16),
+		OutputTokens: make([]sim.TokenID, 1),
 		State:        sim.StateQueued,
 	}
 	inst.InjectRequestOnline(req, 200)
@@ -470,8 +470,8 @@ func TestInstanceSimulator_InjectRequestOnline(t *testing.T) {
 	req := &sim.Request{
 		ID:           "req_online",
 		ArrivalTime:  100,
-		InputTokens:  make([]int, 16),
-		OutputTokens: make([]int, 1),
+		InputTokens:  make([]sim.TokenID, 16),
+		OutputTokens: make([]sim.TokenID, 1),
 		State:        sim.StateQueued,
 	}
 
@@ -490,12 +490,12 @@ func TestInstanceSimulator_SnapshotCacheQueryFn_FrozenView(t *testing.T) {
 	cfg.BlockSizeTokens = 4
 	inst := NewInstanceSimulator("inst-0", cfg)
 
-	tokens := []int{1, 2, 3, 4, 5, 6, 7, 8}
+	tokens := []sim.TokenID{1, 2, 3, 4, 5, 6, 7, 8}
 	req := &sim.Request{
 		ID:           "r1",
 		ArrivalTime:  0,
 		InputTokens:  tokens,
-		OutputTokens: []int{100},
+		OutputTokens: []sim.TokenID{100},
 		State:        sim.StateQueued,
 	}
 	inst.InjectRequest(req)
@@ -519,7 +519,7 @@ func TestInstanceSimulator_SnapshotCacheQueryFn_NilSim(t *testing.T) {
 	fn := inst.SnapshotCacheQueryFn()
 
 	// THEN it returns 0 for any input
-	assert.Equal(t, 0, fn([]int{1, 2, 3, 4}))
+	assert.Equal(t, 0, fn([]sim.TokenID{1, 2, 3, 4}))
 }
 
 // BC-2: PostDecodeFixedOverhead() delegates to inner sim.Simulator.PostDecodeFixedOverhead().

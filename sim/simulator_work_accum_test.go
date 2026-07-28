@@ -12,13 +12,13 @@ func TestWorkAccumulator_SumsToClosedForm(t *testing.T) {
 	// Single-chunk prefill: one step processes all ar tokens (ProgressIndex 0 → ar).
 	sim.accumulateStepWork("r1", "batch", &Request{
 		ID: "r1", SLOClass: "batch",
-		InputTokens: make([]int, ar), NumNewTokens: ar, ProgressIndex: 0,
+		InputTokens: make([]TokenID, ar), NumNewTokens: ar, ProgressIndex: 0,
 	})
 	// 3 decode steps at ProgressIndex ar, ar+1, ar+2.
 	for k := 0; k < 3; k++ {
 		sim.accumulateStepWork("r1", "batch", &Request{
 			ID: "r1", SLOClass: "batch",
-			InputTokens: make([]int, ar), OutputTokens: make([]int, 3),
+			InputTokens: make([]TokenID, ar), OutputTokens: make([]TokenID, 3),
 			NumNewTokens: 1, ProgressIndex: int64(ar + k),
 		})
 	}
@@ -42,7 +42,7 @@ func TestWorkAccumulator_SumsToClosedForm(t *testing.T) {
 
 func TestWorkAccumulator_DisabledNoAlloc(t *testing.T) {
 	sim := &Simulator{recordWorkTrace: false}
-	sim.accumulateStepWork("r1", "batch", &Request{ID: "r1", InputTokens: make([]int, 10), NumNewTokens: 10})
+	sim.accumulateStepWork("r1", "batch", &Request{ID: "r1", InputTokens: make([]TokenID, 10), NumNewTokens: 10})
 	if sim.workAcc != nil {
 		t.Fatalf("workAcc must stay nil when disabled, got %v", sim.workAcc)
 	}

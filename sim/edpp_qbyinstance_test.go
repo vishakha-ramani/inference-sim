@@ -17,9 +17,9 @@ func newTestEDPPDecider(t *testing.T) *EDPPDecider {
 func TestQByInstance_SumsMatchPoolLevel(t *testing.T) {
 	d := newTestEDPPDecider(t)
 	// disagg route: prefill work → prefill inst "P0", decode work → decode inst "M1"
-	d.OnRoute(&Request{ID: "r1", InputTokens: make([]int, 1000), SLOClass: "batch"}, "r1", true, 1000, "M1", "P0")
+	d.OnRoute(&Request{ID: "r1", InputTokens: make([]TokenID, 1000), SLOClass: "batch"}, "r1", true, 1000, "M1", "P0")
 	// local route: prefill+decode both → "M0"
-	d.OnRoute(&Request{ID: "r2", InputTokens: make([]int, 500), SLOClass: "batch"}, "r2", false, 500, "M0", "")
+	d.OnRoute(&Request{ID: "r2", InputTokens: make([]TokenID, 500), SLOClass: "batch"}, "r2", false, 500, "M0", "")
 
 	q := d.QByInstance()
 	// P0 holds r1's prefill work; M1 holds r1's decode work; M0 holds r2's (wp+wd).

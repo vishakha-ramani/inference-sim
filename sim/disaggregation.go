@@ -117,7 +117,7 @@ func NewDisaggregationDecider(name string) DisaggregationDecider {
 type PrefixThresholdDecider struct {
 	threshold  int
 	blockSize  int
-	cacheQuery map[string]func([]int) int
+	cacheQuery map[string]func([]TokenID) int
 }
 
 // NewPrefixThresholdDecider creates a PrefixThresholdDecider with the given
@@ -127,7 +127,7 @@ type PrefixThresholdDecider struct {
 // when state.SelectedInstance is missing from the map, Decide returns
 // Disaggregate=false (conservative fallback, consistent with llm-d's
 // nil-endpoint guard at prefix_based_pd_decider.go:108-111).
-func NewPrefixThresholdDecider(threshold, blockSize int, cacheQuery map[string]func([]int) int) *PrefixThresholdDecider {
+func NewPrefixThresholdDecider(threshold, blockSize int, cacheQuery map[string]func([]TokenID) int) *PrefixThresholdDecider {
 	if threshold < 0 {
 		panic(fmt.Sprintf("NewPrefixThresholdDecider: threshold must be >= 0, got %d", threshold))
 	}
@@ -151,7 +151,7 @@ func NewPrefixThresholdDecider(threshold, blockSize int, cacheQuery map[string]f
 //   - cacheQuery is nil, or the selected instance is missing from the map,
 //     or its closure is nil (pod not yet registered / just removed)
 func (p *PrefixThresholdDecider) Decide(req *Request, state *RouterState) DisaggregationDecision {
-	if len(req.InputTokens) == 0 {
+	if req.InputLen() == 0 {
 		return DisaggregationDecision{Disaggregate: false}
 	}
 	if state == nil || state.SelectedInstance == "" || p.cacheQuery == nil {
@@ -161,8 +161,8 @@ func (p *PrefixThresholdDecider) Decide(req *Request, state *RouterState) Disagg
 	if !ok || fn == nil {
 		return DisaggregationDecision{Disaggregate: false}
 	}
-	cachedBlocks := fn(req.InputTokens)
-	nonCachedTokens := len(req.InputTokens) - cachedBlocks*p.blockSize
+	cachedBlocks := fn(req.FullInputTokens())
+	nonCachedTokens := int(req.InputLen()) - cachedBlocks*p.blockSize
 	return DisaggregationDecision{Disaggregate: nonCachedTokens > p.threshold}
 }
 

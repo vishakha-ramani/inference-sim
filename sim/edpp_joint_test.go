@@ -16,10 +16,10 @@ func newJointTestDecider(t *testing.T) *EDPPDecider {
 
 // coldCacheQuery returns a cacheQuery map where every listed instance reports 0 cached
 // blocks (fully cold ⇒ a_p = full prompt length).
-func coldCacheQuery(ids ...string) map[string]func([]int) int {
-	m := make(map[string]func([]int) int, len(ids))
+func coldCacheQuery(ids ...string) map[string]func([]TokenID) int {
+	m := make(map[string]func([]TokenID) int, len(ids))
 	for _, id := range ids {
-		m[id] = func([]int) int { return 0 }
+		m[id] = func([]TokenID) int { return 0 }
 	}
 	return m
 }
@@ -42,7 +42,7 @@ func twoDecodeState(t *testing.T, m0Load, m1Load float64) *RouterState {
 
 // reqBatch builds a "batch"-class Request with nInput input tokens.
 func reqBatch(id string, nInput int) *Request {
-	return &Request{ID: id, InputTokens: make([]int, nInput), SLOClass: "batch"}
+	return &Request{ID: id, InputTokens: make([]TokenID, nInput), SLOClass: "batch"}
 }
 
 func TestJoint_PicksLowerOccupancyDecode(t *testing.T) {
@@ -63,10 +63,10 @@ func TestJoint_PrefersCacheWarmOverIdleCold(t *testing.T) {
 	// (a_p = full). The cache-cost term must make joint keep local on M0 despite M1 idle.
 	d := newJointTestDecider(t)
 	state := twoDecodeState(t, 50.0, 0.0)
-	d.cacheQuery = map[string]func([]int) int{
-		"M0": func(toks []int) int { return len(toks) / d.cfg.BlockSize }, // fully cached → a_p≈0
-		"M1": func(toks []int) int { return 0 },                           // cold → a_p = full
-		"P0": func(toks []int) int { return 0 },
+	d.cacheQuery = map[string]func([]TokenID) int{
+		"M0": func(toks []TokenID) int { return len(toks) / d.cfg.BlockSize }, // fully cached → a_p≈0
+		"M1": func(toks []TokenID) int { return 0 },                           // cold → a_p = full
+		"P0": func(toks []TokenID) int { return 0 },
 	}
 	dec := d.Decide(reqBatch("r2", 8000), state)
 	if dec.DecodePodOverride != "M0" {
@@ -81,10 +81,10 @@ func TestJoint_DisaggToWarmPrefillNode(t *testing.T) {
 	// cache-WARM (a_p≈0 → cheap prefill + tiny transfer). Joint must disaggregate to P0.
 	d := newJointTestDecider(t)
 	state := twoDecodeState(t, 0.0, 0.0)
-	d.cacheQuery = map[string]func([]int) int{
-		"M0": func(toks []int) int { return 0 },                           // cold decode
-		"M1": func(toks []int) int { return 0 },                           // cold decode
-		"P0": func(toks []int) int { return len(toks) / d.cfg.BlockSize }, // warm prefill → a_p≈0
+	d.cacheQuery = map[string]func([]TokenID) int{
+		"M0": func(toks []TokenID) int { return 0 },                           // cold decode
+		"M1": func(toks []TokenID) int { return 0 },                           // cold decode
+		"P0": func(toks []TokenID) int { return len(toks) / d.cfg.BlockSize }, // warm prefill → a_p≈0
 	}
 	// z_ttft pressure so the (expensive local prefill) TTFT term dominates over the small
 	// transfer penalty, favoring the warm prefill node.
@@ -167,10 +167,10 @@ func TestJoint_DivergenceTrace_ScorerPOnDisagg(t *testing.T) {
 	d.cfg.JointTraceEnabled = true
 	d.SetPrefillScorer(lowestIDPrefillScorer)
 	state := twoDecodeState(t, 0.0, 0.0)
-	d.cacheQuery = map[string]func([]int) int{
-		"M0": func(toks []int) int { return 0 },
-		"M1": func(toks []int) int { return 0 },
-		"P0": func(toks []int) int { return len(toks) / d.cfg.BlockSize }, // warm prefill
+	d.cacheQuery = map[string]func([]TokenID) int{
+		"M0": func(toks []TokenID) int { return 0 },
+		"M1": func(toks []TokenID) int { return 0 },
+		"P0": func(toks []TokenID) int { return len(toks) / d.cfg.BlockSize }, // warm prefill
 	}
 	d.ensureZ("batch").zTTFT = 1e7
 
