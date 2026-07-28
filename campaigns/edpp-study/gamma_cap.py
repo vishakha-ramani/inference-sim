@@ -3,7 +3,10 @@
 
 Rewritten 2026-07-28. The previous version built work from the MARGINAL
 coefficients only (CPf, CAttn, C0, C1) and divided by a lumped |I| = 3. Both
-were wrong, and together they pinned Gamma^cap at 1.0000 in every regime:
+were wrong, and together they made every capacity figure 2x to 36x too high --
+which also made Gamma^cap = 1.0000 uninformative, since you could not tell
+whether the rate was genuinely below capacity or the bound was simply too
+loose to bite:
 
   1. It dropped alpha (~16.61 ms), the per-iteration intercept and the LARGEST
      term in the trained physics model. Marginal-only work is the
@@ -24,11 +27,16 @@ It is policy-independent because it quantifies over ALL assignments: any real
 router induces some long-run empirical assignment and therefore cannot beat the
 min-max. Topology enters only as a restriction on the support of x and y, so
 "what does 1P2D cost us versus 3 mixed instances" is the same LP with and
-without that restriction. We report three points:
+without that restriction. We report five points:
 
-    coll   -- collocation forced (x_i = y_i), the `never` corner
-    disagg -- roles separated per the 1P2D topology, the `always` corner
-    free   -- x and y unrestricted; the policy-independent fleet bound
+    coll    -- collocation forced (x_i = y_i), the `never` corner
+    disag   -- roles separated, the `always` corner
+    pd_best -- tightest bound respecting 1P2D (prefill on any instance, decode
+               only on the two mixed ones). NO policy on this topology beats it.
+    agg3    -- the aggregated 3-mixed reference fleet, which is what never@3M
+               runs and what the v3 SLO targets are derived on
+    free    -- every instance may take either role: a RE-PROVISIONED fleet of
+               the same size, reported to price the topology choice
 
 THE WORK MODEL. Per iteration, T = alpha + B * dbar + CPf * s (+ attention),
 where B is the decode batch, dbar = C0 + C1 * L the marginal decode cost at
@@ -67,16 +75,25 @@ and on prefill_lean the prefill-pool bound is 8.32 req/s against the measured
 
 GAMMA^CAP. Given lambda above capacity, the best any policy can do is serve the
 CHEAPEST requests. Gamma^cap is the largest fraction gamma such that the gamma
-cheapest requests fit: lambda * m_P(gamma) <= |P| and lambda * m_D(gamma) <=
-|D|, where m(gamma) is the lower partial mean. Requests are ordered by cost,
-which here means by output length. This is an upper bound on attainable goodput
-that no routing rule can exceed, so Gamma^cap < 1 is a negative certificate.
+cheapest requests fit BOTH constraints of the paper's capacity-ceiling theorem:
+decode work fits in the |M| mixed instances (a prefill-only instance cannot lend
+time to a decode backlog) and total work fits in the whole fleet, each stage
+priced at the cheapest instance that may run it. m(gamma) is the lower partial
+mean, taken in increasing order of total cost. This is an upper bound no routing
+rule can exceed, so Gamma^cap < 1 is a negative certificate.
 
-CAVEAT ON `free`. Charging alpha separately to t_P and t_D overcounts for any
-instance that ends up collocating, since a shared iteration pays alpha once.
-So `free` as computed is a bound on the role-separated assignment; the true
-unrestricted fleet capacity is >= max(free, coll). We report both and take the
-max, and flag when coll wins.
+IT IS VACUOUS BELOW CAPACITY BY CONSTRUCTION, and every v2.1 knee rate is below
+capacity, so G@knee is 1.0 in all five regimes. That is not a defect -- it is
+the theorem correctly reporting that those operating points are servable. To
+show the ceiling has content we also evaluate it at 1.25x and 1.5x pd_best.
+NOTE a superseded intermediate result: constraining prefill to the single P
+instance gave 0.693 / 0.519 on the prefill cells, but that is the `always`
+corner's limit, not a bound over all policies, and must not be quoted as one.
+
+CAVEAT ON THE ROLE-SEPARATED BOUNDS. Charging alpha separately to t_P and t_D
+overcounts for any instance that ends up collocating, since a shared iteration
+pays alpha once. So pd_best and free understate the truth wherever coll exceeds
+them; pd_best takes the max of the three and flags the case.
 """
 import argparse
 import json
@@ -177,8 +194,37 @@ def batch_itl(c, tau_itl_us, a_p, mean_o, cap):
     return (cap, "cap") if cap <= b_itl else (b_itl, "itl")
 
 
+def pd_capacity(tp_list, td_list):
+    """Min-max capacity respecting the 1P2D topology, single request class.
+
+    Instance 0 is prefill-only, so it can absorb prefill share but no decode.
+    Instances 1..n are mixed: `never` collocates whole requests on them, so they
+    take either role. Give mixed instance i a fraction theta_i of its budget to
+    prefill; capacity is the largest lambda with both stages covered.
+
+    This is the tightest bound that no policy on this topology can cross, and it
+    is the right comparison for the grid. It charges alpha once per stage, so it
+    is conservative for any instance that actually collocates -- a shared
+    iteration pays alpha once. Where cap_coll exceeds it, cap_coll is the truth.
+    """
+    grid = np.linspace(0.0, 1.0, 401)
+    mixed = list(zip(tp_list[1:], td_list[1:]))
+    best = 0.0
+    for th in grid:
+        # Same theta on every mixed instance: exact when they are identical, and
+        # the mixed pool is homogeneous in every regime we run.
+        pref = 1.0 / tp_list[0] + sum(th / p for p, _ in mixed)
+        dec = sum((1.0 - th) / d for _, d in mixed)
+        best = max(best, min(pref, dec))
+    return best
+
+
 def free_capacity(tp_list, td_list):
     """Min-max capacity with x, y unrestricted, single request class.
+
+    Every instance may take either role, so this is the capacity of a
+    RE-PROVISIONED fleet of the same size -- the aggregated shape, not 1P2D. It
+    is reported to price the topology choice, not as a bound on 1P2D policies.
 
     Give instance i a fraction theta_i of its unit budget to prefill. Then the
     prefill share it can absorb is theta_i / tp_i and the decode share
@@ -256,8 +302,8 @@ def main():
     print(f"# alpha_D {c['alphaD']/1e3:.2f} ms, alpha_P {c['alphaP']/1e3:.2f} ms\n")
 
     hdr = (f"{'regime':<14} {'pack':<9} {'B':>5} {'bind':>5} "
-           f"{'cap_coll':>9} {'cap_disag':>10} {'cap_free':>9} "
-           f"{'knee':>5} {'r_coll':>7} {'r_disag':>8} {'r_free':>7} {'Gam^cap':>8}")
+           f"{'coll':>7} {'disag':>7} {'pd_best':>8} {'agg3':>7} {'free':>7} "
+           f"{'knee':>5} {'r_pd':>6} {'G@knee':>7} {'G@1.25':>7} {'G@1.5':>7}")
     print(hdr)
     print("-" * len(hdr))
 
@@ -282,30 +328,57 @@ def main():
                   if b > 0 else math.inf for ci, b in zip(fleet, batches)]
             cap_coll = sum(1.0 / t for t in tc[1:])
 
+            # agg3: the aggregated reference fleet. All three instances take
+            # whole requests, which is the shape never@3M runs and the shape the
+            # v3 SLO targets are derived on.
+            cap_agg3 = sum(1.0 / t for t in tc)
+
             # disagg: `always` on 1P2D. Prefill pool = instance 0, decode = 1,2.
             cap_disag = min(1.0 / tp[0], sum(1.0 / t for t in td[1:]))
 
-            # free: roles unrestricted across all 3 instances.
+            # pd: the tightest bound respecting 1P2D (prefill anywhere, decode
+            # only on the two mixed instances). free: re-provisioned fleet.
+            cap_pd = pd_capacity(tp, td)
             cap_free = free_capacity(tp, td)
 
-            gam, _ = gamma_cap(
-                [(np.full(N_MC, tp[0]), 1.0),
-                 (t_decode(c, a_p, o, batches[1]) / 1e6, 2.0)], knee)
+            # Two constraints, matching the paper's capacity-ceiling theorem:
+            # decode work fits in the |M| mixed instances (a prefill-only
+            # instance cannot lend time to a decode backlog), and total work
+            # fits in the whole fleet. Each stage is priced at the cheapest
+            # instance that may run it.
+            td_arr = np.minimum.reduce(
+                [t_decode(ci, a_p, o, b) / 1e6 if b > 0 else np.full(N_MC, math.inf)
+                 for ci, b in zip(fleet[1:], batches[1:])])
+            tot_arr = td_arr + min(tp)
+            pools = [(td_arr, float(len(fleet) - 1)), (tot_arr, float(len(fleet)))]
+            gam, _ = gamma_cap(pools, knee)
+            # The ceiling is vacuous below capacity by construction, so also
+            # report it above capacity, where it has content.
+            gam125, _ = gamma_cap(pools, 1.25 * cap_pd)
+            gam150, _ = gamma_cap(pools, 1.50 * cap_pd)
 
-            flag = " *coll>free" if cap_coll > cap_free + 1e-9 else ""
+            # cap_pd charges alpha once per stage, so collocation can beat it.
+            pd_best = max(cap_pd, cap_coll, cap_disag)
+            flag = " *coll>pd" if cap_coll > cap_pd + 1e-9 else ""
             print(f"{name:<14} {packing:<9} {batches[1]:>5.0f} {binders[1]:>5} "
-                  f"{cap_coll:>9.2f} {cap_disag:>10.2f} {cap_free:>9.2f} "
-                  f"{knee:>5.1f} {knee/cap_coll:>7.2f} {knee/cap_disag:>8.2f} "
-                  f"{knee/cap_free:>7.2f} {gam:>8.4f}{flag}")
+                  f"{cap_coll:>7.2f} {cap_disag:>7.2f} {pd_best:>8.2f} "
+                  f"{cap_agg3:>7.2f} {cap_free:>7.2f} "
+                  f"{knee:>5.1f} {knee/pd_best:>6.2f} "
+                  f"{gam:>7.4f} {gam125:>7.4f} {gam150:>7.4f}{flag}")
 
-    print("\n# cap_* are req/s; r_* = knee / cap_*, the utilisation the v2.1 knee rate")
-    print("#   implies against each assignment. r_* > 1 means that assignment CANNOT")
-    print("#   serve the knee rate at all, so any policy pinned to it must fail there.")
-    print("# Gam^cap uses the 1P2D pools at the knee rate; < 1 is a negative")
-    print("#   certificate no routing rule can beat.")
-    print("# The role-separated capacities charge alpha once per stage; a collocated")
-    print("#   iteration pays it once for both, so cap_free understates the true")
-    print("#   unrestricted bound wherever cap_coll exceeds it (flagged *coll>free).")
+    print("\n# All capacities in req/s. coll = never on 1P2D (2 mixed instances);")
+    print("#   disag = always on 1P2D; pd_best = tightest bound respecting 1P2D, so")
+    print("#   NO policy on this topology can beat it; agg3 = the aggregated 3-mixed")
+    print("#   reference fleet that never@3M runs; free = re-provisioned fleet, shown")
+    print("#   to price the topology choice. r_* = knee / cap_*; r > 1 means that")
+    print("#   assignment cannot serve the knee rate at all.")
+    print("# G@x is Gamma^cap: the largest good fraction ANY policy can achieve.")
+    print("#   G@knee is at the v2.1 knee rate; G@1.25 and G@1.5 are at 1.25x and")
+    print("#   1.5x pd_best. It is vacuous (1.0) below capacity BY CONSTRUCTION, so")
+    print("#   the overload columns are where it carries information.")
+    print("# pd_best and free charge alpha once per stage; a collocated iteration")
+    print("#   pays it once for both, so they understate the truth wherever coll")
+    print("#   exceeds them (flagged *coll>pd). pd_best takes the max of the three.")
 
 
 if __name__ == "__main__":

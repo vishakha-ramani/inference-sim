@@ -136,16 +136,42 @@ achieved/offered ratio near the knee.
 
 ## 5. The corrected table
 
-`--batch-cap 16 --tau-itl-ms 67 --packing packed` (the v2.1 configuration):
+`--batch-cap 256 --packing packed` (the v3 configuration; the v2.1 runs used
+`--batch-cap 16`, whose figures are in section 3):
 
 ```
-regime           B  bind  cap_coll  cap_disag  cap_free  knee  r_coll  r_disag  r_free  Gam^cap
-decode          16   cap      3.64       3.65      5.43   3.0    0.82     0.82    0.55   1.0000
-mixed           16   cap     12.55      13.65     17.05  12.0    0.96     0.88    0.70   1.0000
-prefill_lean    16   cap     10.23       8.32     14.12  12.0    1.17     1.44    0.85   0.6934
-prefill_bound   16   cap      7.90       4.15     11.11   8.0    1.01     1.93    0.72   0.5186
-hetero          16   cap     14.44      14.77     29.55   6.0    0.42     0.41    0.20   1.0000
+regime          B  bind    coll   disag  pd_best    agg3    free  knee   r_pd  G@knee  G@1.25   G@1.5
+decode        256   cap   39.13   40.38    40.38   58.70   56.33   3.0   0.07  1.0000  0.9047  0.8142
+mixed         256   cap   57.60   34.00    58.38   86.41   58.39  12.0   0.21  1.0000  0.8500  0.7309
+prefill_lean  256   cap   15.02    8.32    20.01   22.53   20.03  12.0   0.60  1.0000  0.8249  0.6973
+prefill_bound 256   cap    8.41    4.15    11.78   12.62   11.79   8.0   0.68  1.0000  0.8075  0.6754
+hetero        256   cap  181.18  230.69   230.69  324.76  252.00   6.0   0.03  1.0000  1.0000  0.9781
 ```
+
+`pd_best` is the tightest bound respecting 1P2D: prefill may run on any
+instance, decode only on the two mixed ones. **No policy on this topology can
+beat it.** `agg3` is the aggregated 3-mixed reference fleet — the shape
+`never@3M` runs and the shape the v3 SLO targets are derived on. `free` prices a
+re-provisioned fleet of the same size.
+
+**The topology costs 7–32% of capacity.** `pd_best / agg3` is 0.69 on decode,
+0.68 on mixed, 0.89 on prefill_lean, 0.93 on prefill_bound, 0.71 on hetero.
+That quantifies analytically what was previously only an empirical observation
+(aggregated 3M dominating 1P2M on homogeneous cells): dedicating one of three
+instances to prefill-only costs real decode capacity, and it costs most where
+decode is the bottleneck.
+
+**Γ^cap is vacuous at every v2.1 knee rate, and that is the theorem working
+correctly.** Those rates sit at `r_pd` = 0.03–0.68 of capacity, so they are
+servable and no ceiling should bite. The ceiling carries information only above
+capacity, which is why `G@1.25` and `G@1.5` are reported: at 1.5× capacity no
+policy of any kind can exceed 0.68–0.81 good on the four homogeneous cells.
+
+> **Superseded intermediate result — do not quote.** An earlier version of this
+> table reported Γ^cap = 0.6934 (prefill_lean) and 0.5186 (prefill_bound) as
+> negative certificates. Those came from constraining prefill to the single P
+> instance, which is the `always` corner's limit, not a bound over all policies.
+> Under the theorem's actual constraints the ceiling is 1.0 at those rates.
 
 `r_* = knee / cap_*`. **r > 1 means that assignment cannot serve the knee rate
 at all**, so any policy pinned to it must fail there.
@@ -153,18 +179,17 @@ at all**, so any policy pinned to it must fail there.
 This now *predicts* the measured policy behaviour rather than merely
 accompanying it:
 
-- **prefill_lean**: both static corners are infeasible at rate 12
-  (r_disag = 1.44, r_coll = 1.17) while the free assignment sits at 0.85. That
-  is exactly why `always` saturates at its own 8.25 req/s, `never` breaks at
-  12–14, and the adaptive arms hold 1.000 through the knee.
-- **prefill_bound**: r_disag = 1.93 — `always` is at half the required capacity.
-- **decode**: both corners at 0.82, and the free assignment only 0.55. Nothing
-  is under pressure, which is why `always ≡ never ≡ optimal` up to 3.5. The cell
-  is a weak testbed *by construction*, and now we can say so analytically.
-- **hetero**: r_free = 0.20. The rate-6 cell runs at a fifth of fleet capacity,
-  confirming it is an easy test.
-- **Γ^cap is now a real negative certificate**: 0.693 on prefill_lean and 0.519
-  on prefill_bound. No routing rule can exceed those at the stated rates.
+- **prefill_lean**: `always` needs 1.44x its own prefill-pool capacity at rate
+  12 and `never` 1.17x its own, while a topology-respecting assignment sits at
+  0.60. That is exactly why `always` saturates at 8.25 req/s, `never` breaks at
+  12–14, and the adaptive arms hold 1.000 through the knee — the headroom
+  exists, but only for a policy willing to use both roles.
+- **prefill_bound**: `always` is at 1.93x its capacity — less than half of what
+  it needs.
+- **decode**: `pd_best` is 40.38 req/s at cap 256 against a knee of 3.0, so
+  nothing is under pressure at all. The cell is a weak testbed *by
+  construction*, and now we can say so analytically rather than by observation.
+- **hetero**: r_pd = 0.03. The rate-6 cell runs at three percent of capacity.
 
 **Routing loss is near zero on prefill_lean.** cap_free = 14.12 req/s against a
 measured best-policy goodput rate of 14.27 (lt-joint) / 14.22 (dpvar) / 14.21
