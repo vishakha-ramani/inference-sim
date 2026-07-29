@@ -82,6 +82,9 @@ CAP=256
 ARRIVAL_S="${ARRIVAL_S:-300}"
 SEEDS="${SEEDS:-42 7}"
 CELLS="${CELLS:-prefill_lean prefill_bound}"
+# Which arms to run. The forced plan is skipped in a completing pass when the
+# share sweep already measured the whole curve for that cell.
+ARMS="${ARMS:-always dpvar plan@phi*}"
 
 [[ -x ./blis ]] || go build -o blis main.go
 
@@ -89,6 +92,8 @@ CELLS="${CELLS:-prefill_lean prefill_bound}"
 rows_for(){ case "$1" in
   prefill_lean)  echo "8192  64 212.0 27.37 1946.8 0.39 4 6 8 12 16" ;;
   prefill_bound) echo "16000 16 343.3 26.23  739.8 0.34 2 3 4 6 9"  ;;
+  decode)        echo "256  512  49.5 21.93 11293.1 1.00 12 24"      ;;
+  mixed)         echo "2048 128  94.8 28.51  3724.4 0.49 12 24"      ;;
 esac; }
 
 spec(){ # in out rate n seed file
@@ -139,7 +144,7 @@ for cell in $CELLS; do
       P="$D/plan_${cell}_${s}_${N}.csv"
       [[ -f "$P" ]] || python3 campaigns/edpp-study/make_pd_plan.py --n "$N" --phi "$PHISTAR" > "$P"
 
-      for arm in always dpvar "plan@phi*"; do
+      for arm in $ARMS; do
         case $arm in
           always)   ARGS=(--pd-decider always); tag=always ;;
           dpvar)    ARGS=("${VVF[@]}");         tag=dpvar  ;;
