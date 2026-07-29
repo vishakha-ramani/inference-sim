@@ -50,14 +50,22 @@ def main():
                     help="the prefill-only instance (default instance_0)")
     ap.add_argument("--decode-instances", type=int, default=2,
                     help="size of the mixed/decode pool; ids follow the prefill instance")
+    ap.add_argument("--psi", type=float, default=None,
+                    help="share of DECODES sent to the last mixed instance. Omit for an "
+                         "even split. On a heterogeneous fleet the last mixed instance is "
+                         "the slow one, so psi=0 quarantines it out of decode entirely.")
     ap.add_argument("--id-prefix", default="request_",
                     help="request id prefix (sim/workload/generator.go uses request_<i>)")
     args = ap.parse_args()
 
     if not 0.0 <= args.phi <= 1.0:
         raise SystemExit(f"--phi must be in [0, 1], got {args.phi}")
+    if args.psi is not None and not 0.0 <= args.psi <= 1.0:
+        raise SystemExit(f"--psi must be in [0, 1], got {args.psi}")
     if args.decode_instances < 1:
         raise SystemExit("--decode-instances must be at least 1")
+    if args.psi is not None and args.decode_instances < 2:
+        raise SystemExit("--psi needs at least two mixed instances to divide between")
 
     # Mixed pool ids sit immediately after the prefill instance: 1P2D gives
     # instance_0 the prefill role and instance_1, instance_2 the mixed roles.
@@ -68,20 +76,45 @@ def main():
     # Bresenham interleave: emit a disaggregated request whenever the running
     # error crosses one. Over n rows this places exactly round(phi*n) of them, as
     # evenly spread as the ratio permits.
+    #
+    # The decode instance is chosen the same way. Without --psi the two classes
+    # round-robin the mixed pool independently, which divides each evenly. With
+    # --psi a second Bresenham counter sends that share of ALL decodes to the last
+    # mixed instance and round-robins the rest across the others, so psi = 0 keeps
+    # every decode off it.
+    fast = mixed[:-1] if args.psi is not None else mixed
+    slow = mixed[-1]
     err = 0.0
+    err_psi = 0.0
     n_disagg = 0
     n_local = 0
+    n_fast = 0
     for i in range(args.n):
         err += args.phi
-        if err >= 1.0 - 1e-12:
+        disagg = err >= 1.0 - 1e-12
+        if disagg:
             err -= 1.0
-            decode = mixed[n_disagg % len(mixed)]
-            n_disagg += 1
             prefill = args.prefill_instance
         else:
-            decode = mixed[n_local % len(mixed)]
-            n_local += 1
             prefill = "local"
+
+        if args.psi is None:
+            # Independent round-robin per class, the original even division.
+            if disagg:
+                decode = mixed[n_disagg % len(mixed)]
+            else:
+                decode = mixed[n_local % len(mixed)]
+        else:
+            err_psi += args.psi
+            if err_psi >= 1.0 - 1e-12:
+                err_psi -= 1.0
+                decode = slow
+            else:
+                decode = fast[n_fast % len(fast)]
+                n_fast += 1
+
+        n_disagg += 1 if disagg else 0
+        n_local += 0 if disagg else 1
         print(f"{args.id_prefix}{i},{decode},{prefill}")
 
 
