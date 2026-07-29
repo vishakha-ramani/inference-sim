@@ -69,6 +69,20 @@ func NewMetrics() *Metrics {
 // — callers (SaveResults, cmd/-side goodput emitters) handle stdout and file
 // output. Splitting build-from-emit lets cmd/ inject goodput fields between the
 // two steps without changing SaveResults's signature (#1413).
+// meanInt is a plain arithmetic mean. CalculateMean is NOT usable here: it folds
+// a ticks-to-milliseconds division by 1000 into the average, which is correct for
+// the latency series it serves and wrong for a count of requests.
+func meanInt(xs []int) float64 {
+	if len(xs) == 0 {
+		return 0
+	}
+	sum := 0
+	for _, x := range xs {
+		sum += x
+	}
+	return float64(sum) / float64(len(xs))
+}
+
 func (m *Metrics) BuildOutput(instanceID string, saturationDetector BatchClassifier) MetricsOutput {
 	vllmRuntime := float64(m.SimEndedTime) / float64(1e6)
 
@@ -86,6 +100,7 @@ func (m *Metrics) BuildOutput(instanceID string, saturationDetector BatchClassif
 		DroppedUnservable:    m.DroppedUnservable,
 		LengthCappedRequests: m.LengthCappedRequests,
 		TimedOutRequests:     m.TimedOutRequests,
+		MeanRunningBatch:     meanInt(m.NumRunningBatchRequests),
 	}
 
 	if m.CompletedRequests > 0 {

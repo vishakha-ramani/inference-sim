@@ -78,6 +78,15 @@ type MetricsOutput struct {
 	ITLP95Ms              float64          `json:"itl_p95_ms"`
 	ITLP99Ms              float64          `json:"itl_p99_ms"`
 	SchedulingDelayP99Ms     float64          `json:"scheduling_delay_p99_ms"`
+	// MeanRunningBatch is the arithmetic mean of the running-batch occupancy
+	// sampled once per step (Metrics.NumRunningBatchRequests). It is the achieved
+	// batch, distinct from the --max-num-running-reqs cap: capacity models that
+	// price an iteration as alpha + B*delta need the achieved occupancy, not the
+	// cap, because alpha is shared over whatever actually occupies the iteration.
+	// Averaged over the WHOLE run, so it includes the fill and drain transients;
+	// read it only from runs that are saturated end to end.
+	// Read-only statistic — does not feed back into state evolution.
+	MeanRunningBatch         float64          `json:"mean_running_batch,omitempty"`
 	KVAllocationFailures    int64            `json:"kv_allocation_failures,omitempty"`
 	PreemptionCount         int64            `json:"preemption_count"`
 	DroppedUnservable       int              `json:"dropped_unservable"`
