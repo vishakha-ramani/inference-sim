@@ -20,7 +20,10 @@ Usage:
 import sys
 from collections import defaultdict
 
-ARMS = ["always", "dpvar", "plan@f*"]
+# Logs written before the f -> phi rename use "plan@f*". Accept both so older
+# logs stay readable.
+ARMS = ["always", "dpvar", "plan@phi*"]
+ARM_ALIASES = {"plan@f*": "plan@phi*"}
 CEIL = {"prefill_lean": 19.75, "prefill_bound": 11.64}
 ALWAYS_CAP = {"prefill_lean": 8.28, "prefill_bound": 4.15}
 
@@ -35,9 +38,10 @@ def main():
         p = ln.split()
         if len(p) < 9 or not p[0].startswith("prefill_"):
             continue
-        if p[1] not in ARMS:
+        arm = ARM_ALIASES.get(p[1], p[1])
+        if arm not in ARMS:
             continue
-        cell, arm, rate = p[0], p[1], float(p[2])
+        cell, rate = p[0], float(p[2])
         try:
             vals = tuple(float(x) for x in p[3:9])
         except ValueError:

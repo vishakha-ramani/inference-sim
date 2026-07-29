@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Measure the EXPERIMENTAL capacity ceiling of a 1P2D fleet by sweeping the
-# mixing fraction f under a forced plan, and locate f*.
+# mixing share phi under a forced plan, and locate phi*.
 #
 # WHY THIS EXISTS
 # ---------------
@@ -14,29 +14,29 @@
 # point of the fluid capacity curve. Sweeping f traces the curve and its peak is
 # the ceiling.
 #
-# WHAT f MEANS
-# ------------
-# f = fraction of requests whose prefill runs on instance 0 (the prefill-only
+# WHAT phi MEANS
+# --------------
+# phi = share of requests whose prefill runs on instance 0 (the prefill-only
 # instance) and whose decode runs on a mixed instance. The remaining 1 - f are
 # served whole on a mixed instance (prefill_instance = local, so disaggregation
 # does not fire). Decode is split evenly across the mixed pool.
 #
-#   f = 0  is exactly `never` on 1P2D   (nothing uses the prefill instance)
-#   f = 1  is exactly `always` on 1P2D  (every request splits)
+#   phi = 0  is exactly `never` on 1P2D   (nothing uses the prefill instance)
+#   phi = 1  is exactly `always` on 1P2D  (every request splits)
 #
 # Those two endpoints are run BOTH as plans and as --pd-decider never / always,
-# and they must agree. That is the harness self-check: if a plan at f = 1 does not
+# and they must agree. That is the harness self-check: if a plan at phi = 1 does not
 # reproduce `always`, the plan mechanism is wrong and no interior point is
 # trustworthy.
 #
-# WHY THE OFFERED RATE VARIES WITH f
-# ----------------------------------
+# WHY THE OFFERED RATE VARIES WITH phi
+# ------------------------------------
 # Capacity is only observable when the server is the bottleneck, so every point
 # must be overloaded. But the offered rate cannot simply be large: what triggers
 # `dropped_unservable` is the BACKLOG, and a single large rate sheds requests at
-# the f values whose capacity is lowest. A run with drops is not a capacity
+# the phi values whose capacity is lowest. A run with drops is not a capacity
 # measurement. So each point is offered a fixed modest multiple (default 1.15x) of
-# its own PREDICTED capacity, which keeps the backlog comparable across f.
+# its own PREDICTED capacity, which keeps the backlog comparable across phi.
 #
 # Trusting the prediction that way would be circular, so every run is gated:
 #   - dropped_unservable, still_queued, still_running must all be zero
@@ -55,7 +55,7 @@
 #
 # WHAT TO READ
 # ------------
-# The measured column should rise, peak near the predicted f*, and fall. A peak
+# The measured column should rise, peak near the predicted phi*, and fall. A peak
 # above `never`'s measured ceiling is only reachable by putting prefill onto the
 # decode instances, so the peak's location is direct evidence of the interior
 # mixing the fluid model predicts.
@@ -78,14 +78,14 @@ CAP=256                                   # --max-num-running-reqs (simulator de
 N="${N:-4600}"                            # requests per run; see the note above
 OVERLOAD="${OVERLOAD:-1.15}"              # offered rate as a multiple of C_pred(f)
 SEEDS="${SEEDS:-42}"
-F_VALUES="${F_VALUES:-0,0.10,0.20,0.28,0.31,0.34,0.39,0.45,0.55,0.70,1.0}"
+PHI_VALUES="${PHI_VALUES:-0,0.10,0.20,0.28,0.31,0.34,0.39,0.45,0.55,0.70,1.0}"
 CELLS="${CELLS:-prefill_lean prefill_bound}"
 
 [[ -x ./blis ]] || go build -o blis main.go
 
 # Cell definitions: input tokens and mean output tokens. Same four homogeneous
 # cells as specs/grid_v3/cells.txt; only the two prefill cells are swept, because
-# the decode cell's predicted f* sits at the boundary f = 1 (nothing to locate)
+# the decode cell's predicted phi* sits at the boundary phi = 1 (nothing to locate)
 # and the balanced cell's is sensitive to the batch cap.
 cell_in()  { case "$1" in prefill_lean) echo 8192;; prefill_bound) echo 16000;;
                           decode) echo 256;; mixed) echo 2048;; esac; }
@@ -177,16 +177,16 @@ for cell in $CELLS; do
   # Predicted capacity and offered rate for each f, from mix_cap.py so the model
   # lives in exactly one place.
   GRID=$(python3 campaigns/edpp-study/mix_cap.py --emit-grid "$cell" \
-           --f-values "$F_VALUES" --overload "$OVERLOAD")
+           --phi-values "$PHI_VALUES" --overload "$OVERLOAD")
 
   for s in $SEEDS; do
     # --- self-check: the two endpoints as real deciders -------------------
     # never must match the f=0 plan, always must match the f=1 plan. The rates
     # are queried for f=0 and f=1 explicitly rather than read out of GRID, so the
-    # self-check still runs when F_VALUES covers only part of the range (e.g. a
+    # self-check still runs when PHI_VALUES covers only part of the range (e.g. a
     # re-run of the peak region).
     ENDS=$(python3 campaigns/edpp-study/mix_cap.py --emit-grid "$cell" \
-             --f-values "0,1.0" --overload "$OVERLOAD")
+             --phi-values "0,1.0" --overload "$OVERLOAD")
     NEVER_C=$(awk 'NR==1{printf "%.2f", $2}' <<<"$ENDS")
     NEVER_R=$(awk 'NR==1{printf "%.1f", $3}' <<<"$ENDS")
     ALWAYS_C=$(awk 'NR==2{printf "%.2f", $2}' <<<"$ENDS")
@@ -203,13 +203,13 @@ for cell in $CELLS; do
       "$(python3 -c "print($A/$ALWAYS_C)")" "$DUR" "$XM" "$XP" "$(verdict "$A" "$ALWAYS_R" "$INJ" "$DR" "$Q" "$RU")"
 
     # --- the f sweep -------------------------------------------------------
-    while read -r F CPRED OFF; do
+    while read -r PHI CPRED OFF; do
       R=$(python3 -c "print(f'{$OFF:.1f}')")
-      P="$D/plan_${cell}_f${F}_${s}.csv"
-      python3 campaigns/edpp-study/make_pd_plan.py --n "$N" --f "$F" > "$P"
-      read -r A INJ DR Q RU DUR <<<"$(run_one "$cell" "$IN" "$O" "$R" "$N" "$s" "f$F" --pd-plan "$P")"
-      read -r XM XP <<<"$(read_xbar "$OUT/${cell}_f${F}_${s}.stdout")"
-      printf '%-14s %-10s %8s %9.2f %10s %8.3f %9s %8s %7s %s\n' "$cell" "f=$F" "$R" "$CPRED" "$A" \
+      P="$D/plan_${cell}_phi${PHI}_${s}.csv"
+      python3 campaigns/edpp-study/make_pd_plan.py --n "$N" --phi "$PHI" > "$P"
+      read -r A INJ DR Q RU DUR <<<"$(run_one "$cell" "$IN" "$O" "$R" "$N" "$s" "phi$PHI" --pd-plan "$P")"
+      read -r XM XP <<<"$(read_xbar "$OUT/${cell}_phi${PHI}_${s}.stdout")"
+      printf '%-14s %-10s %8s %9.2f %10s %8.3f %9s %8s %7s %s\n' "$cell" "phi=$PHI" "$R" "$CPRED" "$A" \
         "$(python3 -c "print($A/$CPRED)")" "$DUR" "$XM" "$XP" "$(verdict "$A" "$R" "$INJ" "$DR" "$Q" "$RU")"
     done <<<"$GRID"
   done
@@ -217,9 +217,9 @@ done
 
 echo
 echo "READ:"
-echo "  ref:never must match the f=0 row and ref:always the f=1 row. If they do"
+echo "  ref:never must match the phi=0 row and ref:always the phi=1 row. If they do"
 echo "  not, the plan mechanism is wrong and no interior row means anything."
-echo "  The measured column should peak near the predicted f* (lean 0.387,"
+echo "  The measured column should peak near the predicted phi* (lean 0.387,"
 echo "  bound 0.337). A peak above never's measured ceiling (lean 13.66, bound"
 echo "  7.89) is reachable only by prefilling on the decode instances."
 echo "  ratio = measured / C_pred; it must stay at or below 1, since C_pred is a"

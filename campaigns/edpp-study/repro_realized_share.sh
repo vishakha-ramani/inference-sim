@@ -3,14 +3,14 @@
 #
 # WHY
 # ---
-# The goodput ladder found that a plan holding the throughput-optimal share f*
+# The goodput ladder found that a plan holding the throughput-optimal share phi*
 # fixed beats the adaptive rule at every rate, on both prefill cells. That result
 # has two possible causes and they call for different fixes.
 #
-#   The aggregate mixture is wrong. The rule settles on a share away from f*, so
+#   The aggregate mixture is wrong. The rule settles on a share away from phi*, so
 #   it is solving for the wrong split. Measurable here.
 #
-#   The mixture is right and the assignment is not. The rule lands near f* but
+#   The mixture is right and the assignment is not. The rule lands near phi* but
 #   splits the wrong requests, or splits them at the wrong moments. That would
 #   show up as a matching share with a worse goodput, which is the more
 #   interesting finding.
@@ -20,7 +20,7 @@
 # stdout to /dev/null, hence this pass.
 #
 # Two arms serve as controls. `always` must report a share of 1.000 and the plan
-# must report f* exactly. If either misses, the reading is not what we think.
+# must report phi* exactly. If either misses, the reading is not what we think.
 #
 # Rates are the sub-ceiling points of the ladder, where `always` is under its own
 # capacity and the goodput comparison carries information.
@@ -37,16 +37,16 @@ SEEDS="${SEEDS:-42}"
 TOPO=(--num-instances 3 --prefill-instances 1 --decode-instances 2
       --decode-routing-scorers "queue-depth:1" --max-num-running-reqs 256)
 
-# cell in out tau_ttft tau_itl tau_e2e fstar rates
+# cell in out tau_ttft tau_itl tau_e2e phistar rates
 rows(){ case "$1" in
   prefill_lean)  echo "8192  64 212.0 27.37 1946.8 0.39 4 6 8" ;;
   prefill_bound) echo "16000 16 343.3 26.23  739.8 0.34 2 3 4" ;;
 esac; }
 
-printf '%-14s %-9s %6s %11s %11s %9s %9s\n' cell arm rate injected disagg share f_star
+printf '%-14s %-9s %6s %11s %11s %9s %9s\n' cell arm rate injected disagg share phi_star
 
 for cell in prefill_lean prefill_bound; do
-  read -r IN O T I E FSTAR RATES <<<"$(rows "$cell")"
+  read -r IN O T I E PHISTAR RATES <<<"$(rows "$cell")"
   SLO=(--slo-ttft "standard=${T}ms" --slo-itl "standard=${I}ms" --slo-e2e "standard=${E}ms")
   EC=(--edpp-coeffs "$COEF" --edpp-tadm-estimator rollforward --edpp-c-xfer-size-aware
       --edpp-tau-itl "${I}ms")
@@ -61,11 +61,11 @@ for cell in prefill_lean prefill_bound; do
       N=$(python3 -c "print(int($R*300))")
       P="$LADDER/plan_${cell}_${s}_${N}.csv"
       [[ -f "$W" ]] || { echo "missing $W (run the ladder first)"; exit 1; }
-      for arm in always dpvar "plan@f*"; do
+      for arm in always dpvar "plan@phi*"; do
         case $arm in
           always)   ARGS=(--pd-decider always); tag=always ;;
           dpvar)    ARGS=("${VVF[@]}");         tag=dpvar  ;;
-          "plan@f*")ARGS=(--pd-plan "$P");      tag=planfs ;;
+          "plan@phi*")ARGS=(--pd-plan "$P");    tag=planphi ;;
         esac
         SO="$OUT/${cell}_${R}_${tag}_${s}.out"
         ./blis run --model "$MODEL" --workload-spec "$W" "${TOPO[@]}" "${SLO[@]}" \
@@ -79,15 +79,15 @@ dis=int(m.group(1)) if m else -1
 d=json.load(open('$OUT/${cell}_${R}_${tag}_${s}.json'))
 inj=d['injected_requests']
 print(inj, dis, ('%.4f'%(dis/inj)) if inj and dis>=0 else 'n/a')")"
-        printf '%-14s %-9s %6s %11s %11s %9s %9s\n' "$cell" "$arm" "$R" "$INJ" "$DIS" "$SH" "$FSTAR"
+        printf '%-14s %-9s %6s %11s %11s %9s %9s\n' "$cell" "$arm" "$R" "$INJ" "$DIS" "$SH" "$PHISTAR"
       done
     done
   done
 done
 
 echo
-echo "READ: always must show 1.0000 and plan@f* must show f_star. If dpvar's share"
-echo "sits away from f_star, the rule is solving for the wrong split. If it sits on"
-echo "f_star while losing goodput, the split is right and the per-request choice is"
+echo "READ: always must show 1.0000 and plan@phi* must show phi_star. If dpvar's share"
+echo "sits away from phi_star, the rule is solving for the wrong split. If it sits on"
+echo "phi_star while losing goodput, the split is right and the per-request choice is"
 echo "what costs it."
 echo DONE

@@ -20,7 +20,7 @@
 #   always      --pd-decider always. Every request splits. The static corner an
 #               operator gets by turning disaggregation on and leaving it.
 #   dpvar       the full rule. Reads the deployable co-resident estimate.
-#   plan@f*     --pd-plan holding the throughput-optimal share f* fixed. This is
+#   plan@phi*   --pd-plan holding the throughput-optimal share phi* fixed. This is
 #               the static arrangement that maximizes CAPACITY, measured at 0.39
 #               on prefill_lean and 0.34 on prefill_bound. It is the reference an
 #               adaptive rule has to beat to earn its complexity.
@@ -29,14 +29,14 @@
 # policy here. never@1P2D leaves the dedicated prefill instance idle, measured at
 # a mean batch occupancy of zero, so it competes with two instances against three.
 #
-# WHAT f* IS AND IS NOT
-# ---------------------
-# f* maximizes throughput. Nothing says it maximizes goodput. Raising the share
+# WHAT phi* IS AND IS NOT
+# -----------------------
+# phi* maximizes throughput. Nothing says it maximizes goodput. Raising the share
 # that disaggregates shortens the prefill queue and enlarges the decode batch on
 # the mixed instances, which trades first-token time against inter-token time, and
-# a work-conservation model cannot see that trade. So plan@f* is a reference point
+# a work-conservation model cannot see that trade. So plan@phi* is a reference point
 # and not a goodput ceiling. If dpvar beats it, the gap is what reacting to state
-# buys. If plan@f* wins, a fixed share suffices on that cell and we should say so.
+# buys. If plan@phi* wins, a fixed share suffices on that cell and we should say so.
 #
 # RATES
 # -----
@@ -85,7 +85,7 @@ CELLS="${CELLS:-prefill_lean prefill_bound}"
 
 [[ -x ./blis ]] || go build -o blis main.go
 
-# name  in  out  tau_ttft_ms  tau_itl_ms  tau_e2e_ms  fstar  rates...
+# name  in  out  tau_ttft_ms  tau_itl_ms  tau_e2e_ms  phistar  rates...
 rows_for(){ case "$1" in
   prefill_lean)  echo "8192  64 212.0 27.37 1946.8 0.39 4 6 8 12 16" ;;
   prefill_bound) echo "16000 16 343.3 26.23  739.8 0.34 2 3 4 6 9"  ;;
@@ -123,7 +123,7 @@ printf '%-14s %-9s %6s %9s %8s %8s %8s %8s %10s %s\n' \
   cell arm rate achieved goodput g_ttft g_itl g_e2e ttft_p99 gate
 
 for cell in $CELLS; do
-  read -r IN O T I E FSTAR RATES <<<"$(rows_for "$cell")"
+  read -r IN O T I E PHISTAR RATES <<<"$(rows_for "$cell")"
   SLO=(--slo-ttft "standard=${T}ms" --slo-itl "standard=${I}ms" --slo-e2e "standard=${E}ms")
   EC=(--edpp-coeffs "$COEF" --edpp-tadm-estimator rollforward --edpp-c-xfer-size-aware
       --edpp-tau-itl "${I}ms")
@@ -137,13 +137,13 @@ for cell in $CELLS; do
       W="$D/w_${cell}_${R}_${s}.yaml"
       spec "$IN" "$O" "$R" "$N" "$s" "$W"
       P="$D/plan_${cell}_${s}_${N}.csv"
-      [[ -f "$P" ]] || python3 campaigns/edpp-study/make_pd_plan.py --n "$N" --f "$FSTAR" > "$P"
+      [[ -f "$P" ]] || python3 campaigns/edpp-study/make_pd_plan.py --n "$N" --phi "$PHISTAR" > "$P"
 
-      for arm in always dpvar "plan@f*"; do
+      for arm in always dpvar "plan@phi*"; do
         case $arm in
           always)   ARGS=(--pd-decider always); tag=always ;;
           dpvar)    ARGS=("${VVF[@]}");         tag=dpvar  ;;
-          "plan@f*")ARGS=(--pd-plan "$P");      tag=planfs ;;
+          "plan@phi*")ARGS=(--pd-plan "$P");    tag=planphi ;;
         esac
         M="$OUT/${cell}_${R}_${tag}_${s}.json"
         ./blis run --model "$MODEL" --workload-spec "$W" "${TOPO[@]}" "${SLO[@]}" \
@@ -168,9 +168,9 @@ echo
 echo "READ:"
 echo "  The rates below always's ceiling (lean 4 and 6, bound 2 and 3) are the ones"
 echo "  that carry information. There always serves everything offered, so its"
-echo "  goodput reports its routing. If dpvar and plan@f* lead there, the win is"
+echo "  goodput reports its routing. If dpvar and plan@phi* lead there, the win is"
 echo "  routing quality at equal throughput. If they only lead at the higher rates,"
 echo "  the win is capacity and the capacity section already made it."
-echo "  plan@f* is the throughput-optimal STATIC share. It is a reference, not a"
-echo "  ceiling on goodput, because f* is chosen without reference to the targets."
+echo "  plan@phi* is the throughput-optimal STATIC share. It is a reference, not a"
+echo "  ceiling on goodput, because phi* is chosen without reference to the targets."
 echo DONE

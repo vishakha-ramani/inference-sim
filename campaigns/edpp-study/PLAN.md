@@ -8,6 +8,35 @@ policy evaluation last.** Every number in the current Policy Evaluation section
 rests on a superseded protocol, and re-running it before the protocol is settled
 would waste the runs.
 
+## Notation
+
+One symbol per phenomenon. **phi** is the share of arrivals that disaggregate,
+meaning their prefill runs on the dedicated prefill instance and their decode on a
+mixed instance. The remaining `1 - phi` are served whole on a mixed instance.
+`phi*` is the share that maximizes capacity. The paper writes it `\pdshare` and
+renders it as phi, and the harnesses take it as `--phi`.
+
+The harnesses called it `f` until 2026-07-29. That collided with the pool-split
+fractions `f_i` in the capacity derivation and read as a different quantity from
+the paper's, so it was swept. Log files written before the rename label the static
+arm `plan@phi*`, and `analyze/goodput_ladder.py` accepts both spellings.
+
+**theta is a different quantity and is retired.** It was the fraction of a mixed
+instance's TIME given to prefill, which is what the superseded `pd_best` bound
+used. The two move in opposite directions as prompts lengthen, so keeping both
+names would make the old numbers look like a contradiction rather than a different
+parameterization.
+
+| cell | theta* (retired) | phi* |
+|---|---|---|
+| decode | 0.00 | 1.00 |
+| mixed | 0.36 | 0.485 |
+| prefill_lean | 0.703 | 0.387 |
+| prefill_bound | 0.920 | 0.337 |
+
+Both rows for `decode` describe the same policy, `always`. theta = 0 means mixed
+instances do no prefill and phi = 1 means every request splits.
+
 Two fairness constraints apply to every comparison from here on.
 
 - `never@3M` is not a baseline. The operator fixes the disaggregated topology and
@@ -41,13 +70,16 @@ genuinely saturated:
 | | prefill_lean (8192/64) | prefill_bound (16000/16) |
 |---|---|---|
 | measured ceiling | **19.75** at f = 0.39 | **11.64** at f = 0.34 |
-| predicted f\* | 0.387 | 0.337 |
+| predicted phi\* | 0.387 | 0.337 |
 | `always` | 8.2765 (0.42 of ceiling) | 4.1454 (0.36) |
 | `never@1P2D` | 13.5430 (0.69) | 7.9062 (0.68) |
 | dpVaR (from the ladder) | >= 17.687 (>= 0.895) | 9.382 (0.81) |
 
-Identity, verified analytically and in measurement: **f\* = C_always / C_ceiling**
-whenever the dedicated prefill instance binds under full separation.
+Identity, verified analytically and in measurement to four decimals on all
+four cells: **phi\* = C_always / C_mix(phi\*)**, where `C_always` is the capacity
+of the `always` policy and `C_mix(phi\*)` is the peak of the curve. It holds by
+derivation wherever the dedicated prefill instance binds under full separation,
+and trivially on `decode`, where phi\* sits at the boundary.
 
 Model accuracy splits by which instance binds. Prefill-bound: within about one
 percent over ten points. Collocation-bound: five to ten percent under over
@@ -79,7 +111,7 @@ because it never collocates, so mixed instances only decode and batches stay sma
 *A fixed share beats the rule on all ten rate points*, by 0.063 to 0.117 against
 seed spreads of 0.007 to 0.083.
 
-| cell | rate | always | dpvar | plan@f* |
+| cell | rate | always | dpvar | plan@phi* |
 |---|---|---|---|---|
 | lean | 4 | 0.493 | 0.804 | **0.867** |
 | lean | 6 | 0.253 | 0.726 | **0.803** |
@@ -90,11 +122,11 @@ seed spreads of 0.007 to 0.083.
 
 **4. Why the fixed share wins.** DONE. `repro_realized_share.sh` reads
 `Disaggregated Requests` off stdout. Controls pass exactly, `always` at 1.0000 and
-the plan at f\*.
+the plan at phi\*.
 
-**dpVaR systematically under-disaggregates.** Realized share against f\*:
+**dpVaR systematically under-disaggregates.** Realized share against phi\*:
 
-| cell | rate | dpvar share | f* |
+| cell | rate | dpvar share | phi* |
 |---|---|---|---|
 | lean | 4 | **0.0850** | 0.39 |
 | lean | 6 | 0.2189 | 0.39 |
@@ -104,7 +136,7 @@ the plan at f\*.
 | bound | 4 | 0.2083 | 0.34 |
 
 It splits 8.5 percent of requests where the optimum is 39, leaving the dedicated
-prefill instance almost idle. The share rises with load and converges toward f\*
+prefill instance almost idle. The share rises with load and converges toward phi\*
 only from below, and only as congestion forces it.
 
 Mechanism, consistent with what `infocom/main.tex` Model Validation already
@@ -118,11 +150,11 @@ as a routing bias rather than an estimator error.
 ## Next
 
 **5. f-sweep for GOODPUT.** The question that decides whether item 4 breaks the
-paper or sharpens it. f\* was derived from the capacity model and knows nothing
+paper or sharpens it. phi\* was derived from the capacity model and knows nothing
 about the SLO targets. Sweep the share against goodput at fixed sub-ceiling rates
 and ask two things.
 
-- Does the goodput-optimal share differ from the throughput-optimal f\*?
+- Does the goodput-optimal share differ from the throughput-optimal phi\*?
 - Does it move with load, and with workload?
 
 If it moves, no fixed share is deployable and the rule's premise holds. It then
