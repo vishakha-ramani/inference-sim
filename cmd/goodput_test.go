@@ -25,6 +25,20 @@ func TestParseSLODurationFlag_HappyPath(t *testing.T) {
 	}
 }
 
+func TestParseNonnegativeClassInts_ClassThresholds(t *testing.T) {
+	got := parseNonnegativeClassInts(
+		"critical=1024, batch=16,standard=16",
+		"pd-prefix-threshold-classes",
+	)
+	want := map[string]int{"critical": 1024, "batch": 16, "standard": 16}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("class thresholds = %v, want %v", got, want)
+	}
+	if empty := parseNonnegativeClassInts("  ", "pd-prefix-threshold-classes"); empty != nil {
+		t.Fatalf("empty class thresholds = %v, want nil", empty)
+	}
+}
+
 // TestParseSLODurationFlag_Empty verifies BC-8: empty input returns (nil, nil).
 func TestParseSLODurationFlag_Empty(t *testing.T) {
 	got, err := parseSLODurationFlag("")
@@ -146,8 +160,8 @@ func TestEmitGoodput_OneClassE2EOnly(t *testing.T) {
 	// Two requests under "default": one meets E2E=5s threshold, one does not.
 	m.Requests["r1"] = sim.RequestMetrics{ID: "r1", SLOClass: "default"}
 	m.Requests["r2"] = sim.RequestMetrics{ID: "r2", SLOClass: "default"}
-	m.RequestE2Es["r1"] = 1_000_000   // 1s in µs (passes 5s threshold)
-	m.RequestE2Es["r2"] = 10_000_000  // 10s in µs (fails)
+	m.RequestE2Es["r1"] = 1_000_000  // 1s in µs (passes 5s threshold)
+	m.RequestE2Es["r2"] = 10_000_000 // 10s in µs (fails)
 
 	targets := map[string]workload.SLODimTargets{
 		"default": {E2EMs: 5000},

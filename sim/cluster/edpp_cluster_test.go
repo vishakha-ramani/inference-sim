@@ -7,6 +7,87 @@ import (
 	"github.com/inference-sim/inference-sim/sim"
 )
 
+type firstTokenFeedbackSpy struct {
+	keys          []string
+	ticks         []int64
+	completedKeys []string
+	completedTTFT []int64
+	forgottenKeys []string
+}
+
+func (*firstTokenFeedbackSpy) OnRoute(*sim.Request, string, bool, int, string, string) {}
+func (*firstTokenFeedbackSpy) OnAdmit(string, bool)                                    {}
+func (s *firstTokenFeedbackSpy) OnFirstToken(key string, tick int64) {
+	s.keys = append(s.keys, key)
+	s.ticks = append(s.ticks, tick)
+}
+func (s *firstTokenFeedbackSpy) OnComplete(_ *sim.Request, key string, ttft, _ int64) {
+	s.completedKeys = append(s.completedKeys, key)
+	s.completedTTFT = append(s.completedTTFT, ttft)
+}
+func (s *firstTokenFeedbackSpy) Forget(key string) {
+	s.forgottenKeys = append(s.forgottenKeys, key)
+}
+
+// Disaggregated feedback must true up at the client-visible first decode
+// token, not at the prefill subrequest's internal completion boundary.
+// Normal collocated requests continue to true up from Simulator.OnFirstToken.
+func TestEDPPFeedback_UsesFirstDecodeTokenForDisaggregatedRequest(t *testing.T) {
+	spy := &firstTokenFeedbackSpy{}
+	parent := &ParentRequest{
+		ID: "parent", PrefillSubReqID: "parent_prefill", DecodeSubReqID: "parent_decode",
+	}
+	cs := &ClusterSimulator{
+		sloFeedback:               spy,
+		parentRequests:            map[string]*ParentRequest{"parent": parent},
+		pendingPrefillCompletions: map[string]string{"parent_prefill": "parent"},
+		pendingDecodeCompletions:  map[string]string{"parent_decode": "parent"},
+	}
+
+	cs.feedFirstToken(&sim.Request{ID: "parent_prefill"}, 100)
+	if len(spy.keys) != 0 {
+		t.Fatalf("prefill completion emitted client TTFT feedback: keys=%v ticks=%v", spy.keys, spy.ticks)
+	}
+
+	cs.recordFirstDecodeToken(&sim.Request{ID: "parent_decode", IsDecodeSubRequest: true}, 250)
+	if len(spy.keys) != 1 || spy.keys[0] != "parent" || spy.ticks[0] != 250 {
+		t.Fatalf("first decode token feedback = keys=%v ticks=%v, want parent@250", spy.keys, spy.ticks)
+	}
+	if parent.FirstDecodeTokenTime != 250 {
+		t.Fatalf("FirstDecodeTokenTime = %d, want 250", parent.FirstDecodeTokenTime)
+	}
+
+	cs.feedFirstToken(&sim.Request{ID: "local"}, 300)
+	if len(spy.keys) != 2 || spy.keys[1] != "local" || spy.ticks[1] != 300 {
+		t.Fatalf("local first-token feedback = keys=%v ticks=%v, want second event local@300", spy.keys, spy.ticks)
+	}
+}
+
+// FirstTokenTime is an elapsed duration, whereas ArrivalTime is absolute. A
+// second subtraction used to turn perfectly valid late-arriving requests
+// negative, route them through Forget, and silently suppress their ITL/N-hat
+// feedback.
+func TestEDPPFeedback_UsesElapsedFirstTokenTime(t *testing.T) {
+	spy := &firstTokenFeedbackSpy{}
+	cs := &ClusterSimulator{sloFeedback: spy}
+	req := &sim.Request{
+		ID: "late-arrival", ArrivalTime: 10_000, FirstTokenTime: 2_000,
+		TTFTSet: true, ITL: []int64{500},
+	}
+
+	cs.feedSLOFeedback(req)
+
+	if len(spy.completedKeys) != 1 || spy.completedKeys[0] != req.ID {
+		t.Fatalf("completed keys = %v, want [%s]", spy.completedKeys, req.ID)
+	}
+	if len(spy.completedTTFT) != 1 || spy.completedTTFT[0] != 2_000 {
+		t.Fatalf("completed TTFT = %v, want [2000]", spy.completedTTFT)
+	}
+	if len(spy.forgottenKeys) != 0 {
+		t.Fatalf("valid completion was forgotten: %v", spy.forgottenKeys)
+	}
+}
+
 // newTestEDPPDeploymentConfig mirrors newTestDisaggDeploymentConfig but selects the
 // EDPP decider and supplies its knobs. Tight τ_itl makes the run breach the ITL SLO
 // so the z-feedback path is exercised.
@@ -65,6 +146,93 @@ func TestEDPP_Cluster_WiringAndFeedback(t *testing.T) {
 	mustRun(t, cs)
 	if cs.AggregatedMetrics().TotalOutputTokens == 0 {
 		t.Error("TotalOutputTokens = 0; EDPP run produced no decode output")
+	}
+}
+
+// Both VaR rules require per-running-request snapshot state. The simplified
+// var-prefill mode must enable the same deployable admission-detail substrate
+// as the full var rule; otherwise every RunningDecode/RunningPrefill slice is
+// nil and all VaR kernels silently evaluate to zero.
+func TestEDPP_VarPrefill_EnablesDeployableVaRInputs(t *testing.T) {
+	config := newTestEDPPDeploymentConfig(3, 1, 2)
+	config.EDPPRule = "var-prefill"
+	config.EDPPVarMetric = "util"
+	config.EDPPVarDeployable = true
+	cs := NewClusterSimulator(config, newTestRequests(1), nil)
+
+	for _, inst := range cs.instances {
+		if !inst.sim.AdmissionDetailEnabled() {
+			t.Fatalf("instance %s has admission detail disabled; var-prefill would observe zero co-residents", inst.ID())
+		}
+	}
+}
+
+// Every dedicated resident-externality policy needs the same admission-detail
+// substrate as the older var rules. These modes are deployable by construction:
+// admission detail supplies phase/age/progress state while true remaining output
+// work stays censored.
+func TestEDPP_ResidentExternalityPolicies_EnableAdmissionDetail(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*DeploymentConfig)
+	}{
+		{"joint-causal", func(config *DeploymentConfig) { config.EDPPJointCausalVar = true }},
+		{"decomposed-causal", func(config *DeploymentConfig) { config.EDPPDecomposedCausalVar = true }},
+		{"joint-slo-externality", func(config *DeploymentConfig) { config.EDPPJointSLOExternality = true }},
+		{"decomposed-slo-externality", func(config *DeploymentConfig) { config.EDPPDecomposedSLOExternality = true }},
+		{"kairos-paper", func(config *DeploymentConfig) { config.EDPPRule = "kairos-paper" }},
+		{"kairos-adapted", func(config *DeploymentConfig) { config.EDPPRule = "kairos-adapted" }},
+		{"kairos-compatibility-alias", func(config *DeploymentConfig) { config.EDPPRule = "kairos" }},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := newTestEDPPDeploymentConfig(3, 1, 2)
+			test.configure(&config)
+			cs := NewClusterSimulator(config, newTestRequests(1), nil)
+			for _, inst := range cs.instances {
+				if !inst.sim.AdmissionDetailEnabled() {
+					t.Fatalf("instance %s has admission detail disabled; resident externality would be identically zero", inst.ID())
+				}
+			}
+		})
+	}
+}
+
+func TestEDPP_NewTTFTPoliciesExposeSchedulerRolloutStateOnEveryCandidate(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*DeploymentConfig)
+	}{
+		{"causal-externality", func(config *DeploymentConfig) {
+			config.EDPPJointSLOExternality = true
+			config.EDPPSLOExternalityNoCapacity = true
+		}},
+		{"joint-least-ttft", func(config *DeploymentConfig) {
+			config.EDPPRule = "least-ttft"
+			config.EDPPJoint = true
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := newTestEDPPDeploymentConfig(3, 1, 2)
+			test.configure(&config)
+			cs := NewClusterSimulator(config, newTestRequests(1), nil)
+			for _, inst := range cs.instances {
+				id := inst.ID()
+				snap := cs.snapshotProvider.Snapshot(id, cs.clock)
+				if !snap.SchedulerStateObserved {
+					t.Fatalf("candidate %s has no scheduler rollout state", id)
+				}
+				if snap.MaxScheduledTokens <= 0 || snap.MaxBatchSize <= 0 || snap.BlockSizeTokens <= 0 {
+					t.Fatalf(
+						"candidate %s has incomplete rollout limits: tokens=%d batch=%v block=%d",
+						id, snap.MaxScheduledTokens, snap.MaxBatchSize, snap.BlockSizeTokens,
+					)
+				}
+			}
+		})
 	}
 }
 
@@ -258,5 +426,28 @@ func TestEDPP_Cluster_ConservationOnNonCompletionTerminal(t *testing.T) {
 	const eps = 1e-6
 	if qp > eps || qd > eps || pendingLen != 0 {
 		t.Errorf("non-completion-terminal leak: qp=%v qd=%v pending=%d (want 0,0,0)", qp, qd, pendingLen)
+	}
+}
+
+func TestEDPP_OccupancyCapacity_WiresSchedulerReferenceWidth(t *testing.T) {
+	config := newTestEDPPDeploymentConfig(3, 1, 2)
+	config.EDPPJointSLOExternality = true
+	config.EDPPSLOExternalityOccupancyCapacity = true
+	config.BatchConfig = sim.NewBatchConfig(8, 2048, 0)
+	cs := NewClusterSimulator(config, newTestRequests(2), nil)
+	mustRun(t, cs)
+
+	d, ok := cs.disaggregationDecider.(*sim.EDPPDecider)
+	if !ok {
+		t.Fatalf("disaggregationDecider = %T, want *sim.EDPPDecider", cs.disaggregationDecider)
+	}
+	queues := d.SLOCapacityForTest()
+	if len(queues) != 3 {
+		t.Fatalf("occupancy queues = %d, want one per dedicated instance", len(queues))
+	}
+	for id, state := range queues {
+		if state.Mu != 1 || state.Scale != 1_000_000 {
+			t.Fatalf("occupancy queue %s has mu=%g scale=%g, want 1 and 1e6", id, state.Mu, state.Scale)
+		}
 	}
 }

@@ -2,34 +2,29 @@ package sim
 
 import "math"
 
-// Kairos baseline — load-aware prefill deflection for disaggregated LLM serving.
+// Kairos load-aware prefill deflection for disaggregated LLM serving
+// ("Towards Load-Aware Prefill Deflection for Disaggregated LLM Serving",
+// arXiv:2607.02043).
 //
-// Faithful reproduction of the routing rule in "Towards Load-Aware Prefill Deflection for
-// Disaggregated LLM Serving" (arXiv:2607.02043), implemented as an EDPP rule so it reuses this
-// package's trained-physics coefficients and routing snapshots. It exists as a STATE-OF-THE-ART
-// BASELINE for the study — it is not our contribution.
+// This file deliberately exposes two policy identities:
 //
-// The rule, per the paper:
+//   - kairos-paper follows the printed decision rule: discrete chunk candidates,
+//     alpha=1.3 by default, the arriving request's TTFT-SLO gate, and no extra
+//     decode-admission or KV-transfer term in the printed TTFT equations.
+//   - kairos-adapted preserves the study's earlier continuous chunk relaxation,
+//     admission-aware decode estimate, transfer-aware prefill estimate, and
+//     deployable queue approximation. "kairos" is a compatibility alias for it.
 //
-//  1. Estimate the TTFT the request would see on the PREFILL node: an analytical FIFO model,
-//     queue wait + the request's own chunked prefill execution.
-//  2. For each DECODE node, search for the largest chunk schedule that keeps the node's in-flight
-//     decodes within their time-between-tokens (TBT) SLO — a HARD CONSTRAINT, greedily taking the
-//     largest safe chunk per step — and compute the TTFT of prefilling there ("deflection"),
-//     which also avoids the inter-node KV transfer.
-//  3. Deflect to the fastest feasible decode node when that beats the prefill path; else route to
-//     the prefill node.
-//
-// Differences from our rule, stated plainly so the comparison is honest: Kairos protects
-// co-residents with a per-step TBT *constraint* (it never models their remaining decode steps or
-// end-to-end completion), fixes the prefill node rather than enumerating (decode, prefill) pairs,
-// and assumes homogeneous hardware. Its published estimator is a FIFO approximation plus a
-// regressed step-latency model (~10% MAPE); here it is evaluated against the SAME trained-physics
-// coefficients our rule uses, so the comparison isolates the POLICY rather than estimator quality.
+// Both modes use this simulator's trained-physics coefficients. Paper mode also
+// uses the strictest TBT target among current decode residents when SLO classes
+// differ, rather than borrowing the arriving request's class.
 
-// kairosStepPrefill is the prefill-node step time for a chunk of chi tokens attending over a
-// resident context of k tokens: α_p + c_pf·chi + c_attn·chi·(k + chi/2). This is the per-step
-// charge the work model of sim/edpp_coeffs.go integrates into Wp.
+// The paper profiles this discrete set of chunk sizes and Algorithm 1 consumes a
+// descending candidate list. Candidates above the engine's token cap are removed.
+var kairosPaperChunkCandidates = []float64{2048, 1024, 512, 256, 128}
+
+// kairosStepPrefill is the prefill-node step time for a chunk of chi tokens
+// attending over a resident context of k tokens.
 func kairosStepPrefill(c EDPPCoeffs, chi, k float64) float64 {
 	if chi <= 0 {
 		return c.AlphaP
@@ -37,18 +32,11 @@ func kairosStepPrefill(c EDPPCoeffs, chi, k float64) float64 {
 	return c.AlphaP + c.CPf*chi + c.CAttn*chi*(k+chi/2)
 }
 
-// kairosMaxSafeChunk returns the largest prefill chunk (tokens) that can be co-scheduled onto a
-// decode step whose base (decode-only) time is base, with the chunk attending over ctx tokens,
-// while keeping the step within the TBT budget tbt. It solves the per-step constraint
-//
-//	base + c_pf·chi + c_attn·chi·(ctx + chi/2) ≤ tbt
-//
-// which is quadratic in chi: (c_attn/2)·chi² + (c_pf + c_attn·ctx)·chi + (base − tbt) ≤ 0.
-// Returns 0 when no positive chunk fits (the node cannot host this prefill without violating TBT).
+// kairosMaxSafeChunk is the continuous relaxation retained for kairos-adapted.
 func kairosMaxSafeChunk(c EDPPCoeffs, base, ctx, tbt float64) float64 {
 	slack := tbt - base
 	if slack <= 0 {
-		return 0 // even a bare decode step already violates the TBT budget
+		return 0
 	}
 	a := c.CAttn / 2
 	b := c.CPf + c.CAttn*ctx
@@ -58,7 +46,6 @@ func kairosMaxSafeChunk(c EDPPCoeffs, base, ctx, tbt float64) float64 {
 		}
 		return slack / b
 	}
-	// positive root of a·chi² + b·chi − slack = 0
 	disc := b*b + 4*a*slack
 	if disc <= 0 {
 		return 0
@@ -66,22 +53,17 @@ func kairosMaxSafeChunk(c EDPPCoeffs, base, ctx, tbt float64) float64 {
 	return (-b + math.Sqrt(disc)) / (2 * a)
 }
 
-// kairosDeflectTTFT computes the TTFT of prefilling `tokens` uncached tokens on a decode node
-// carrying a decode batch of bDec requests holding kv resident tokens, under the TBT budget tbt.
-// It greedily takes the largest TBT-safe chunk each step (the paper's "largest chunk schedule"),
-// capped by the engine's per-step token budget chunkCap. Returns (ttft, feasible); infeasible when
-// no positive chunk fits or the schedule exceeds maxSteps.
-func kairosDeflectTTFT(c EDPPCoeffs, bDec int, kv int64, tokens, tbt, chunkCap float64, maxSteps int) (float64, bool) {
+func kairosContinuousDeflectTTFT(c EDPPCoeffs, bDec int, kv int64, tokens, tbt, chunkCap float64, maxSteps int) (float64, []float64, bool) {
 	if tokens <= 0 {
-		return 0, true
+		return 0, nil, true
 	}
 	var elapsed, done float64
+	schedule := make([]float64, 0, int(math.Ceil(tokens/math.Max(chunkCap, 1))))
 	for step := 0; step < maxSteps && done < tokens; step++ {
-		// The decode batch's own step time grows as the deflected prefill's KV accumulates.
 		base := c.tIterDecode(bDec, kv+int64(done), 0)
 		chi := kairosMaxSafeChunk(c, base, done, tbt)
 		if chi <= 0 {
-			return 0, false
+			return 0, nil, false
 		}
 		if chunkCap > 0 && chi > chunkCap {
 			chi = chunkCap
@@ -91,113 +73,330 @@ func kairosDeflectTTFT(c EDPPCoeffs, bDec int, kv int64, tokens, tbt, chunkCap f
 		}
 		elapsed += base + c.CPf*chi + c.CAttn*chi*(done+chi/2)
 		done += chi
+		schedule = append(schedule, chi)
 	}
 	if done < tokens {
-		return 0, false
+		return 0, nil, false
 	}
-	return elapsed, true
+	return elapsed, schedule, true
 }
 
-// decideKairos implements the Kairos load-aware prefill-deflection decision for one request.
-// Deflection (prefill on a decode node) maps onto our LOCAL placement — prefill co-resident with
-// decode, no KV transfer — with the chosen decode node returned as DecodePodOverride. Routing to
-// the prefill node maps onto DISAGGREGATION.
+// kairosDeflectTTFT retains the original helper signature for callers and tests.
+func kairosDeflectTTFT(c EDPPCoeffs, bDec int, kv int64, tokens, tbt, chunkCap float64, maxSteps int) (float64, bool) {
+	ttft, _, ok := kairosContinuousDeflectTTFT(c, bDec, kv, tokens, tbt, chunkCap, maxSteps)
+	return ttft, ok
+}
+
+func kairosDiscreteCandidates(chunkCap float64) []float64 {
+	out := make([]float64, 0, len(kairosPaperChunkCandidates))
+	for _, candidate := range kairosPaperChunkCandidates {
+		if chunkCap <= 0 || candidate <= chunkCap {
+			out = append(out, candidate)
+		}
+	}
+	// Engines configured below the paper's smallest profiled point still need a
+	// physically executable candidate. This fallback is explicit and deterministic.
+	if len(out) == 0 && chunkCap > 0 {
+		out = append(out, chunkCap)
+	}
+	return out
+}
+
+// kairosDiscreteDeflectTTFT implements Algorithm 1's greedy LargestSafe search.
+// The final chunk is shortened to the remaining prompt tokens, as the executor
+// cannot process padding beyond the request's prompt.
+func kairosDiscreteDeflectTTFT(c EDPPCoeffs, bDec int, kv int64, tokens, tbt float64, candidates []float64, maxSteps int) (float64, []float64, bool) {
+	if tokens <= 0 {
+		return 0, nil, true
+	}
+	if len(candidates) == 0 {
+		return 0, nil, false
+	}
+	var elapsed, done float64
+	schedule := make([]float64, 0, int(math.Ceil(tokens/candidates[len(candidates)-1])))
+	for step := 0; step < maxSteps && done < tokens; step++ {
+		base := c.tIterDecode(bDec, kv+int64(done), 0)
+		remaining := tokens - done
+		chosen := 0.0
+		for _, candidate := range candidates {
+			chi := math.Min(candidate, remaining)
+			stepTime := base + c.CPf*chi + c.CAttn*chi*(done+chi/2)
+			if stepTime <= tbt {
+				chosen = chi
+				break
+			}
+		}
+		if chosen <= 0 {
+			return 0, nil, false
+		}
+		elapsed += base + c.CPf*chosen + c.CAttn*chosen*(done+chosen/2)
+		done += chosen
+		schedule = append(schedule, chosen)
+	}
+	if done < tokens {
+		return 0, nil, false
+	}
+	return elapsed, schedule, true
+}
+
+func kairosScheduleSummary(schedule []float64) (first, minimum float64, steps int) {
+	if len(schedule) == 0 {
+		return 0, 0, 0
+	}
+	first, minimum = schedule[0], schedule[0]
+	for _, chi := range schedule[1:] {
+		if chi < minimum {
+			minimum = chi
+		}
+	}
+	return first, minimum, len(schedule)
+}
+
+func kairosExecutableSchedule(schedule []float64) []int {
+	if len(schedule) == 0 {
+		return nil
+	}
+	out := make([]int, len(schedule))
+	for i, chi := range schedule {
+		out[i] = int(math.Round(chi))
+	}
+	return out
+}
+
+// kairosResidentTBTTarget returns the strictest TBT target of the decode
+// residents whose latency the safety constraint protects. The arriving class is
+// used only when the node has no decode residents (or a hand-built snapshot omits
+// resident detail).
+func (d *EDPPDecider) kairosResidentTBTTarget(ds RoutingSnapshot, arrivingClass string) float64 {
+	if len(ds.RunningDecode) == 0 {
+		_, tau := d.targetsFor(arrivingClass)
+		return float64(tau)
+	}
+	strictest := math.Inf(1)
+	for _, resident := range ds.RunningDecode {
+		_, tau := d.targetsFor(resident.SLOClass)
+		if float64(tau) < strictest {
+			strictest = float64(tau)
+		}
+	}
+	return strictest
+}
+
+func (d *EDPPDecider) kairosAdaptedPrefillTTFT(req *Request, chunkCap float64) (float64, string) {
+	if d.prefillSnapshots == nil {
+		return math.Inf(1), ""
+	}
+	snaps := sortedSnapshotsByID(d.prefillSnapshots())
+	bestTTFT := math.Inf(1)
+	bestPrefillID := ""
+	for _, ps := range snaps {
+		theta := d.coeffsFor(ps.GPUType)
+		tokens := float64(maxInt(d.apForInstance(req, ps.ID), 0))
+		chi := chunkCap
+		if chi <= 0 || chi > tokens {
+			chi = tokens
+		}
+		if chi <= 0 {
+			continue
+		}
+		sumL := float64(ps.ResidentPrefillTokens) + float64(ps.QueueDepth)*float64(len(req.InputTokens))
+		queueWait := 0.0
+		if sumL > 0 {
+			ctxQ := math.Min(sumL/2, float64(len(req.InputTokens)))
+			queueWait = (sumL / chi) * kairosStepPrefill(theta, chi, ctxQ)
+		}
+		exec := 0.0
+		for done := 0.0; done < tokens; done += chi {
+			stepChi := math.Min(chi, tokens-done)
+			exec += kairosStepPrefill(theta, stepChi, done)
+		}
+		ttft := queueWait + exec + d.cXferUsFor(req)
+		// snaps is ID-sorted and strict comparison preserves deterministic ID
+		// tie-breaking when two prefill paths have equal predicted TTFT.
+		if ttft < bestTTFT {
+			bestTTFT, bestPrefillID = ttft, ps.ID
+		}
+	}
+	return bestTTFT, bestPrefillID
+}
+
+func (d *EDPPDecider) kairosPaperPrefillTTFT(req *Request, chunkCap float64) (float64, string) {
+	if d.prefillSnapshots == nil {
+		return math.Inf(1), ""
+	}
+	snaps := sortedSnapshotsByID(d.prefillSnapshots())
+	// Kairos does not account for prefix-cache residency; Algorithm 1 takes the
+	// request's full prompt length as input.
+	tokens := float64(len(req.InputTokens))
+	if tokens <= 0 {
+		return math.Inf(1), ""
+	}
+	bestTTFT := math.Inf(1)
+	bestPrefillID := ""
+	// The published algorithm has one prefill path. In a multi-prefill topology,
+	// apply the same printed estimator to every eligible path and choose the
+	// minimum; the returned hint makes execution use the path that was scored.
+	for _, ps := range snaps {
+		theta := d.coeffsFor(ps.GPUType)
+		chi := chunkCap
+		if chi <= 0 || chi > tokens {
+			chi = tokens
+		}
+		// The snapshot exposes the actual remaining prompt-token total, avoiding the
+		// previous QueueDepth×current-prompt approximation. Equation 2's context is
+		// intentionally left literal rather than capped.
+		sumL := float64(ps.PrefillTokensAhead)
+		queueWait := 0.0
+		if sumL > 0 {
+			queueWait = (sumL / chi) * kairosStepPrefill(theta, chi, sumL/2)
+		}
+		exec := 0.0
+		for done := 0.0; done < tokens; done += chi {
+			stepChi := math.Min(chi, tokens-done)
+			exec += kairosStepPrefill(theta, stepChi, done)
+		}
+		ttft := queueWait + exec
+		if ttft < bestTTFT {
+			bestTTFT, bestPrefillID = ttft, ps.ID
+		}
+	}
+	// Printed Equation 1 is queue wait + prefill execution. The adapted mode
+	// separately retains the evaluation extension that adds KV-transfer time.
+	return bestTTFT, bestPrefillID
+}
+
+func (d *EDPPDecider) kairosTrace(req *Request, mode string, alpha, tauTTFT, tauITL, ttftPrefill, bestTTFT, residentTau, tbtBudget float64, schedule []float64, gateRequired, disaggregate bool, skip string) *EDPPDecisionTrace {
+	if !d.cfg.TraceEnabled {
+		return nil
+	}
+	first, minimum, steps := kairosScheduleSummary(schedule)
+	return &EDPPDecisionTrace{
+		Class: req.SLOClass, SkipReason: skip, Ap: len(req.InputTokens),
+		TauTTFT: tauTTFT, TauITL: tauITL, TTFTP: ttftPrefill, TTFTD: bestTTFT,
+		KairosMode: mode, KairosAlpha: alpha, KairosAlphaThreshold: alpha * ttftPrefill,
+		KairosTTFTGateRequired: gateRequired, KairosTTFTGatePassed: bestTTFT <= tauTTFT,
+		KairosResidentTauITL: residentTau, KairosTBTBudget: tbtBudget,
+		KairosFirstChunk: first, KairosMinChunk: minimum, KairosChunkSteps: steps,
+		LHS: alpha * ttftPrefill, RHS: bestTTFT, Disaggregate: disaggregate,
+	}
+}
+
+// decideKairos selects the explicitly requested Kairos identity. The unqualified
+// historical name remains an adapted-mode alias so existing scripts do not
+// silently acquire a different algorithm.
 func (d *EDPPDecider) decideKairos(req *Request, state *RouterState) DisaggregationDecision {
+	// A request can carry an executable paper-mode chunk schedule. Clear stale
+	// policy metadata before evaluating a fresh routing decision.
+	req.PrefillChunkSchedule = nil
+	req.resetPrefillChunkSchedule()
+	if d.rule == "kairos-paper" {
+		return d.decideKairosPaper(req, state)
+	}
+	return d.decideKairosAdapted(req, state)
+}
+
+func (d *EDPPDecider) decideKairosAdapted(req *Request, state *RouterState) DisaggregationDecision {
 	keepLocal := DisaggregationDecision{Disaggregate: false}
+	tauTTFTUs, tauITLUs := d.targetsFor(req.SLOClass)
 	if len(req.InputTokens) == 0 {
+		keepLocal.EDPPTrace = d.kairosTrace(req, "adapted", 1, float64(tauTTFTUs), float64(tauITLUs), 0, 0, 0, 0, nil, false, false, "empty-prompt")
 		return keepLocal
 	}
-	_, tauITLUs := d.targetsFor(req.SLOClass)
 	tbt := d.kairosBeta * float64(tauITLUs)
-	chunkCap := float64(d.cfg.ChunkTokens) // engine per-step token budget; 0 ⇒ uncapped
+	chunkCap := float64(d.cfg.ChunkTokens)
 	const maxSteps = 4096
+	ttftPrefill, prefillID := d.kairosAdaptedPrefillTTFT(req, chunkCap)
 
-	// --- prefill-node path: FIFO queue wait + own chunked execution + KV transfer ---
-	ttftPrefill := math.Inf(1)
-	prefillID := ""
-	var prefillSnaps []RoutingSnapshot
-	if d.prefillSnapshots != nil {
-		prefillSnaps = sortedSnapshotsByID(d.prefillSnapshots())
-	}
-	if len(prefillSnaps) > 0 {
-		ps := prefillSnaps[0]
-		thetaP := d.coeffsFor(ps.GPUType)
-		ap := float64(maxInt(d.apForInstance(req, ps.ID), 0))
-		chi := chunkCap
-		if chi <= 0 || chi > ap {
-			chi = ap
-		}
-		if chi > 0 {
-			// Outstanding prefill tokens ahead of this request. The snapshot carries resident
-			// prefill tokens directly; queued requests are approximated by QueueDepth × this
-			// request's prompt length (the paper sums their true lengths, which the snapshot
-			// does not expose).
-			sumL := float64(ps.ResidentPrefillTokens) + float64(ps.QueueDepth)*float64(len(req.InputTokens))
-			queueWait := 0.0
-			if sumL > 0 {
-				// The paper writes the queue wait as (Σℓ/χ)·T_step(χ, Σℓ/2). Read literally, the
-				// attention context Σℓ/2 is the whole queue's tokens, which over-charges a chunk
-				// enormously once the queue is deep (a chunk attends over its OWN request's context,
-				// not the queue's). We cap the context at one request's prompt length — the
-				// physically sensible reading, and the one most GENEROUS to this baseline, since it
-				// lowers the prefill-path estimate and so makes deflection less automatic.
-				ctxQ := math.Min(sumL/2, float64(len(req.InputTokens)))
-				queueWait = (sumL / chi) * kairosStepPrefill(thetaP, chi, ctxQ)
-			}
-			exec := 0.0
-			steps := int(math.Ceil(ap / chi))
-			for i := 0; i < steps; i++ {
-				exec += kairosStepPrefill(thetaP, chi, chi*float64(i))
-			}
-			ttftPrefill = queueWait + exec + d.cXferUsFor(req)
-			prefillID = ps.ID
-		}
-	}
-
-	// --- deflection candidates: each decode node, largest TBT-safe chunk schedule ---
-	// FAIRNESS: the prefill path above carries the paper's FIFO queue wait, so the deflect path
-	// must carry its own admission delay too — a deflected prefill cannot start until the decode
-	// node admits it (batch slot + KV). Omitting it would make deflection look free on a saturated
-	// decode node and hand the baseline a strawman loss. We give Kairos the SAME occupancy-aware
-	// admission estimator our own rule consumes (deployable/censored — Kairos reads no oracle), so
-	// the comparison isolates the POLICY rather than estimator quality.
 	reqKVNeed := d.reqKVNeed(req)
 	bestTTFT := ttftPrefill
 	bestDecode := ""
+	var bestSchedule []float64
 	for _, ds := range sortedSnapshotsByID(stateSnapshots(state)) {
-		// Paper's constraint: at most one deflected prefill in flight per decode node. A node
-		// already carrying resident prefill tokens is therefore not a deflection target.
 		if ds.ResidentPrefillTokens > 0 {
 			continue
 		}
-		thetaD := d.coeffsFor(ds.GPUType)
-		ap := float64(maxInt(d.apForInstance(req, ds.ID), 0))
-		t, ok := kairosDeflectTTFT(thetaD, ds.BatchSize, ds.KvTokensInUse, ap, tbt, chunkCap, maxSteps)
+		theta := d.coeffsFor(ds.GPUType)
+		tokens := float64(maxInt(d.apForInstance(req, ds.ID), 0))
+		t, schedule, ok := kairosContinuousDeflectTTFT(theta, ds.BatchSize, ds.KvTokensInUse, tokens, tbt, chunkCap, maxSteps)
 		if !ok {
 			continue
 		}
+		_, qd := d.instWorkRaw(ds.ID)
 		tAdm := d.tadmEstimator.EstimateTAdm(AdmissionContext{
-			QWork:     func() float64 { _, qd := d.instWorkRaw(ds.ID); return qd }(),
-			Mu:        thetaD.muDecode(ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens),
+			QWork: qd, Mu: theta.muDecode(ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens),
 			BatchSize: ds.BatchSize, MaxBatchSize: int(ds.MaxBatchSize),
 			FreeKVBlocks: ds.FreeKVBlocks, ReqKVNeed: reqKVNeed,
-			TIter:         thetaD.tIterDecode(ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens),
-			QueueDepth:    ds.QueueDepth,
-			AdmissionRate: admissionRateFromSnapshot(ds), RemainingStepsEst: d.decodeRemStepsEst(ds, req.SLOClass),
-			Running: censorOracleRemaining(ds.RunningDecode),
+			TIter:      theta.tIterDecode(ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens),
+			QueueDepth: ds.QueueDepth, AdmissionRate: admissionRateFromSnapshot(ds),
+			RemainingStepsEst: d.decodeRemStepsEst(ds, req.SLOClass),
+			Running:           censorOracleRemaining(ds.RunningDecode),
 		})
 		if t+tAdm < bestTTFT {
-			bestTTFT = t + tAdm
-			bestDecode = ds.ID
+			bestTTFT, bestDecode, bestSchedule = t+tAdm, ds.ID, schedule
+		}
+	}
+	if bestDecode != "" {
+		dec := DisaggregationDecision{Disaggregate: false, DecodePodOverride: bestDecode}
+		dec.EDPPTrace = d.kairosTrace(req, "adapted", 1, float64(tauTTFTUs), float64(tauITLUs), ttftPrefill, bestTTFT, float64(tauITLUs), tbt, bestSchedule, false, true, "")
+		return dec
+	}
+	if prefillID == "" || math.IsInf(ttftPrefill, 1) {
+		keepLocal.EDPPTrace = d.kairosTrace(req, "adapted", 1, float64(tauTTFTUs), float64(tauITLUs), ttftPrefill, bestTTFT, float64(tauITLUs), tbt, nil, false, false, "no-prefill-path")
+		return keepLocal
+	}
+	dec := DisaggregationDecision{Disaggregate: true, PrefillPodHint: prefillID}
+	dec.EDPPTrace = d.kairosTrace(req, "adapted", 1, float64(tauTTFTUs), float64(tauITLUs), ttftPrefill, bestTTFT, float64(tauITLUs), tbt, nil, false, false, "")
+	return dec
+}
+
+func (d *EDPPDecider) decideKairosPaper(req *Request, state *RouterState) DisaggregationDecision {
+	keepLocal := DisaggregationDecision{Disaggregate: false}
+	tauTTFTUs, tauITLUs := d.targetsFor(req.SLOClass)
+	if len(req.InputTokens) == 0 {
+		keepLocal.EDPPTrace = d.kairosTrace(req, "paper", d.kairosAlpha, float64(tauTTFTUs), float64(tauITLUs), 0, 0, 0, 0, nil, true, false, "empty-prompt")
+		return keepLocal
+	}
+	chunkCap := float64(d.cfg.ChunkTokens)
+	candidates := kairosDiscreteCandidates(chunkCap)
+	const maxSteps = 4096
+	ttftPrefill, prefillID := d.kairosPaperPrefillTTFT(req, chunkCap)
+
+	bestTTFT := math.Inf(1)
+	bestDecode := ""
+	bestResidentTau := 0.0
+	bestTBTBudget := 0.0
+	var bestSchedule []float64
+	for _, ds := range sortedSnapshotsByID(stateSnapshots(state)) {
+		// At most one deflected prefill may be in flight on a decode node.
+		if ds.ResidentPrefillTokens > 0 || ds.PrefillTokensAhead > 0 {
+			continue
+		}
+		residentTau := d.kairosResidentTBTTarget(ds, req.SLOClass)
+		tbtBudget := d.kairosBeta * residentTau
+		theta := d.coeffsFor(ds.GPUType)
+		t, schedule, ok := kairosDiscreteDeflectTTFT(theta, ds.BatchSize, ds.KvTokensInUse, float64(len(req.InputTokens)), tbtBudget, candidates, maxSteps)
+		if !ok {
+			continue
+		}
+		if t < bestTTFT {
+			bestTTFT, bestDecode = t, ds.ID
+			bestResidentTau, bestTBTBudget, bestSchedule = residentTau, tbtBudget, schedule
 		}
 	}
 
-	if bestDecode != "" {
-		// Deflect: prefill co-resident on the winning decode node (no KV transfer).
-		return DisaggregationDecision{Disaggregate: false, DecodePodOverride: bestDecode}
+	marginPassed := bestDecode != "" && bestTTFT <= d.kairosAlpha*ttftPrefill
+	gatePassed := bestTTFT <= float64(tauTTFTUs)
+	if marginPassed && gatePassed {
+		req.PrefillChunkSchedule = kairosExecutableSchedule(bestSchedule)
+		dec := DisaggregationDecision{Disaggregate: false, DecodePodOverride: bestDecode}
+		dec.EDPPTrace = d.kairosTrace(req, "paper", d.kairosAlpha, float64(tauTTFTUs), float64(tauITLUs), ttftPrefill, bestTTFT, bestResidentTau, bestTBTBudget, bestSchedule, true, true, "")
+		return dec
 	}
 	if prefillID == "" || math.IsInf(ttftPrefill, 1) {
-		return keepLocal // no prefill pool available; fall back to local
+		keepLocal.EDPPTrace = d.kairosTrace(req, "paper", d.kairosAlpha, float64(tauTTFTUs), float64(tauITLUs), ttftPrefill, bestTTFT, bestResidentTau, bestTBTBudget, bestSchedule, true, false, "no-prefill-path")
+		return keepLocal
 	}
-	return DisaggregationDecision{Disaggregate: true, PrefillPodHint: prefillID}
+	dec := DisaggregationDecision{Disaggregate: true, PrefillPodHint: prefillID}
+	dec.EDPPTrace = d.kairosTrace(req, "paper", d.kairosAlpha, float64(tauTTFTUs), float64(tauITLUs), ttftPrefill, bestTTFT, bestResidentTau, bestTBTBudget, bestSchedule, true, false, "")
+	return dec
 }

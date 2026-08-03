@@ -127,6 +127,13 @@ type Simulator struct {
 	// request fires again (TTFTSet reset on preemption), so consumers must be idempotent.
 	OnFirstToken func(req *Request, tick int64)
 
+	// OnFirstDecodeToken is an optional callback invoked once when a request
+	// completes its first decode step, with the absolute simulation tick at
+	// which the output token is produced. Unlike OnFirstToken, this observes
+	// the actual decode execution boundary and therefore includes any wait
+	// between prefill/transfer completion and decode admission. nil ⇒ no-op.
+	OnFirstDecodeToken func(req *Request, tick int64)
+
 	progressHook               ProgressHook
 	simClockProgressIntervalUs int64
 	nextSnapshotClockUs        int64
@@ -150,6 +157,8 @@ type Simulator struct {
 	// from OutputTokens (measurement-only; INV-9 keeps this out of the deployable path).
 	recordAdmissionDetail bool
 	admissionDetailOracle bool
+	currentScheduled      []SchedulerReqState
+	currentStepStartUs    int64
 
 	// onAdmitInternal is an internal admission observer fired for each newly
 	// scheduled request alongside the public OnAdmit callback. Unlike OnAdmit
@@ -205,6 +214,13 @@ func (sim *Simulator) RunningDecodeState() []RunningReqState {
 		if sim.admissionDetailOracle {
 			trueRemaining = int64(len(req.OutputTokens)) - stepsDone
 		}
+		firstTokenUs := req.FirstTokenTimestamp
+		ttftSet := req.TTFTSet || firstTokenUs > 0
+		// Compatibility for requests constructed before the explicit absolute
+		// timestamp field: FirstTokenTime is an elapsed duration.
+		if firstTokenUs == 0 && req.TTFTSet {
+			firstTokenUs = req.ArrivalTime + req.FirstTokenTime
+		}
 		out = append(out, RunningReqState{
 			StepsDone:     stepsDone,
 			KVBlocks:      (req.ProgressIndex + blockSize - 1) / blockSize,
@@ -212,8 +228,8 @@ func (sim *Simulator) RunningDecodeState() []RunningReqState {
 			// Deployable per-co-resident SLO-deadline inputs (INV-9-safe) for the VaR oracle.
 			SLOClass:        req.SLOClass,
 			ArrivalUs:       req.ArrivalTime,
-			FirstTokenUs:    req.FirstTokenTime,
-			TTFTSet:         req.TTFTSet,
+			FirstTokenUs:    firstTokenUs,
+			TTFTSet:         ttftSet,
 			OracleOutputLen: -1, // decode co-residents carry remaining output in TrueRemaining
 		})
 	}
@@ -267,6 +283,55 @@ func (sim *Simulator) RunningPrefillState() []RunningReqState {
 		})
 	}
 	return out
+}
+
+func (sim *Simulator) schedulerReqState(req *Request, includeCachedPrefix bool) SchedulerReqState {
+	computed := req.ProgressIndex
+	if includeCachedPrefix && computed < int64(len(req.InputTokens)) && sim.KVCache != nil {
+		cached := int64(len(sim.KVCache.GetCachedBlocks(req.InputTokens))) * sim.KVCache.BlockSize()
+		if cached > computed {
+			computed = cached
+		}
+	}
+	blockSize := int64(1)
+	if sim.KVCache != nil && sim.KVCache.BlockSize() > 0 {
+		blockSize = sim.KVCache.BlockSize()
+	}
+	return SchedulerReqState{
+		ID: req.ID, SLOClass: req.SLOClass,
+		PromptTokens: int64(len(req.InputTokens)), ComputedTokens: computed,
+		KVBlocks: (computed + blockSize - 1) / blockSize,
+		Priority: req.Priority, ArrivalUs: req.ArrivalTime,
+	}
+}
+
+// SchedulerRolloutState returns ordered, deployable scheduler state for the
+// paper's admission/TTFT rollout. The running state is post-current-step; the
+// separately captured CurrentScheduled state describes the in-flight step used
+// only to predict its remaining duration.
+func (sim *Simulator) SchedulerRolloutState() (running, waiting, current []SchedulerReqState, currentStart, tokenBudget, longPrefill, blockSize int64, observed bool) {
+	if !sim.recordAdmissionDetail {
+		return nil, nil, nil, 0, 0, 0, 0, false
+	}
+	if sim.RunningBatch != nil {
+		running = make([]SchedulerReqState, 0, len(sim.RunningBatch.Requests))
+		for _, req := range sim.RunningBatch.Requests {
+			running = append(running, sim.schedulerReqState(req, false))
+		}
+	}
+	if sim.WaitQ != nil {
+		waiting = make([]SchedulerReqState, 0, sim.WaitQ.Len())
+		for _, req := range sim.WaitQ.Items() {
+			waiting = append(waiting, sim.schedulerReqState(req, true))
+		}
+	}
+	current = append([]SchedulerReqState(nil), sim.currentScheduled...)
+	blockSize = 1
+	if sim.KVCache != nil && sim.KVCache.BlockSize() > 0 {
+		blockSize = sim.KVCache.BlockSize()
+	}
+	return running, waiting, current, sim.currentStepStartUs,
+		sim.maxScheduledTokens, sim.longPrefillTokenThreshold, blockSize, true
 }
 
 // NewSimulator creates a Simulator from a SimConfig struct and pre-built dependencies.
@@ -498,6 +563,36 @@ func (sim *Simulator) buildInstanceSnapshot() InstanceSnapshot {
 
 // QueueDepth returns the number of requests in the wait queue.
 func (sim *Simulator) QueueDepth() int { return sim.WaitQ.Len() }
+
+// PrefillTokensAhead returns the exact number of prompt tokens still waiting or
+// executing on this instance. Unlike QueueDepth, this preserves the queued
+// requests' actual prompt lengths, which Kairos's FIFO prefill estimator needs.
+// Decode-only requests contribute zero because their ProgressIndex is already at
+// or beyond len(InputTokens).
+func (sim *Simulator) PrefillTokensAhead() int64 {
+	remaining := func(req *Request) int64 {
+		if req == nil {
+			return 0
+		}
+		n := int64(len(req.InputTokens)) - req.ProgressIndex
+		if n < 0 {
+			return 0
+		}
+		return n
+	}
+	var total int64
+	if sim.RunningBatch != nil {
+		for _, req := range sim.RunningBatch.Requests {
+			total += remaining(req)
+		}
+	}
+	if sim.WaitQ != nil {
+		for _, req := range sim.WaitQ.Items() {
+			total += remaining(req)
+		}
+	}
+	return total
+}
 
 // DrainWaitQueue removes and returns all requests currently in the wait queue.
 // Used by DrainRedirect policy to re-inject queued requests into the cluster router.
@@ -897,6 +992,18 @@ func (sim *Simulator) executeBatchStep(now int64) int64 {
 			scheduled = append(scheduled, req)
 		}
 	}
+	if sim.recordAdmissionDetail {
+		sim.currentStepStartUs = now
+		sim.currentScheduled = make([]SchedulerReqState, 0, len(scheduled))
+		for _, req := range scheduled {
+			state := sim.schedulerReqState(req, false)
+			// executeBatchStep has not advanced ProgressIndex yet, so this is the
+			// exact pre-step context consumed by the latency law.
+			state.ComputedTokens = req.ProgressIndex
+			state.ScheduledTokens = int64(req.NumNewTokens)
+			sim.currentScheduled = append(sim.currentScheduled, state)
+		}
+	}
 	currStepAdvance := sim.latencyModel.StepTime(scheduled)
 
 	// Calibration tap (off unless BLIS_STEP_CSV is set): record the E3
@@ -958,7 +1065,19 @@ func (sim *Simulator) executeBatchStep(now int64) int64 {
 			// Also prevents phantom tokens from token budget exhaustion (pre-existing edge case).
 			if req.NumNewTokens > 0 {
 				req.ProgressIndex++
-				req.ITL = append(req.ITL, currStepAdvance+sim.latencyModel.OutputTokenProcessingTime())
+				tokenLatency := currStepAdvance + sim.latencyModel.OutputTokenProcessingTime()
+				req.ITL = append(req.ITL, tokenLatency)
+				if len(req.ITL) == 1 && sim.OnFirstDecodeToken != nil {
+					firstDecodeTokenTick := now + tokenLatency
+					if req.IsDecodeSubRequest {
+						req.FirstTokenTimestamp = firstDecodeTokenTick
+					}
+					sim.OnFirstDecodeToken(req, firstDecodeTokenTick)
+				} else if len(req.ITL) == 1 && req.IsDecodeSubRequest {
+					// Capture the state even when no external observer is wired;
+					// VaR snapshots consume it directly from the running request.
+					req.FirstTokenTimestamp = now + tokenLatency
+				}
 			}
 		}
 		// !req.TTFTSet guard: fires once per prefill completion (including re-prefill after
@@ -970,9 +1089,10 @@ func (sim *Simulator) executeBatchStep(now int64) int64 {
 		if req.ProgressIndex == util.Len64(req.InputTokens) && !req.TTFTSet {
 			req.TTFTSet = true
 			req.FirstTokenTime = now + currStepAdvance + sim.latencyModel.OutputTokenProcessingTime() - req.ArrivalTime
+			req.FirstTokenTimestamp = req.ArrivalTime + req.FirstTokenTime
 			sim.Metrics.RequestTTFTs[req.ID] = float64(req.FirstTokenTime)
 			if sim.OnFirstToken != nil {
-				sim.OnFirstToken(req, req.ArrivalTime+req.FirstTokenTime)
+				sim.OnFirstToken(req, req.FirstTokenTimestamp)
 			}
 		}
 	}

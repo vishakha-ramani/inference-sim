@@ -505,6 +505,30 @@ func TestPrefixThresholdDecider_ZeroThreshold(t *testing.T) {
 	}
 }
 
+func TestPrefixThresholdDecider_ClassOverridesAndFallback(t *testing.T) {
+	cache := coldCache("decode_0")
+	decider := NewPrefixThresholdDeciderByClass(
+		16,
+		map[string]int{"critical": 1024, "batch": 16},
+		16,
+		cache,
+	)
+	state := &RouterState{SelectedInstance: "decode_0"}
+
+	critical := &Request{InputTokens: make([]int, 100), SLOClass: "critical"}
+	if got := decider.Decide(critical, state); got.Disaggregate {
+		t.Fatalf("critical decision = %+v, want local under class threshold 1024", got)
+	}
+	batch := &Request{InputTokens: make([]int, 100), SLOClass: "batch"}
+	if got := decider.Decide(batch, state); !got.Disaggregate {
+		t.Fatalf("batch decision = %+v, want remote under class threshold 16", got)
+	}
+	unknown := &Request{InputTokens: make([]int, 17), SLOClass: "unknown"}
+	if got := decider.Decide(unknown, state); !got.Disaggregate {
+		t.Fatalf("fallback decision = %+v, want remote under default threshold 16", got)
+	}
+}
+
 // TestPrefixThresholdDecider_QueriesOnlySelectedPod verifies BC-1 (isolation): when
 // Decide runs, it invokes the closure for SelectedInstance exactly once and does not
 // invoke closures for any other instance in the map. This guards against an accidental

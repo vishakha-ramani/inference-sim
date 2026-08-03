@@ -129,43 +129,75 @@ type EncodeRoutingRecord struct {
 // enabled and trace-level=decisions. The two sides compose exactly:
 //
 //	LHS = BalanceTermD − BalanceTermP
-//	RHS = TransferTerm + TTFTTerm + ITLTerm
+//	RHS = TransferTerm + TTFTTerm + ITLTerm + PrefillStabilityTerm
 //	Disaggregate = LHS > RHS
+//
+// For the reduced VaR rules, the VaR totals expose the co-resident
+// populations. SelfGoodLocal/SelfGoodDisagg expose the optional arriving-
+// request reward behind:
+// LHS = VarLocalTotal − VarDisaggTotal + SelfGoodDisagg − SelfGoodLocal.
 //
 // On early-return paths SkipReason names the path ("empty-prompt"/"fully-cached") and the
 // term fields are zero.
 type EDPPDecisionRecord struct {
-	RequestID    string
-	Clock        int64
-	Class        string
-	SkipReason   string
-	Ap           int
-	Wp           float64
-	DeltaPfChunk float64
-	QdRaw        float64
-	QpRaw        float64
-	Qd           float64
-	Qp           float64
-	MuDNom       float64
-	MuPNom       float64
-	WStarD       float64
-	WStarP       float64
-	TauTTFT      float64
-	TauITL       float64
-	TTFTP        float64
-	TTFTD        float64
-	ITLP         float64
-	ITLD         float64
-	ZTTFT        float64
-	ZITL         float64
-	BalanceTermD float64
-	BalanceTermP float64
-	TransferTerm float64
-	TTFTTerm     float64
-	ITLTerm      float64
-	LHS          float64
-	RHS          float64
-	Disaggregate bool
+	RequestID              string
+	Clock                  int64
+	Class                  string
+	SkipReason             string
+	Ap                     int
+	Wp                     float64
+	ApPrefill              int
+	WpPrefill              float64
+	DeltaPfChunk           float64
+	QdRaw                  float64
+	QpRaw                  float64
+	Qd                     float64
+	Qp                     float64
+	MuDNom                 float64
+	MuPNom                 float64
+	WStarD                 float64
+	WStarP                 float64
+	TauTTFT                float64
+	TauITL                 float64
+	TTFTP                  float64
+	TTFTD                  float64
+	TAdmP                  float64
+	TAdmD                  float64
+	RemoteLead             float64
+	LocalService           float64
+	DisaggFirst            float64
+	ITLP                   float64
+	ITLD                   float64
+	ZTTFT                  float64
+	ZITL                   float64
+	BalanceTermD           float64
+	BalanceTermP           float64
+	TransferTerm           float64
+	TTFTTerm               float64
+	ITLTerm                float64
+	PrefillStabilityTerm   float64
+	VarLocalDecode         float64
+	VarLocalCollocPrefill  float64
+	VarLocalTotal          float64
+	VarDisaggDecode        float64
+	VarDisaggCollocPrefill float64
+	VarDisaggPrefillPool   float64
+	VarDisaggTotal         float64
+	SelfGoodLocal          float64
+	SelfGoodDisagg         float64
+	KairosMode             string
+	KairosAlpha            float64
+	KairosAlphaThreshold   float64
+	KairosTTFTGateRequired bool
+	KairosTTFTGatePassed   bool
+	KairosResidentTauITL   float64
+	KairosTBTBudget        float64
+	KairosFirstChunk       float64
+	KairosMinChunk         float64
+	KairosChunkSteps       int
+	LHS                    float64
+	RHS                    float64
+	Disaggregate           bool
 }
 
 // EDPPJointDecisionRecord captures the scorer-vs-joint divergence for one joint
@@ -187,6 +219,26 @@ type EDPPJointDecisionRecord struct {
 	JScorer      float64
 	JJoint       float64
 	Disaggregate bool
+}
+
+// EDPPJointCandidateRecord is one candidate action from a joint EDPP decision.
+// There are D(P+1) rows per request: one local action per decode node and one
+// disaggregated action per decode/prefill pair.
+type EDPPJointCandidateRecord struct {
+	RequestID, Class                            string
+	Clock                                       int64
+	DecodePod, PrefillPod                       string
+	Local, Chosen, RouterDecode                 bool
+	VarDecode, VarCollocPrefill                 float64
+	VarPrefillPool, VarTotal, BestVar           float64
+	ChosenVarRegret                             float64
+	SLOExternality, OwnGood                     float64
+	NetGoodCost                                 float64
+	CapacityQueueDecode, CapacityQueuePrefill   float64
+	CapacityDemandDecode, CapacityDemandPrefill float64
+	CapacityDecode, CapacityPrefill             float64
+	CapacityTotal, Score, BestScore             float64
+	ChosenScoreRegret                           float64
 }
 
 // PDOutcomeRecord is one request's realized outcome for EDPP estimator validation

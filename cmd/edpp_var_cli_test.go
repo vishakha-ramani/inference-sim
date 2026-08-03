@@ -13,7 +13,8 @@ import (
 //
 //  1. --edpp-rule var --edpp-var-metric flip threads through to a completed run under the
 //     reduced EDPP path AND emits the loud DIAGNOSTIC-ORACLE / UPPER-BOUND warning (§4);
-//  2. an unknown --edpp-var-metric is rejected (non-zero exit) at construction (R3 guard).
+//  2. an unknown --edpp-var-metric is rejected (non-zero exit) at construction (R3 guard);
+//  3. --edpp-rule var-prefill reaches a completed run through the real CLI/config wiring.
 //
 // Both scenarios re-exec `blis run` as a child process (BLIS_EDPPVAR_CHILD=1) because a
 // fatal/panic calls os.Exit and would otherwise kill the whole test binary.
@@ -48,6 +49,20 @@ func TestEDPPRule_Var_AcceptedAndBadMetricRejected(t *testing.T) {
 	if !strings.Contains(string(out), wantMsg) {
 		t.Errorf("badmetric scenario: failure message should mention %q, got:\n%s", wantMsg, out)
 	}
+
+	// Case 3: the simplified VaR + prefill-stability rule is accepted and
+	// announces the isolated objective.
+	out, err = runEDPPVarChildProcess(t, "varprefill")
+	if err != nil {
+		t.Fatalf("--edpp-rule var-prefill run failed (expected success): %v\noutput:\n%s", err, out)
+	}
+	if !edppRuleCompletedRE.Match(out) {
+		t.Fatalf("var-prefill run produced no completed_requests metrics in stdout:\n%s", out)
+	}
+	const wantMode = "PREFILL-STABLE"
+	if !strings.Contains(string(out), wantMode) {
+		t.Errorf("var-prefill run should announce %q mode, got:\n%s", wantMode, out)
+	}
 }
 
 func runEDPPVarChildProcess(t *testing.T, scenario string) ([]byte, error) {
@@ -66,6 +81,12 @@ func runEDPPVarChild(t *testing.T) {
 	metric := "flip"
 	if scenario == "badmetric" {
 		metric = "bogus"
+	}
+	rule := "var"
+	logLevel := "warning"
+	if scenario == "varprefill" {
+		rule = "var-prefill"
+		logLevel = "info"
 	}
 	args := []string{
 		"--model", "test-model",
@@ -88,14 +109,17 @@ func runEDPPVarChild(t *testing.T) {
 		"--max-num-running-reqs", "4",
 		"--horizon", "60000000",
 		"--defaults-filepath", "../defaults.yaml",
-		"--log", "warning", // capture the DIAGNOSTIC-ORACLE warning (INV-9 gate) the accept case asserts
+		"--log", logLevel, // capture the selected mode's construction log
 		"--pd-decider", "edpp",
 		"--edpp-coeffs", frozenH100CoeffsPath,
 		"--edpp-tau-ttft", "10s",
 		"--edpp-tau-itl", "50ms",
 		"--edpp-tau-e2e", "30s",
-		"--edpp-rule", "var",
+		"--edpp-rule", rule,
 		"--edpp-var-metric", metric,
+	}
+	if scenario == "varprefill" {
+		args = append(args, "--edpp-var-deployable")
 	}
 	if err := runCmd.ParseFlags(args); err != nil {
 		fmt.Fprintf(os.Stderr, "ParseFlags failed (test setup error): %v\n", err)

@@ -161,6 +161,26 @@ func effectiveAnalyzerConfig(cfg V2SaturationAnalyzerConfig) V2SaturationAnalyze
 	return cfg
 }
 
+// edppNeedsResidentState reports whether the configured EDPP policy evaluates
+// the marginal SLO effect on requests already resident at a candidate instance.
+// Those policies require RunningDecode/RunningPrefill in every routing snapshot;
+// without admission detail the resident externality silently collapses to zero.
+func edppNeedsResidentState(config DeploymentConfig) bool {
+	return config.EDPPRule == "least-ttft" || config.EDPPRule == "var" || config.EDPPRule == "var-prefill" ||
+		config.EDPPRule == "kairos" || config.EDPPRule == "kairos-adapted" || config.EDPPRule == "kairos-paper" ||
+		config.EDPPJointCausalVar || config.EDPPDecomposedCausalVar ||
+		config.EDPPJointSLOExternality || config.EDPPDecomposedSLOExternality
+}
+
+// edppResidentStateOracle is true only for the explicitly non-deployable form
+// of the older var rules. Dedicated causal and constrained policies always use
+// censored, deployable resident state regardless of the generic var flag.
+func edppResidentStateOracle(config DeploymentConfig) bool {
+	dedicatedDeployable := config.EDPPJointCausalVar || config.EDPPDecomposedCausalVar ||
+		config.EDPPJointSLOExternality || config.EDPPDecomposedSLOExternality
+	return !dedicatedDeployable && !config.EDPPVarDeployable
+}
+
 // NewClusterSimulator creates a ClusterSimulator with N instances.
 // All workload generation now happens externally — requests are passed in directly.
 // onRequestDone is an optional callback invoked when a request reaches a terminal state
@@ -172,11 +192,18 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 	if config.NumInstances < 1 {
 		panic("ClusterSimulator: NumInstances must be >= 1")
 	}
+	if (config.EDPPJointSLOExternality || config.EDPPDecomposedSLOExternality) &&
+		(config.PrefillInstances <= 0 || config.DecodeInstances <= 0) {
+		panic("ClusterSimulator: causal-SLO-externality policies require at least one dedicated prefill instance and one dedicated decode instance")
+	}
 
 	// Validate pool topology and overrides early (before instance construction).
 	if config.PrefillInstances > 0 || config.DecodeInstances > 0 || config.SharedInstances > 0 || config.EncodeInstances > 0 {
 		if err := ValidatePoolTopology(config.PrefillInstances, config.DecodeInstances, config.SharedInstances, config.EncodeInstances, config.NumInstances); err != nil {
 			panic(fmt.Sprintf("ClusterSimulator: %v", err))
+		}
+		if (config.EDPPJointSLOExternality || config.EDPPDecomposedSLOExternality) && config.SharedInstances > 0 {
+			panic("ClusterSimulator: causal-SLO-externality policies currently require disjoint prefill and decode pools; shared-role capacity accounting is not implemented")
 		}
 		if err := config.PrefillOverrides.Validate("prefill pool"); err != nil {
 			panic(fmt.Sprintf("ClusterSimulator: %v", err))
@@ -221,7 +248,7 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 	// Initialize trace collector if tracing is enabled (BC-1: nil when none)
 	var simTrace *trace.SimulationTrace
 	tracingEnabled := config.TraceLevel != "" && trace.TraceLevel(config.TraceLevel) != trace.TraceLevelNone
-	if tracingEnabled || config.RecordRoutingDecisions {
+	if tracingEnabled || config.RecordRoutingDecisions || config.EDPPJointTrace || config.EDPPJointCandidateTrace {
 		simTrace = trace.NewSimulationTrace(trace.TraceConfig{
 			Level:                  trace.TraceLevel(config.TraceLevel),
 			CounterfactualK:        config.CounterfactualK,
@@ -429,7 +456,7 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 			}
 			cs.disaggregationDecider = sim.NewFixedPlanDecider(plan)
 		case config.PDDecider == "prefix-threshold":
-			cs.disaggregationDecider = sim.NewPrefixThresholdDecider(config.PDPrefixThreshold, int(config.BlockSizeTokens), cs.cacheQueryFn)
+			cs.disaggregationDecider = sim.NewPrefixThresholdDeciderByClass(config.PDPrefixThreshold, config.PDPrefixThresholdByClass, int(config.BlockSizeTokens), cs.cacheQueryFn)
 		case config.PDDecider == "edpp":
 			// EDPP recovers α/δ by finite-difference on a latency model (no live scrape in
 			// BLIS), so build the model here and inject it. Prefill-pool backlogs come from a
@@ -438,6 +465,9 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 			if err != nil {
 				logrus.Fatalf("[cluster] EDPP decider: latency model construction failed: %v", err)
 			}
+			edppJointEnabled := config.EDPPJoint || config.EDPPJointCausalVar ||
+				config.EDPPDecomposedCausalVar || config.EDPPJointSLOExternality ||
+				config.EDPPDecomposedSLOExternality
 			prefillSnapshots := func() []sim.RoutingSnapshot {
 				return cs.buildPoolFilteredSnapshots(PoolRolePrefill)
 			}
@@ -453,46 +483,64 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 				}
 			}
 			cs.disaggregationDecider = sim.NewEDPPDecider(sim.EDPPConfig{
-				TauTTFTUs:              config.EDPPTauTTFTUs,
-				TauITLUs:               config.EDPPTauITLUs,
-				TauRefUs:               config.EDPPTauRefUs,
-				TauTTFTByClassUs:       config.EDPPTauTTFTByClassUs,
-				TauITLByClassUs:        config.EDPPTauITLByClassUs,
-				TauE2EUs:               config.EDPPTauE2EUs,
-				TauE2EByClassUs:        config.EDPPTauE2EByClassUs,
-				V:                      config.EDPPV,
-				CXferUs:                config.EDPPCXferUs,
-				NomPrefillTokens:       config.EDPPNomPrefillTokens,
-				NomDecodeCtx:           config.EDPPNomDecodeCtx,
-				BlockSize:              int(config.BlockSizeTokens),
-				ChunkTokens:            int(config.BatchConfig.MaxScheduledTokens),
-				TraceEnabled:           trace.TraceLevel(config.TraceLevel) == trace.TraceLevelDecisions,
-				Coeffs:                 config.EDPPCoeffs,
-				CoeffsByGPU:            config.EDPPCoeffsByGPU,
-				TAdmEstimator:          config.EDPPTAdmEstimator,
-				Joint:                  config.EDPPJoint,
-				Rule:                   config.EDPPRule,
-				VarMetric:              config.EDPPVarMetric,
-				VarKeepCongestion:      config.EDPPVarKeepCongestion,
-				VarCongestionWeight:    config.EDPPVarCongestionWeight,
-				VarNormalize:           config.EDPPVarNormalize,
-				VarNormalizeFloorScale: config.EDPPVarNormalizeFloorScale,
-				VarDeployable:          config.EDPPVarDeployable,
-				VarCollocPrefill:       config.EDPPVarCollocPrefill,
-				VarGoodputObjective:    config.EDPPVarGoodputObjective,
-				KairosBeta:             config.EDPPKairosBeta,
-				JointTraceEnabled:      config.EDPPJoint && config.EDPPJointTrace,
-				OracleOutputLen:        config.EDPPOracleOutputLen,
-				CXferSizeAware:         config.EDPPCXferSizeAware,
-				KVBytesPerTokenPerGPU:  edppKVBytesPerTok,
-				XferBandwidthGBps:      config.PDTransferBandwidthGBps,
-				XferBaseUs:             config.PDTransferBaseLatencyMs * 1000.0,
+				TauTTFTUs:                       config.EDPPTauTTFTUs,
+				TauITLUs:                        config.EDPPTauITLUs,
+				TauRefUs:                        config.EDPPTauRefUs,
+				TauTTFTByClassUs:                config.EDPPTauTTFTByClassUs,
+				TauITLByClassUs:                 config.EDPPTauITLByClassUs,
+				TauE2EUs:                        config.EDPPTauE2EUs,
+				TauE2EByClassUs:                 config.EDPPTauE2EByClassUs,
+				V:                               config.EDPPV,
+				CXferUs:                         config.EDPPCXferUs,
+				NomPrefillTokens:                config.EDPPNomPrefillTokens,
+				NomDecodeCtx:                    config.EDPPNomDecodeCtx,
+				BlockSize:                       int(config.BlockSizeTokens),
+				ChunkTokens:                     int(config.BatchConfig.MaxScheduledTokens),
+				TraceEnabled:                    trace.TraceLevel(config.TraceLevel) == trace.TraceLevelDecisions,
+				Coeffs:                          config.EDPPCoeffs,
+				CoeffsByGPU:                     config.EDPPCoeffsByGPU,
+				TAdmEstimator:                   config.EDPPTAdmEstimator,
+				Joint:                           edppJointEnabled,
+				JointCausalVar:                  config.EDPPJointCausalVar,
+				DecomposedCausalVar:             config.EDPPDecomposedCausalVar,
+				JointSLOExternality:             config.EDPPJointSLOExternality,
+				DecomposedSLOExternality:        config.EDPPDecomposedSLOExternality,
+				SLOExternalityNoExternality:     config.EDPPSLOExternalityNoExternality,
+				SLOExternalityNoOwnGood:         config.EDPPSLOExternalityNoOwnGood,
+				SLOExternalityNoCapacity:        config.EDPPSLOExternalityNoCapacity,
+				SLOExternalityOccupancyCapacity: config.EDPPSLOExternalityOccupancyCapacity,
+				SLOCapacityReferenceBatch:       int(config.BatchConfig.MaxRunningReqs),
+				Rule:                            config.EDPPRule,
+				VarMetric:                       config.EDPPVarMetric,
+				VarPrefillWeight:                config.EDPPVarPrefillWeight,
+				VarKeepCongestion:               config.EDPPVarKeepCongestion,
+				VarCongestionWeight:             config.EDPPVarCongestionWeight,
+				VarNormalize:                    config.EDPPVarNormalize,
+				VarNormalizeFloorScale:          config.EDPPVarNormalizeFloorScale,
+				VarDeployable: config.EDPPVarDeployable || config.EDPPJointCausalVar ||
+					config.EDPPDecomposedCausalVar || config.EDPPJointSLOExternality ||
+					config.EDPPDecomposedSLOExternality,
+				VarCollocPrefill:           config.EDPPVarCollocPrefill,
+				VarGoodputObjective:        config.EDPPVarGoodputObjective,
+				TTFTOverlapAware:           config.EDPPTTFTOverlapAware,
+				VarExactPrefillOverlap:     config.EDPPVarExactPrefillOverlap || config.EDPPJointCausalVar || config.EDPPDecomposedCausalVar,
+				PathSpecificPrefillWork:    config.EDPPPathSpecificPrefillWork,
+				KairosAlpha:                config.EDPPKairosAlpha,
+				KairosBeta:                 config.EDPPKairosBeta,
+				JointTraceEnabled:          edppJointEnabled && config.EDPPJointTrace,
+				JointCandidateTraceEnabled: edppJointEnabled && config.EDPPJointCandidateTrace,
+				OracleOutputLen:            config.EDPPOracleOutputLen,
+				CXferSizeAware:             config.EDPPCXferSizeAware,
+				KVBytesPerTokenPerGPU:      edppKVBytesPerTok,
+				XferBandwidthGBps:          config.PDTransferBandwidthGBps,
+				XferBaseUs:                 config.PDTransferBaseLatencyMs * 1000.0,
 			}, lm, cs.cacheQueryFn, prefillSnapshots)
 			// Inject the shadow prefill scorer used ONLY to populate the joint divergence
 			// trace's scorer_p (logging-only). It runs a DEDICATED-RNG copy of the prefill
 			// routing policy so shadow evaluation never perturbs production routing decisions
 			// (INV-6). Wired only when the joint divergence trace is active.
-			if config.EDPPJoint && config.EDPPJointTrace {
+			if edppJointEnabled &&
+				(config.EDPPJointTrace || config.EDPPJointCausalVar || config.EDPPDecomposedCausalVar || config.EDPPJointSLOExternality || config.EDPPDecomposedSLOExternality) {
 				if ed, ok := cs.disaggregationDecider.(*sim.EDPPDecider); ok {
 					shadowScorers := config.PrefillScorerConfigs
 					if len(shadowScorers) == 0 {
@@ -678,25 +726,37 @@ func NewClusterSimulator(config DeploymentConfig, requests []*sim.Request, onReq
 				return nil // don't inject locally — route through cluster pipeline
 			}
 			if cs.sloFeedback != nil {
-				inst.sim.OnAdmit = func(req *sim.Request, tick int64) {
-					cs.feedAdmission(req)
-					cs.recordAdmissionTime(req, tick)
-				}
 				inst.sim.OnFirstToken = func(req *sim.Request, tick int64) {
 					cs.feedFirstToken(req, tick)
 				}
 			}
 		}
 	}
+	// Admission has two independent consumers: EDPP backlog feedback and the optional
+	// PD-outcome trace. Install the hook unconditionally so enabling outcome tracing
+	// after construction (as the CLI does) still captures schedule instants even when
+	// no SLO-feedback decider is configured. Both consumers are internally gated.
+	for _, inst := range cs.instances {
+		inst.sim.OnAdmit = func(req *sim.Request, tick int64) {
+			cs.feedAdmission(req)
+			cs.recordAdmissionTime(req, tick)
+		}
+	}
+	// Parent-level PD TTFT ends at the first decode token, not at prefill
+	// completion. Capture that execution boundary for every PD policy,
+	// independent of EDPP feedback and optional tracing.
+	if cs.poolsConfigured() {
+		for _, inst := range cs.instances {
+			inst.sim.OnFirstDecodeToken = cs.recordFirstDecodeToken
+		}
+	}
 
-	// VaR drift rule (--edpp-rule var, design 2026-07-21): the value-at-risk externality needs
-	// each decode co-resident's state (StepsDone, arrival, first-token, class), which populates
-	// only when per-instance admission detail is on. Enable it. The ORACLE flavor additionally
-	// populates the un-censored true remaining steps (a gated INV-9 violation, loud CLI warning);
-	// the DEPLOYABLE flavor (--edpp-var-deployable) leaves TrueRemaining censored and estimates
-	// remaining from the per-class N̂_out instead (INV-9-safe).
-	if config.EDPPRule == "var" {
-		oracle := !config.EDPPVarDeployable
+	// Resident-externality policies need each co-resident's phase state, which
+	// populates only when per-instance admission detail is on. The dedicated
+	// causal and constrained policies always use censored deployable state. Only
+	// an explicitly non-deployable older var rule may expose true remaining work.
+	if edppNeedsResidentState(config) {
+		oracle := edppResidentStateOracle(config)
 		for _, inst := range cs.instances {
 			inst.sim.SetAdmissionDetail(oracle)
 		}
@@ -1220,14 +1280,22 @@ func (cs *ClusterSimulator) addLiveInstance(
 			return nil // don't inject locally — route through cluster pipeline
 		}
 		if cs.sloFeedback != nil {
-			inst.sim.OnAdmit = func(req *sim.Request, tick int64) {
-				cs.feedAdmission(req)
-				cs.recordAdmissionTime(req, tick)
-			}
 			inst.sim.OnFirstToken = func(req *sim.Request, tick int64) {
 				cs.feedFirstToken(req, tick)
 			}
 		}
+	}
+	// Mirror the startup path: outcome tracing may be enabled after construction,
+	// and feedAdmission/recordAdmissionTime are cheap no-ops while disabled.
+	inst.sim.OnAdmit = func(req *sim.Request, tick int64) {
+		cs.feedAdmission(req)
+		cs.recordAdmissionTime(req, tick)
+	}
+	if cs.poolsConfigured() {
+		inst.sim.OnFirstDecodeToken = cs.recordFirstDecodeToken
+	}
+	if edppNeedsResidentState(cs.config) {
+		inst.sim.SetAdmissionDetail(edppResidentStateOracle(cs.config))
 	}
 
 	return true
@@ -1315,11 +1383,11 @@ func (c *ClusterSimulator) buildPoolFilteredSnapshots(role PoolRole) []sim.Routi
 // Only requests that produced a first token and at least one ITL sample are fed;
 // timed-out or zero-output requests carry no usable latency signal and are skipped.
 //
-// For PD-disaggregated requests this fires for the decode sub-request, so TTFT is
-// measured from decode-side arrival (it omits the prefill+transfer prefix). The design
-// accepts crude realized signals — the virtual queues self-correct over time (§5.1) —
-// and the ITL signal that drives the disaggregation-payoff term is exact regardless of
-// where it is measured.
+// FirstTokenTime is already an elapsed duration from the request's own ArrivalTime;
+// it must not have ArrivalTime subtracted again. For PD-disaggregated requests this
+// completion fires for the decode sub-request, so the fallback TTFT argument below is
+// decode-side only. The normal z_ttft path is nevertheless exact because it is trued
+// up earlier from the parent's absolute first-decode-token timestamp.
 func (c *ClusterSimulator) feedSLOFeedback(req *sim.Request) {
 	if c.sloFeedback == nil {
 		return
@@ -1339,7 +1407,7 @@ func (c *ClusterSimulator) feedSLOFeedback(req *sim.Request) {
 	// latency, or a timed-out/zero-output request) must still conserve — Forget is
 	// a no-op for the backlog (already drained at admission) but skips polluting z
 	// (Defect 2: the guarded early-return used to leak this work).
-	ttftUs := req.FirstTokenTime - req.ArrivalTime
+	ttftUs := req.FirstTokenTime
 	if !req.TTFTSet || len(req.ITL) == 0 || ttftUs < 0 {
 		c.sloFeedback.Forget(key)
 		return
@@ -1509,22 +1577,50 @@ func (cs *ClusterSimulator) recordAdmissionTime(req *sim.Request, tick int64) {
 	}
 }
 
-// feedFirstToken trues up an SLO-feedback decider's TTFT virtual queue when a request
-// produces its first token (tick = absolute first-token time), keyed on whatever OnRoute
-// registered — the parent ID for a PD request, the request ID otherwise (firstTokenKey).
-//
-// Resolving the PREFILL sub-request to its parent is load-bearing, not cosmetic. A PD
-// request's first token is produced on the prefill side, so if that event does not reach
-// the decider under the parent key the parent's awaiting-record is never trued up and never
-// deleted: every later credit pass keeps adding (now − arrival − τ) for a request that has
-// already finished, and the TTFT deficit queue integrates phantom lateness without bound.
-// OnFirstToken is idempotent (a second call finds no record), so mapping both sub-request
-// kinds to the parent is safe whichever one fires first.
+// feedFirstToken trues up a normal collocated request at its client-visible
+// first-token boundary. A PD prefill subrequest is an internal pipeline event,
+// not a user-visible token, so it is ignored here; recordFirstDecodeToken owns
+// the corresponding parent feedback after transfer, decode admission, and the
+// first decode step.
 func (cs *ClusterSimulator) feedFirstToken(req *sim.Request, tick int64) {
 	if cs.sloFeedback == nil {
 		return
 	}
+	if _, ok := cs.pendingPrefillCompletions[req.ID]; ok {
+		return
+	}
+	for _, parent := range cs.parentRequests {
+		if parent != nil && parent.PrefillSubReqID == req.ID {
+			return
+		}
+	}
 	cs.sloFeedback.OnFirstToken(cs.firstTokenKey(req), tick)
+}
+
+// recordFirstDecodeToken captures the client-visible first-token boundary for
+// a disaggregated request. The execution loop invokes this after the first
+// decode step completes, so tick already includes decode admission wait and
+// the first-step duration. Normal collocated requests are intentionally ignored.
+func (cs *ClusterSimulator) recordFirstDecodeToken(req *sim.Request, tick int64) {
+	if !req.IsDecodeSubRequest {
+		return
+	}
+	parentID, ok := cs.pendingDecodeCompletions[req.ID]
+	if !ok {
+		logrus.Errorf("[cluster] first decode token for %s has no pending parent mapping", req.ID)
+		return
+	}
+	parent := cs.parentRequests[parentID]
+	if parent == nil {
+		logrus.Errorf("[cluster] first decode token for %s maps to missing parent %s", req.ID, parentID)
+		return
+	}
+	if parent.FirstDecodeTokenTime == 0 {
+		parent.FirstDecodeTokenTime = tick
+		if cs.sloFeedback != nil {
+			cs.sloFeedback.OnFirstToken(parentID, tick)
+		}
+	}
 }
 
 // firstTokenKey resolves req to the key OnRoute registered for the TTFT virtual queue.
@@ -2173,9 +2269,9 @@ func (c *ClusterSimulator) projectPDMetrics() {
 
 		// TTFT: user-visible time-to-first-token for PD disaggregation.
 		// In llm-d, the first token reaches the user from the decode pod, not
-		// prefill: prefill completes → KV transfers → decode pod recomputes last
-		// prompt token and samples first output token. User-visible TTFT =
-		// prefillTTFT + transferDuration + firstDecodeStep. See issue #930.
+		// prefill. Use the absolute first-decode-token timestamp captured at
+		// execution so the metric includes prefill, transfer, decode admission
+		// wait, and the first decode step. See issue #930.
 		//
 		// Read prefill TTFT before deleting sub-request keys (R1: no silent data loss).
 		// Gate on completed: dropped-request TTFTs must not enter the distribution.
@@ -2183,17 +2279,21 @@ func (c *ClusterSimulator) projectPDMetrics() {
 		delete(m.RequestTTFTs, pfx)
 		delete(m.RequestTTFTs, dec)
 		if completed {
-			if hasPrefillTTFT && parent.TransferStartTime > 0 && parent.TransferCompleteTime >= parent.TransferStartTime && parent.DecodeSubReq != nil && len(parent.DecodeSubReq.ITL) > 0 {
-				transferDuration := float64(parent.TransferCompleteTime - parent.TransferStartTime)
-				firstDecodeStep := float64(parent.DecodeSubReq.ITL[0])
-				newTTFT := prefillTTFT + transferDuration + firstDecodeStep
+			firstDecodeTokenTime := parent.FirstDecodeTokenTime
+			// Compatibility for synthetic/legacy records that predate direct
+			// timestamp capture but do contain an admission timestamp.
+			if firstDecodeTokenTime == 0 && parent.DecodeScheduleTime > 0 && parent.DecodeSubReq != nil && len(parent.DecodeSubReq.ITL) > 0 {
+				firstDecodeTokenTime = parent.DecodeScheduleTime + parent.DecodeSubReq.ITL[0]
+			}
+			if hasPrefillTTFT && firstDecodeTokenTime >= parent.ArrivalTime && firstDecodeTokenTime > 0 {
+				newTTFT := float64(firstDecodeTokenTime - parent.ArrivalTime)
 				m.RequestTTFTs[pid] = newTTFT
 				// BC-3: Keep TTFTSum consistent with the TTFT adjustment.
 				m.TTFTSum += int64(newTTFT - prefillTTFT)
 			} else if hasPrefillTTFT {
 				// Defensive fallback: use prefill-only TTFT if decode data unavailable.
 				m.RequestTTFTs[pid] = prefillTTFT
-				logrus.Warnf("[cluster] projectPDMetrics: parent %s missing decode ITL or TransferCompleteTime; using prefill TTFT", pid)
+				logrus.Warnf("[cluster] projectPDMetrics: parent %s missing a valid first-decode-token timestamp; using prefill TTFT", pid)
 			} else {
 				logrus.Warnf("[cluster] projectPDMetrics: completed parent %s has no prefill TTFT (key %s)", pid, pfx)
 			}
@@ -2409,15 +2509,39 @@ func (cs *ClusterSimulator) executeDisaggregatedRouting(req *sim.Request, time i
 			cs.trace.RecordEDPPDecision(trace.EDPPDecisionRecord{
 				RequestID: req.ID, Clock: cs.clock,
 				Class: et.Class, SkipReason: et.SkipReason,
-				Ap: et.Ap, Wp: et.Wp, DeltaPfChunk: et.DeltaPfChunk,
-				QdRaw: et.QdRaw, QpRaw: et.QpRaw, Qd: et.Qd, Qp: et.Qp,
+				Ap: et.Ap, Wp: et.Wp, ApPrefill: et.ApPrefill, WpPrefill: et.WpPrefill,
+				DeltaPfChunk: et.DeltaPfChunk,
+				QdRaw:        et.QdRaw, QpRaw: et.QpRaw, Qd: et.Qd, Qp: et.Qp,
 				MuDNom: et.MuDNom, MuPNom: et.MuPNom, WStarD: et.WStarD, WStarP: et.WStarP,
 				TauTTFT: et.TauTTFT, TauITL: et.TauITL,
-				TTFTP: et.TTFTP, TTFTD: et.TTFTD, ITLP: et.ITLP, ITLD: et.ITLD,
+				TTFTP: et.TTFTP, TTFTD: et.TTFTD,
+				TAdmP: et.TAdmP, TAdmD: et.TAdmD, RemoteLead: et.RemoteLead,
+				LocalService: et.LocalService, DisaggFirst: et.DisaggFirst,
+				ITLP: et.ITLP, ITLD: et.ITLD,
 				ZTTFT: et.ZTTFT, ZITL: et.ZITL,
 				BalanceTermD: et.BalanceTermD, BalanceTermP: et.BalanceTermP,
 				TransferTerm: et.TransferTerm, TTFTTerm: et.TTFTTerm, ITLTerm: et.ITLTerm,
-				LHS: et.LHS, RHS: et.RHS, Disaggregate: et.Disaggregate,
+				PrefillStabilityTerm:   et.PrefillStabilityTerm,
+				VarLocalDecode:         et.VarLocalDecode,
+				VarLocalCollocPrefill:  et.VarLocalCollocPrefill,
+				VarLocalTotal:          et.VarLocalTotal,
+				VarDisaggDecode:        et.VarDisaggDecode,
+				VarDisaggCollocPrefill: et.VarDisaggCollocPrefill,
+				VarDisaggPrefillPool:   et.VarDisaggPrefillPool,
+				VarDisaggTotal:         et.VarDisaggTotal,
+				SelfGoodLocal:          et.SelfGoodLocal,
+				SelfGoodDisagg:         et.SelfGoodDisagg,
+				KairosMode:             et.KairosMode,
+				KairosAlpha:            et.KairosAlpha,
+				KairosAlphaThreshold:   et.KairosAlphaThreshold,
+				KairosTTFTGateRequired: et.KairosTTFTGateRequired,
+				KairosTTFTGatePassed:   et.KairosTTFTGatePassed,
+				KairosResidentTauITL:   et.KairosResidentTauITL,
+				KairosTBTBudget:        et.KairosTBTBudget,
+				KairosFirstChunk:       et.KairosFirstChunk,
+				KairosMinChunk:         et.KairosMinChunk,
+				KairosChunkSteps:       et.KairosChunkSteps,
+				LHS:                    et.LHS, RHS: et.RHS, Disaggregate: et.Disaggregate,
 			})
 		}
 		// Joint scorer-vs-joint divergence trace: present only under --edpp-joint-trace.
@@ -2431,6 +2555,33 @@ func (cs *ClusterSimulator) executeDisaggregatedRouting(req *sim.Request, time i
 				JScorer: jt.JScorer, JJoint: jt.JJoint,
 				Disaggregate: jt.Disaggregate,
 			})
+		}
+		// Complete corrected-causal-VaR action trace. The decider attaches this
+		// only after committing the routing action, so recording cannot affect
+		// candidate selection.
+		if candidateSet := disaggDecision.EDPPJointCandidates; candidateSet != nil {
+			for _, candidate := range candidateSet.Candidates {
+				cs.trace.RecordEDPPJointCandidate(trace.EDPPJointCandidateRecord{
+					RequestID: req.ID, Clock: cs.clock, Class: candidate.Class,
+					DecodePod: candidate.DecodePod, PrefillPod: candidate.PrefillPod,
+					Local: candidate.Local, Chosen: candidate.Chosen,
+					RouterDecode:     candidate.RouterDecode,
+					VarDecode:        candidate.VarDecode,
+					VarCollocPrefill: candidate.VarCollocPrefill,
+					VarPrefillPool:   candidate.VarPrefillPool,
+					VarTotal:         candidate.VarTotal, BestVar: candidate.BestVar,
+					ChosenVarRegret: candidate.ChosenVarRegret,
+					SLOExternality:  candidate.SLOExternality, OwnGood: candidate.OwnGood,
+					NetGoodCost:           candidate.NetGoodCost,
+					CapacityQueueDecode:   candidate.CapacityQueueDecode,
+					CapacityQueuePrefill:  candidate.CapacityQueuePrefill,
+					CapacityDemandDecode:  candidate.CapacityDemandDecode,
+					CapacityDemandPrefill: candidate.CapacityDemandPrefill,
+					CapacityDecode:        candidate.CapacityDecode, CapacityPrefill: candidate.CapacityPrefill,
+					CapacityTotal: candidate.CapacityTotal, Score: candidate.Score,
+					BestScore: candidate.BestScore, ChosenScoreRegret: candidate.ChosenScoreRegret,
+				})
+			}
 		}
 	}
 

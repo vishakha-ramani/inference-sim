@@ -162,6 +162,35 @@ func TestExecuteBatchStep_IdleRequestsPersist_BC3(t *testing.T) {
 	}
 }
 
+// A PD decode subrequest skips the normal prefill-completion TTFT branch, so
+// its absolute first-token instant must be captured at its first decode step.
+// VaR consumes this timestamp while the subrequest is still running.
+func TestExecuteBatchStep_PDDecodeCapturesAbsoluteFirstToken(t *testing.T) {
+	cfg := SimConfig{
+		KVCacheConfig: NewKVCacheConfig(1000, 16, 0, 0, 0, 0),
+		BatchConfig:   NewBatchConfig(256, 2048, 0),
+		Seed:          42,
+	}
+	kvStore := MustNewKVStoreFromConfig(cfg.KVCacheConfig)
+	s, err := NewSimulator(cfg, kvStore, &fixedStepModel{stepTime: 250})
+	if err != nil {
+		t.Fatalf("NewSimulator: %v", err)
+	}
+	req := &Request{
+		ID: "pd_decode", InputTokens: make([]int, 32), OutputTokens: make([]int, 10),
+		ArrivalTime: 1_000, ProgressIndex: 32, NumNewTokens: 1,
+		State: StateRunning, IsDecodeSubRequest: true,
+	}
+	s.RunningBatch = &Batch{Requests: []*Request{req}}
+	s.reqNumComputedTokens = map[string]int64{req.ID: req.ProgressIndex}
+
+	s.executeBatchStep(2_000)
+
+	if want := int64(2_250); req.FirstTokenTimestamp != want {
+		t.Fatalf("PD FirstTokenTimestamp = %d, want %d", req.FirstTokenTimestamp, want)
+	}
+}
+
 // BC-1: Simulator.PostDecodeFixedOverhead() delegates to the underlying LatencyModel.
 func TestSimulator_PostDecodeFixedOverhead_DelegatesToModel(t *testing.T) {
 	tests := []struct {

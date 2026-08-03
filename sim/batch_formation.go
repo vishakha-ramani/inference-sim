@@ -105,6 +105,9 @@ func (v *VLLMBatchFormation) FormBatch(ctx BatchContext) BatchResult {
 		numNewTokens := util.Len64(req.InputTokens) - req.ProgressIndex
 		// Chunked prefill for running requests
 		if numNewTokens > 0 {
+			if limit := req.nextPrefillChunkLimit(); limit > 0 && limit < numNewTokens {
+				numNewTokens = limit
+			}
 			if 0 < ctx.PrefillTokenThreshold && ctx.PrefillTokenThreshold < numNewTokens {
 				numNewTokens = ctx.PrefillTokenThreshold
 			}
@@ -127,6 +130,7 @@ func (v *VLLMBatchFormation) FormBatch(ctx BatchContext) BatchResult {
 			tokenBudget -= numNewTokens
 			req.NumNewTokens = int(numNewTokens)
 			ctx.ComputedTokens[req.ID] += numNewTokens
+			req.consumePrefillChunk(numNewTokens)
 		}
 		// Decode phase: allocate 1 token
 		if req.ProgressIndex >= util.Len64(req.InputTokens) && len(req.OutputTokens) > 0 {
@@ -181,6 +185,9 @@ func (v *VLLMBatchFormation) FormBatch(ctx BatchContext) BatchResult {
 
 		cachedBlocks := ctx.KVCache.GetCachedBlocks(next.InputTokens)
 		numNewTokens := util.Len64(next.InputTokens) - util.Len64(cachedBlocks)*ctx.KVCache.BlockSize()
+		if limit := next.nextPrefillChunkLimit(); limit > 0 && limit < numNewTokens {
+			numNewTokens = limit
+		}
 
 		if 0 < ctx.PrefillTokenThreshold && ctx.PrefillTokenThreshold < numNewTokens {
 			numNewTokens = ctx.PrefillTokenThreshold
@@ -211,6 +218,7 @@ func (v *VLLMBatchFormation) FormBatch(ctx BatchContext) BatchResult {
 		next.State = StateRunning
 		next.NumNewTokens = int(numNewTokens)
 		ctx.ComputedTokens[next.ID] = numNewTokens + util.Len64(cachedBlocks)*ctx.KVCache.BlockSize()
+		next.consumePrefillChunk(numNewTokens)
 	}
 
 	return result
@@ -288,8 +296,10 @@ func (v *VLLMBatchFormation) preemptForTokens(req *Request, numNewTokens int64, 
 
 			preemptedRequest.State = StateQueued
 			preemptedRequest.ProgressIndex = 0
+			preemptedRequest.resetPrefillChunkSchedule()
 			preemptedRequest.ITL = nil
 			preemptedRequest.TTFTSet = false // lets the !TTFTSet guard in executeBatchStep fire on re-prefill, updating FirstTokenTime (#1122)
+			preemptedRequest.FirstTokenTimestamp = 0
 			ctx.KVCache.ReleaseKVBlocks(preemptedRequest)
 			delete(ctx.ComputedTokens, preemptedRequest.ID)
 			ctx.WaitQ.PrependFront(preemptedRequest)

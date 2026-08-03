@@ -172,6 +172,49 @@ func TestVarCensoredCoResidentContributesZero(t *testing.T) {
 	}
 }
 
+// Local placement cannot affect a running decode batch before the incoming
+// request is admitted. Co-residents that finish inside the admission window
+// see exactly baseline completion; longer-lived co-residents retain their
+// baseline prefix and are re-timed only after admission.
+func TestVarDecodeLocalAdmissionCausality(t *testing.T) {
+	rt := standardRT()
+	now := 0.0
+	nChunks := 2.0
+
+	if got, want := rt.cLocalAfter(now, 3, 5, nChunks), rt.cBase(now, 3); got != want {
+		t.Fatalf("co-resident finishing before local admission: completion=%v, want baseline %v", got, want)
+	}
+	// 5 baseline steps, 2 overlap steps, then 3 B+1 steps.
+	if got, want := rt.cLocalAfter(now, 10, 5, nChunks), 5*40.0+2*60.0+3*80.0; got != want {
+		t.Fatalf("admission-aware local completion=%v, want %v", got, want)
+	}
+
+	cr := []varDecodeCoResident{{
+		rem: 3, arrivalUs: 0, firstTokenUs: 10, ttftSet: true,
+		slo: varSLO{tauTTFTUs: 100, tauE2EUs: 1_000},
+	}}
+	if got := varDecodeLocalAfter(now, cr, rt, nChunks, 5, varKernelHazard); got != 0 {
+		t.Fatalf("local VaR before admission = %v, want 0 for a co-resident that finishes first", got)
+	}
+}
+
+// A remote prefill request waiting for prefill admission cannot delay current
+// prefill-pool occupants. An occupant that finishes during that wait has zero
+// disaggregated prefill-pool VaR.
+func TestVarPrefillDisaggAdmissionCausality(t *testing.T) {
+	now := 0.0
+	occupants := []varPrefillCoResident{{
+		remPrefillTokens: 10, arrivalUs: 0,
+		slo: varSLO{tauTTFTUs: 1_000},
+	}}
+	// remIters=ceil(10/5)=2; R is admitted after 3 baseline iterations.
+	for _, kernel := range []varKernel{varKernelFlip, varKernelUtil, varKernelHazard} {
+		if got := varPrefillDisaggAfter(now, occupants, 40, 5, 3, 500, kernel); got != 0 {
+			t.Errorf("kernel %v: prefill-pool VaR before admission = %v, want 0", kernel, got)
+		}
+	}
+}
+
 // collocPrefillCoResident is a mid-prefill occupant on the DECODE instance (placed there by a
 // prior collocate decision). remPrefillTokens remaining prompt tokens separate it from its first
 // token; chunk is the per-iter prefill advance. Its VaR is TTFT-side.
@@ -372,5 +415,114 @@ func TestVarReTiming_CausalOverlapAttention(t *testing.T) {
 	rt0.cAttn = 0
 	if got0 := rt0.cLocal(0, 4, 4); math.Abs(got0-4*120.0) > 1e-9 {
 		t.Fatalf("cLocal affine (c_attn=0) = %v, want 480", got0)
+	}
+}
+
+// Exact marginal prefill work starts at the request's known cached prefix and
+// caps the last chunk at the remaining uncached tokens. It is exactly Wp when
+// all chunks overlap, but only the first causal prefix integral when one does.
+func TestPrefillMarginalWork_CacheAndPartialChunk(t *testing.T) {
+	const (
+		cPf   = 2.0
+		cAttn = 0.01
+		ap    = 600.0
+		ar    = 1000.0
+		chunk = 256.0
+	)
+	gotFirst := prefillMarginalWork(cPf, cAttn, ap, ar, chunk, 1)
+	wantFirst := cPf*chunk + cAttn*chunk*((ar-ap)+chunk/2)
+	if math.Abs(gotFirst-wantFirst) > 1e-9 {
+		t.Fatalf("first exact chunk work = %v, want %v", gotFirst, wantFirst)
+	}
+
+	gotAll := prefillMarginalWork(cPf, cAttn, ap, ar, chunk, 3)
+	wantAll := cPf*ap + cAttn*ap*((ar-ap)+ap/2)
+	if math.Abs(gotAll-wantAll) > 1e-9 {
+		t.Fatalf("all exact chunks work = %v, want Wp %v", gotAll, wantAll)
+	}
+}
+
+// The local exact-overlap completion model retains baseline decode time for
+// every shared iteration and adds only R's marginal causal prefill work. It
+// must not treat a cached request as if its first chunk started at prefix zero.
+func TestVarReTiming_ExactLocalPrefillOverlap(t *testing.T) {
+	rt := varReTiming{
+		tIter0: 100, tIterAfter: 110,
+		cAttn: 0.01, chunk: 256,
+		exactPrefillOverlap: true,
+		cPf:                 2,
+		ap:                  600,
+		ar:                  1000,
+	}
+	got := rt.cLocalAfter(0, 5, 1, 3)
+	want := 1*100.0 + 3*100.0 +
+		prefillMarginalWork(2, 0.01, 600, 1000, 256, 3) +
+		1*110.0
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("exact local completion = %v, want %v", got, want)
+	}
+}
+
+// A prefill-pool occupant can overlap only the prefix of R's remote prefill
+// that executes before that occupant reaches its own first token. The legacy
+// model charged R's full serial duration whenever any overlap existed.
+func TestVarPrefillDisaggExact_ChargesOnlyOverlappingMarginalWork(t *testing.T) {
+	coeffs := EDPPCoeffs{CPf: 2, CAttn: 0.01}
+	occupant := varPrefillCoResident{
+		remPrefillTokens: 512, // two 256-token baseline iterations
+		arrivalUs:        0,
+		slo:              varSLO{tauTTFTUs: 200}, // baseline completion=deadline => hazard weight 1
+	}
+	got := varPrefillDisaggExactAfter(
+		0,
+		[]varPrefillCoResident{occupant},
+		100,
+		256,
+		1, // R admitted after one iteration; only one occupant iteration remains
+		600,
+		1000,
+		coeffs,
+		varKernelHazard,
+	)
+	want := prefillMarginalWork(2, 0.01, 600, 1000, 256, 1)
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("exact remote prefill VaR = %v, want one marginal chunk %v", got, want)
+	}
+
+	legacy := varPrefillDisaggAfter(
+		0,
+		[]varPrefillCoResident{occupant},
+		100,
+		256,
+		1,
+		10_000,
+		varKernelHazard,
+	)
+	if !(got < legacy) {
+		t.Fatalf("exact remote prefill VaR %v must be below legacy full-duration charge %v", got, legacy)
+	}
+}
+
+// If the occupant finishes by the time R is admitted, there is no shared
+// prefill iteration and therefore no externality under the exact model.
+func TestVarPrefillDisaggExact_AdmissionEliminatesOverlap(t *testing.T) {
+	occupant := varPrefillCoResident{
+		remPrefillTokens: 256,
+		arrivalUs:        0,
+		slo:              varSLO{tauTTFTUs: 100},
+	}
+	got := varPrefillDisaggExactAfter(
+		0,
+		[]varPrefillCoResident{occupant},
+		100,
+		256,
+		1,
+		600,
+		1000,
+		EDPPCoeffs{CPf: 2, CAttn: 0.01},
+		varKernelHazard,
+	)
+	if got != 0 {
+		t.Fatalf("exact remote prefill VaR after occupant completion = %v, want 0", got)
 	}
 }

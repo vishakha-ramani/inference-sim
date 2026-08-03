@@ -1054,9 +1054,8 @@ func TestDisaggregation_MetricProjection_E2ECorrectness(t *testing.T) {
 }
 
 // TestDisaggregation_TTFT_IncludesTransferAndDecode verifies BC-1/BC-2/BC-3/BC-4:
-// In PD disaggregation, user-visible TTFT includes prefill + KV transfer + first
-// decode step (matching llm-d behavior where the decode pod produces the first
-// user-visible token). See issue #930.
+// In PD disaggregation, user-visible TTFT ends when the decode pod produces the
+// first output token (matching llm-d behavior). See issue #930.
 func TestDisaggregation_TTFT_IncludesTransferAndDecode(t *testing.T) {
 	config := newTestDisaggDeploymentConfig(4, 2, 2)
 	requests := newTestRequests(5)
@@ -1087,11 +1086,15 @@ func TestDisaggregation_TTFT_IncludesTransferAndDecode(t *testing.T) {
 			continue
 		}
 
-		// BC-1: TTFT = prefillTTFT + transferDuration + firstDecodeStep.
-		// Prefill TTFT (instance-level) captures arrival → prefill completion.
-		// Transfer duration and first decode step are additive on top.
+		// BC-1: TTFT = firstDecodeTokenTime - original arrival.
+		// This absolute execution timestamp includes prefill, transfer, any
+		// decode admission wait, and the first decode step.
 		if parent.DecodeSubReq == nil || len(parent.DecodeSubReq.ITL) == 0 {
 			t.Errorf("parent %s: DecodeSubReq nil or empty ITL", pid)
+			continue
+		}
+		if parent.FirstDecodeTokenTime == 0 {
+			t.Errorf("parent %s: FirstDecodeTokenTime was not captured", pid)
 			continue
 		}
 		origPrefillTTFT, hasPrefill := prefillTTFTs[parent.PrefillSubReqID]
@@ -1101,10 +1104,19 @@ func TestDisaggregation_TTFT_IncludesTransferAndDecode(t *testing.T) {
 		}
 		transferDuration := parent.TransferCompleteTime - parent.TransferStartTime
 		firstDecodeStep := parent.DecodeSubReq.ITL[0]
-		expectedTTFT := origPrefillTTFT + float64(transferDuration) + float64(firstDecodeStep)
+		expectedTTFT := float64(parent.FirstDecodeTokenTime - parent.ArrivalTime)
 		if math.Abs(ttft-expectedTTFT) > 1e-9 {
-			t.Errorf("BC-1: parent %s: TTFT = %.1f, want %.1f (prefillTTFT=%.0f + transfer=%d + decode=%d)",
-				pid, ttft, expectedTTFT, origPrefillTTFT, transferDuration, firstDecodeStep)
+			t.Errorf("BC-1: parent %s: TTFT = %.1f, want %.1f (firstDecodeToken=%d - arrival=%d)",
+				pid, ttft, expectedTTFT, parent.FirstDecodeTokenTime, parent.ArrivalTime)
+		}
+		// The decode token cannot complete before transfer completion plus its
+		// execution time. Do not build this bound from the prefill subrequest's
+		// TTFT: that instance metric includes output-token processing even
+		// though the prefill-only subrequest emits no user-visible token.
+		earliestDecodeTokenTime := parent.TransferCompleteTime + firstDecodeStep
+		if parent.FirstDecodeTokenTime < earliestDecodeTokenTime {
+			t.Errorf("BC-1: parent %s: first decode token %d is before no-wait bound %d",
+				pid, parent.FirstDecodeTokenTime, earliestDecodeTokenTime)
 		}
 
 		// BC-2: User-visible TTFT > prefill-only TTFT (transfer + decode add positive time).
@@ -1145,6 +1157,52 @@ func TestDisaggregation_TTFT_IncludesTransferAndDecode(t *testing.T) {
 	}
 	if math.Abs(float64(m.TTFTSum)-manualSum) > 1.0 {
 		t.Errorf("BC-3: TTFTSum (%d) != sum(RequestTTFTs) (%.1f)", m.TTFTSum, manualSum)
+	}
+}
+
+// TestDisaggregation_TTFT_IncludesDecodeAdmissionWait is a regression test for
+// the decode handoff queue. The first user-visible token cannot arrive before
+// the decode sub-request is scheduled and executes its first decode step, so a
+// nonzero transfer-complete → decode-schedule wait must increase parent TTFT.
+func TestDisaggregation_TTFT_IncludesDecodeAdmissionWait(t *testing.T) {
+	const (
+		arrival        = int64(1_000)
+		prefillTTFT    = float64(2_000)
+		transferStart  = int64(3_000)
+		transferDone   = int64(3_500)
+		decodeSchedule = int64(5_500) // 2,000 µs decode admission wait
+		firstStep      = int64(1_000)
+	)
+
+	parent := &ParentRequest{
+		ID:                   "parent",
+		OriginalRequest:      &sim.Request{ID: "parent", ArrivalTime: arrival},
+		PrefillSubReqID:      "parent_prefill",
+		DecodeSubReqID:       "parent_decode",
+		ArrivalTime:          arrival,
+		TransferStartTime:    transferStart,
+		TransferCompleteTime: transferDone,
+		DecodeEnqueueTime:    transferDone,
+		DecodeScheduleTime:   decodeSchedule,
+		FirstDecodeTokenTime: decodeSchedule + firstStep,
+		CompletionTime:       10_000,
+		DecodeInstanceID:     "decode-0",
+		DecodeSubReq:         &sim.Request{ITL: []int64{firstStep}},
+	}
+	m := sim.NewMetrics()
+	m.RequestTTFTs[parent.PrefillSubReqID] = prefillTTFT
+	m.TTFTSum = int64(prefillTTFT)
+
+	cs := &ClusterSimulator{
+		aggregatedMetrics: m,
+		parentRequests:    map[string]*ParentRequest{parent.ID: parent},
+	}
+	cs.projectPDMetrics()
+
+	// First decode token completes at decodeSchedule + firstStep.
+	want := float64(decodeSchedule + firstStep - arrival)
+	if got := m.RequestTTFTs[parent.ID]; got != want {
+		t.Fatalf("parent TTFT = %.0f, want %.0f (must include decode admission wait)", got, want)
 	}
 }
 

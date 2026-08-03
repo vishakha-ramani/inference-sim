@@ -37,15 +37,16 @@ type Request struct {
 	State         RequestState // queued, running, completed
 	ProgressIndex int64        // Total number of input tokens processed so far + number of output tokens generated so far
 
-	TTFTSet          bool    // Tracks whether TTFT has been set
-	FirstTokenTime   int64   // Timestamp when first token was generated
-	ArrivalTime      int64   // Timestamp in ticks when the request arrives in the simulator
-	ScheduledStepIdx int     // Step index when this request got scheduled (waiting -> running)
-	FinishedStepIdx  int     // Step index when this request finished (running -> completed)
-	NumNewTokens     int     // Number of new tokens to be generated in the current step
-	LengthCapped     bool    // Set when force-completed by runtime MaxModelLen cap (BC-5)
-	ITL              []int64 // List of inter-token latencies
-	Priority         float64 // Instance-level scheduling priority (vLLM convention: lower = more urgent).
+	TTFTSet             bool    // Tracks whether the normal prefill-completion TTFT has been set
+	FirstTokenTime      int64   // Elapsed TTFT duration from ArrivalTime (not an absolute timestamp)
+	FirstTokenTimestamp int64   // Absolute simulation tick of the client-visible first token; also set for PD decode subrequests
+	ArrivalTime         int64   // Timestamp in ticks when the request arrives in the simulator
+	ScheduledStepIdx    int     // Step index when this request got scheduled (waiting -> running)
+	FinishedStepIdx     int     // Step index when this request finished (running -> completed)
+	NumNewTokens        int     // Number of new tokens to be generated in the current step
+	LengthCapped        bool    // Set when force-completed by runtime MaxModelLen cap (BC-5)
+	ITL                 []int64 // List of inter-token latencies
+	Priority            float64 // Instance-level scheduling priority (vLLM convention: lower = more urgent).
 	// Set once at EnqueueRequest/EnqueueDecodeSubRequest via SLOPriorityMap.InvertForVLLM;
 	// not recomputed per step.
 
@@ -97,6 +98,42 @@ type Request struct {
 	// Flow control timestamps (issue #882). Zero when flow control is disabled.
 	GatewayEnqueueTime  int64 // microseconds: when request entered the gateway queue
 	GatewayDispatchTime int64 // microseconds: when request was dispatched from the gateway queue
+
+	// PrefillChunkSchedule is an optional per-request prefill schedule selected by a
+	// routing policy (currently kairos-paper). Empty means the normal engine-wide
+	// token budget applies. The cursor fields are scheduler-owned execution state.
+	PrefillChunkSchedule  []int
+	prefillChunkCursor    int
+	prefillChunkRemaining int64
+}
+
+func (req *Request) nextPrefillChunkLimit() int64 {
+	if req == nil || req.prefillChunkCursor >= len(req.PrefillChunkSchedule) {
+		return 0
+	}
+	if req.prefillChunkRemaining <= 0 {
+		req.prefillChunkRemaining = int64(req.PrefillChunkSchedule[req.prefillChunkCursor])
+	}
+	return req.prefillChunkRemaining
+}
+
+func (req *Request) consumePrefillChunk(tokens int64) {
+	if tokens <= 0 || req.prefillChunkCursor >= len(req.PrefillChunkSchedule) {
+		return
+	}
+	if req.prefillChunkRemaining <= 0 {
+		req.prefillChunkRemaining = int64(req.PrefillChunkSchedule[req.prefillChunkCursor])
+	}
+	req.prefillChunkRemaining -= tokens
+	if req.prefillChunkRemaining <= 0 {
+		req.prefillChunkCursor++
+		req.prefillChunkRemaining = 0
+	}
+}
+
+func (req *Request) resetPrefillChunkSchedule() {
+	req.prefillChunkCursor = 0
+	req.prefillChunkRemaining = 0
 }
 
 // This method returns a human-readable string representation of a Request.

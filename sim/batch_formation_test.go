@@ -97,6 +97,43 @@ func TestVLLMBatchFormation_TokenBudgetEnforced(t *testing.T) {
 	}
 }
 
+func TestVLLMBatchFormation_PerRequestPrefillChunkSchedule(t *testing.T) {
+	bf := NewBatchFormation("")
+	kvCache := MustNewKVCacheState(100, 16)
+	req := &Request{
+		ID:                   "scheduled-prefill",
+		InputTokens:          make([]int, 192),
+		OutputTokens:         make([]int, 1),
+		State:                StateQueued,
+		PrefillChunkSchedule: []int{128, 64},
+	}
+	wq := &WaitQueue{}
+	wq.Enqueue(req)
+
+	ctx := BatchContext{
+		RunningBatch:       &Batch{},
+		WaitQ:              wq,
+		KVCache:            kvCache,
+		MaxScheduledTokens: 1024,
+		MaxRunningReqs:     1,
+		ComputedTokens:     make(map[string]int64),
+	}
+
+	first := bf.FormBatch(ctx)
+	if req.NumNewTokens != 128 {
+		t.Fatalf("first prefill step scheduled %d tokens, want 128", req.NumNewTokens)
+	}
+
+	// FormBatch reports work; the simulator advances ProgressIndex after the step.
+	req.ProgressIndex += int64(req.NumNewTokens)
+	ctx.RunningBatch = first.RunningBatch
+	ctx.ComputedTokens = make(map[string]int64)
+	bf.FormBatch(ctx)
+	if req.NumNewTokens != 64 {
+		t.Fatalf("second prefill step scheduled %d tokens, want 64", req.NumNewTokens)
+	}
+}
+
 // TestVLLMBatchFormation_BatchSizeEnforced verifies BC-3:
 // batch size must not exceed MaxRunningReqs.
 func TestVLLMBatchFormation_BatchSizeEnforced(t *testing.T) {

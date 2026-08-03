@@ -32,6 +32,12 @@ const (
 	varKernelFlip   varKernel = iota // A: binary composite-good flip count (true→false)
 	varKernelUtil                    // B: saturating slack-utility drop
 	varKernelHazard                  // C: deadline-slack hazard weight × completion delay
+	// composite is reserved for the constrained causal-SLO-externality policy. It
+	// uses one smooth TTFT×E2E routing value for the arriving request and every
+	// decode-side resident charge. Mean ITL remains an evaluation-goodput gate,
+	// but is deliberately not a direct factor in this routing surrogate.
+	// Historical util/hazard behavior remains unchanged.
+	varKernelComposite
 )
 
 // parseVarKernel maps the CLI/config string to a kernel. ok=false for an unknown value
@@ -108,6 +114,15 @@ type varReTiming struct {
 	// window in cLocal: each of R's co-scheduled chunks attends to its causal prefix.
 	cAttn float64
 	chunk float64
+
+	// Exact-prefill-overlap ablation. The legacy model assumes every overlapping
+	// chunk is full and starts at prefix zero. The exact form uses the known
+	// uncached span [ar-ap, ar), handles the partial last chunk, and charges only
+	// marginal prefill work above the baseline decode iteration.
+	exactPrefillOverlap bool
+	cPf                 float64
+	ap                  float64
+	ar                  float64
 }
 
 // cBase is a decode co-resident's projected completion with rem steps left at the current
@@ -116,16 +131,47 @@ func (rt varReTiming) cBase(nowUs float64, rem int64) float64 {
 	return nowUs + float64(rem)*rt.tIter0
 }
 
-// cLocal is the co-resident's completion under LOCAL placement: its first min(nChunks, rem)
-// steps run at the prefill-overlap per-iter time (R prefilling co-scheduled), the remainder
-// at the B+1 re-timed per-iter time (R decoding alongside).
+// cLocal is the zero-admission-delay compatibility form of cLocalAfter.
 func (rt varReTiming) cLocal(nowUs float64, rem int64, nChunks float64) float64 {
-	overlap := math.Min(nChunks, float64(rem))
+	return rt.cLocalAfter(nowUs, rem, 0, nChunks)
+}
+
+// cLocalAfter is the co-resident's completion under LOCAL placement when R waits
+// admissionSteps baseline iterations before joining the running batch. Co-residents
+// first execute min(admissionSteps, rem) iterations undisturbed. Of the surviving
+// tail, the first min(nChunks, remaining) iterations overlap R's prefill and the
+// rest run at the B+1 re-timed decode rate.
+func (rt varReTiming) cLocalAfter(nowUs float64, rem int64, admissionSteps, nChunks float64) float64 {
+	pre := math.Min(math.Max(admissionSteps, 0), float64(rem))
+	remaining := float64(rem) - pre
+	overlap := math.Min(nChunks, remaining)
+	if rt.exactPrefillOverlap {
+		return nowUs + pre*rt.tIter0 + overlap*rt.tIter0 +
+			prefillMarginalWork(rt.cPf, rt.cAttn, rt.ap, rt.ar, rt.chunk, overlap) +
+			(remaining-overlap)*rt.tIterAfter
+	}
 	// Causal prefill attention over R's co-scheduled chunks j=0..overlap-1, each charged
 	// against causal prefix j·chunk + chunk/2 (start prefix 0; matches prefix_length:0
 	// workloads). Σ = c_attn·chunk²·overlap²/2.
 	attn := rt.cAttn * rt.chunk * rt.chunk * overlap * overlap / 2.0
-	return nowUs + overlap*rt.tIterOverlap + attn + (float64(rem)-overlap)*rt.tIterAfter
+	return nowUs + pre*rt.tIter0 + overlap*rt.tIterOverlap + attn + (remaining-overlap)*rt.tIterAfter
+}
+
+// prefillMarginalWork returns the exact E3 work added by the first `iterations`
+// chunks of an arriving request's uncached prefill. The known cached prefix is
+// ar-ap, processed=min(ap, iterations*chunk), and the integrated causal work is
+//
+//	CPf·processed + CAttn·processed·(cachedPrefix + processed/2).
+//
+// It excludes baseline iteration time: co-residents would pay that even if the
+// arriving request were absent.
+func prefillMarginalWork(cPf, cAttn, ap, ar, chunk, iterations float64) float64 {
+	if ap <= 0 || chunk <= 0 || iterations <= 0 {
+		return 0
+	}
+	processed := math.Min(ap, iterations*chunk)
+	cachedPrefix := math.Max(ar-ap, 0)
+	return cPf*processed + cAttn*processed*(cachedPrefix+processed/2.0)
 }
 
 // cDisagg is the co-resident's completion under DISAGG placement: R's prefill runs remotely,
@@ -189,6 +235,29 @@ func gDecodeUtil(cr varDecodeCoResident, cUs float64) float64 {
 	return 1.0 / (1.0 + math.Exp(-(deadline-cUs)/scale))
 }
 
+// sloCompositeValue is the constrained policy's bounded routing value. It is a
+// smooth TTFT×E2E surrogate; final goodput still gates TTFT, mean ITL, and E2E.
+// Each enabled routing dimension uses its own fixed SLO scale as the transition
+// bandwidth; disabled targets contribute one.
+func sloCompositeValue(slo varSLO, ttftUs, e2eUs float64) float64 {
+	u := 1.0
+	if slo.tauTTFTUs > 0 {
+		u *= sigmoid((slo.tauTTFTUs - ttftUs) / slo.tauTTFTUs)
+	}
+	if slo.tauE2EUs > 0 {
+		u *= sigmoid((slo.tauE2EUs - e2eUs) / slo.tauE2EUs)
+	}
+	return u
+}
+
+func gDecodeComposite(cr varDecodeCoResident, cUs float64) float64 {
+	if !cr.ttftSet {
+		return 0
+	}
+	ttft := float64(cr.firstTokenUs - cr.arrivalUs)
+	return sloCompositeValue(cr.slo, ttft, cUs-float64(cr.arrivalUs))
+}
+
 // hazardWeight is kernel C's deadline-slack hazard for a decode co-resident whose BASELINE
 // completion is cBaseUs: a heavy-tailed (Cauchy-like) bump 1/(1+x²) peaking at slack 0 (right
 // at the E2E deadline) and decaying GENTLY (polynomially, not Gaussian-fast) on both sides, so
@@ -211,13 +280,19 @@ func hazardWeight(cr varDecodeCoResident, cBaseUs float64) float64 {
 // For flip/util the contribution is g(before) − g(after); for hazard it is
 // hazardWeight(slack) · (cLocal − cBase). Censored co-residents (rem < 0) are skipped.
 func varDecodeLocal(nowUs float64, crs []varDecodeCoResident, rt varReTiming, nChunks float64, kernel varKernel) float64 {
+	return varDecodeLocalAfter(nowUs, crs, rt, nChunks, 0, kernel)
+}
+
+// varDecodeLocalAfter is varDecodeLocal with an explicit local-admission
+// window. R cannot delay a co-resident until that window has elapsed.
+func varDecodeLocalAfter(nowUs float64, crs []varDecodeCoResident, rt varReTiming, nChunks, admissionSteps float64, kernel varKernel) float64 {
 	var sum float64
 	for _, cr := range crs {
 		if cr.rem < 0 {
 			continue
 		}
 		cb := rt.cBase(nowUs, cr.rem)
-		cp := rt.cLocal(nowUs, cr.rem, nChunks)
+		cp := rt.cLocalAfter(nowUs, cr.rem, admissionSteps, nChunks)
 		sum += varDecodeContribution(cr, cb, cp, nowUs, kernel)
 	}
 	return sum
@@ -243,6 +318,8 @@ func varDecodeDisagg(nowUs float64, crs []varDecodeCoResident, rt varReTiming, a
 // disagg sums so the two paths use byte-identical arithmetic (INV-6).
 func varDecodeContribution(cr varDecodeCoResident, cb, cp, nowUs float64, kernel varKernel) float64 {
 	switch kernel {
+	case varKernelComposite:
+		return gDecodeComposite(cr, cb) - gDecodeComposite(cr, cp)
 	case varKernelUtil:
 		return gDecodeUtil(cr, cb) - gDecodeUtil(cr, cp)
 	case varKernelHazard:
@@ -261,6 +338,13 @@ func varDecodeContribution(cr varDecodeCoResident, cb, cp, nowUs float64, kernel
 // decode-side asymmetry is the dominant mechanism; the asymmetry-law test isolates it by
 // requiring an idle prefill pool (no prefill co-residents ⇒ this term is 0).
 func varPrefillDisagg(nowUs float64, ks []varPrefillCoResident, tIterP, chunkP, rPrefillUs float64, kernel varKernel) float64 {
+	return varPrefillDisaggAfter(nowUs, ks, tIterP, chunkP, 0, rPrefillUs, kernel)
+}
+
+// varPrefillDisaggAfter applies the remote request's prefill-pool externality
+// only after it is admitted. A running occupant that finishes within
+// admissionSteps baseline iterations is unaffected.
+func varPrefillDisaggAfter(nowUs float64, ks []varPrefillCoResident, tIterP, chunkP, admissionSteps, rPrefillUs float64, kernel varKernel) float64 {
 	if chunkP < 1 {
 		chunkP = 1
 	}
@@ -271,7 +355,49 @@ func varPrefillDisagg(nowUs float64, ks []varPrefillCoResident, tIterP, chunkP, 
 		}
 		remIters := math.Ceil(float64(k.remPrefillTokens) / chunkP)
 		cb := nowUs + remIters*tIterP
-		cp := cb + rPrefillUs
+		cp := cb
+		if remIters > admissionSteps {
+			cp += rPrefillUs
+		}
+		sum += varPrefillTTFTContribution(k, cb, cp, kernel)
+	}
+	return sum
+}
+
+// varPrefillDisaggExactAfter is the marginal-overlap correction for the remote
+// prefill-pool externality. After R's admission, an occupant is delayed only by
+// R's prefill chunks that execute before that occupant reaches its first token.
+// Baseline prefill iterations are not charged again, and an occupant with one
+// remaining iteration is not charged R's entire multi-chunk prompt.
+func varPrefillDisaggExactAfter(
+	nowUs float64,
+	ks []varPrefillCoResident,
+	tIterP, chunkP, admissionSteps float64,
+	rAp, rAr int,
+	coeffs EDPPCoeffs,
+	kernel varKernel,
+) float64 {
+	if chunkP < 1 {
+		chunkP = 1
+	}
+	rChunks := math.Ceil(float64(maxInt(rAp, 0)) / chunkP)
+	var sum float64
+	for _, k := range ks {
+		if k.remPrefillTokens < 0 {
+			continue
+		}
+		remIters := math.Ceil(float64(k.remPrefillTokens) / chunkP)
+		remainingAfterAdmission := math.Max(remIters-admissionSteps, 0)
+		overlap := math.Min(rChunks, remainingAfterAdmission)
+		cb := nowUs + remIters*tIterP
+		cp := cb + prefillMarginalWork(
+			coeffs.CPf,
+			coeffs.CAttn,
+			float64(rAp),
+			float64(rAr),
+			chunkP,
+			overlap,
+		)
 		sum += varPrefillTTFTContribution(k, cb, cp, kernel)
 	}
 	return sum
@@ -285,7 +411,7 @@ func varPrefillDisagg(nowUs float64, ks []varPrefillCoResident, tIterP, chunkP, 
 func varPrefillTTFTContribution(k varPrefillCoResident, cb, cp float64, kernel varKernel) float64 {
 	deadline := float64(k.arrivalUs) + k.slo.tauTTFTUs
 	switch kernel {
-	case varKernelUtil:
+	case varKernelUtil, varKernelComposite:
 		scale := k.slo.tauTTFTUs
 		if scale <= 0 {
 			scale = 1
@@ -315,6 +441,13 @@ func varPrefillTTFTContribution(k varPrefillCoResident, cb, cp float64, kernel v
 // decode horizon is unknown (remDecodeSteps ≤ 0) only the first-token risk is priced. Deployable:
 // remPrefillTokens is known input length and remDecodeSteps is a censored estimate (INV-9-safe).
 func varCollocPrefillLocal(nowUs float64, ks []varPrefillCoResident, rt varReTiming, chunk, nChunks float64, kernel varKernel) float64 {
+	return varCollocPrefillLocalAfter(nowUs, ks, rt, chunk, nChunks, 0, kernel)
+}
+
+// varCollocPrefillLocalAfter is the admission-causal form of
+// varCollocPrefillLocal. R's overlap and B+1 join begin only after the local
+// decode admission window.
+func varCollocPrefillLocalAfter(nowUs float64, ks []varPrefillCoResident, rt varReTiming, chunk, nChunks, admissionSteps float64, kernel varKernel) float64 {
 	if chunk < 1 {
 		chunk = 1
 	}
@@ -325,12 +458,12 @@ func varCollocPrefillLocal(nowUs float64, ks []varPrefillCoResident, rt varReTim
 		}
 		remPf := int64(math.Ceil(float64(k.remPrefillTokens) / chunk))
 		ftB := rt.cBase(nowUs, remPf)
-		ftP := rt.cLocal(nowUs, remPf, nChunks)
+		ftP := rt.cLocalAfter(nowUs, remPf, admissionSteps, nChunks)
 		eB, eP := ftB, ftP
 		if k.remDecodeSteps > 0 {
 			total := remPf + k.remDecodeSteps
 			eB = rt.cBase(nowUs, total)
-			eP = rt.cLocal(nowUs, total, nChunks)
+			eP = rt.cLocalAfter(nowUs, total, admissionSteps, nChunks)
 		}
 		sum += varCollocContribution(k, ftB, ftP, eB, eP, kernel)
 	}
@@ -371,6 +504,8 @@ func varCollocPrefillDisagg(nowUs float64, ks []varPrefillCoResident, rt varReTi
 // tauE2E/tauITL disabled) every kernel reduces to the earlier TTFT-only arithmetic exactly.
 func varCollocContribution(k varPrefillCoResident, ftB, ftP, eB, eP float64, kernel varKernel) float64 {
 	switch kernel {
+	case varKernelComposite:
+		return gCollocComposite(k, ftB, eB) - gCollocComposite(k, ftP, eP)
 	case varKernelUtil:
 		return gCollocUtil(k, ftB, eB) - gCollocUtil(k, ftP, eP)
 	case varKernelHazard:
@@ -420,6 +555,17 @@ func gCollocUtil(k varPrefillCoResident, ftUs, eUs float64) float64 {
 		u *= sigmoid((float64(k.arrivalUs) + k.slo.tauE2EUs - eUs) / scale)
 	}
 	return u
+}
+
+func gCollocComposite(k varPrefillCoResident, ftUs, _ float64) float64 {
+	// A resident that is still prefilling has no assigned decoder state in the
+	// routing snapshot. Its declared phase value is therefore TTFT-only; adding
+	// a synthetic decode horizon here would make the one-step potential depend
+	// on state the router does not observe.
+	if k.slo.tauTTFTUs <= 0 {
+		return 1
+	}
+	return sigmoid((k.slo.tauTTFTUs - (ftUs - float64(k.arrivalUs))) / k.slo.tauTTFTUs)
 }
 
 // collocHazard is kernel C's deadline-slack hazard for a collocated occupant: the first-token
@@ -537,30 +683,50 @@ func (d *EDPPDecider) varReTimingFor(req *Request, thetaD EDPPCoeffs, bDec int, 
 	}
 }
 
-// varReducedLHS computes the reduced-rule value-currency externality lhs_var =
-// VaR_local − VaR_disagg for the deciding request R on its selected decode instance. It
-// mirrors the reduced Decide's already-computed operands (decode node θ_i, batch state, chunk,
-// nChunks, ttftP, prefill-pool occupancy) so no physics is recomputed differently (INV-6).
+// varPathBreakdown separates the co-resident populations a placement can harm.
+// Keeping these components explicit makes the aggregate auditable in decision traces.
+type varPathBreakdown struct {
+	decode        float64
+	collocPrefill float64
+	prefillPool   float64
+}
+
+func (v varPathBreakdown) total() float64 {
+	return v.decode + v.collocPrefill + v.prefillPool
+}
+
+// varReducedBreakdown computes both reduced-rule placement externalities for
+// the deciding request R on its selected decode instance. It mirrors Decide's
+// already-computed operands so no physics is recomputed differently (INV-6).
 //
 //   - VaR_local:  goodput destroyed among the decode co-residents delayed by R's prefill-on-
 //     decode then B+1 join.
 //   - VaR_disagg: goodput destroyed among the decode co-residents (only their tail steps
-//     re-timed, R arriving after ⌈ttftP/tIter0⌉ iterations) PLUS the prefill-pool co-residents
+//     re-timed, R arriving after ⌈decodeJoinUs/tIter0⌉ iterations) PLUS the prefill-pool co-residents
 //     whose first token is pushed by R's remote prefill.
-func (d *EDPPDecider) varReducedLHS(
+func (d *EDPPDecider) varReducedBreakdown(
 	req *Request, nowUs float64,
 	decSnap RoutingSnapshot, prefillSnaps []RoutingSnapshot,
 	thetaD EDPPCoeffs, bDec int, kv, sPf int64,
-	chunk int, nChunks, ttftP float64, sPfPrefill int64,
-) float64 {
+	chunk int, nChunks float64, apP, chunkP int, nChunksP float64,
+	tAdmD, tAdmP, decodeJoinUs float64, sPfPrefill int64,
+) (local, disagg varPathBreakdown) {
 	rt := d.varReTimingFor(req, thetaD, bDec, kv, sPf, chunk)
+	if d.cfg.VarExactPrefillOverlap {
+		apLocal := d.apForInstance(req, decSnap.ID)
+		rt.exactPrefillOverlap = true
+		rt.cPf = thetaD.CPf
+		rt.ap = float64(maxInt(apLocal, 0))
+		rt.ar = float64(len(req.InputTokens))
+	}
 	decode := d.varDecodeInputs(decSnap.RunningDecode)
 	kernel := d.varMetric
 
-	varLocal := varDecodeLocal(nowUs, decode, rt, nChunks, kernel)
+	localAdmissionSteps := math.Ceil(tAdmD / math.Max(rt.tIter0, 1))
+	local.decode = varDecodeLocalAfter(nowUs, decode, rt, nChunks, localAdmissionSteps, kernel)
 
-	arrivalSteps := math.Ceil(ttftP / math.Max(rt.tIter0, 1))
-	varDisagg := varDecodeDisagg(nowUs, decode, rt, arrivalSteps, kernel)
+	arrivalSteps := math.Ceil(decodeJoinUs / math.Max(rt.tIter0, 1))
+	disagg.decode = varDecodeDisagg(nowUs, decode, rt, arrivalSteps, kernel)
 
 	// Collocated prefill occupants on the DECODE instance (placed by a prior collocate decision,
 	// still pre-first-token so RunningDecode skips them): local co-schedules R's prefill and
@@ -568,8 +734,8 @@ func (d *EDPPDecider) varReducedLHS(
 	// re-timing as decode co-residents, TTFT-side flip. Deployable (remaining prompt tokens).
 	if d.varCollocPrefill && len(decSnap.RunningPrefill) > 0 {
 		colloc := d.varPrefillInputs(decSnap.RunningPrefill)
-		varLocal += varCollocPrefillLocal(nowUs, colloc, rt, float64(chunk), nChunks, kernel)
-		varDisagg += varCollocPrefillDisagg(nowUs, colloc, rt, float64(chunk), arrivalSteps, kernel)
+		local.collocPrefill = varCollocPrefillLocalAfter(nowUs, colloc, rt, float64(chunk), nChunks, localAdmissionSteps, kernel)
+		disagg.collocPrefill = varCollocPrefillDisagg(nowUs, colloc, rt, float64(chunk), arrivalSteps, kernel)
 	}
 
 	// Prefill-side externality of disagg: R's remote prefill delays the prefill-pool occupants.
@@ -577,17 +743,62 @@ func (d *EDPPDecider) varReducedLHS(
 	// transfer window is not pool contention). Aggregate occupants across all prefill snapshots.
 	if len(prefillSnaps) > 0 {
 		tIterP := d.coeffs.tIterPrefill(sPfPrefill)
-		ap := d.apForInstance(req, "")
-		rPrefillUs := nChunks*tIterP + d.coeffs.Wp(maxInt(ap, 0), len(req.InputTokens))
-		chunkP := float64(chunk)
+		if d.cfg.VarExactPrefillOverlap && len(prefillSnaps) == 1 {
+			// The reduced rule does not select a prefill node. In the evaluated
+			// 1P topology the sole pool member is nevertheless known exactly,
+			// so use its observable prefix-cache state.
+			apP = d.apForInstance(req, prefillSnaps[0].ID)
+			chunkP = maxInt(apP, 1)
+			if d.cfg.ChunkTokens > 0 && d.cfg.ChunkTokens < chunkP {
+				chunkP = d.cfg.ChunkTokens
+			}
+			nChunksP = 0
+			if apP > 0 {
+				nChunksP = math.Ceil(float64(apP) / float64(chunkP))
+			}
+		}
+		rPrefillUs := nChunksP*tIterP + d.coeffs.Wp(maxInt(apP, 0), len(req.InputTokens))
+		chunkPFloat := float64(chunkP)
+		prefillAdmissionSteps := math.Ceil(tAdmP / math.Max(tIterP, 1))
 		var prefill []varPrefillCoResident
 		for _, ps := range prefillSnaps {
 			prefill = append(prefill, d.varPrefillInputs(ps.RunningPrefill)...)
 		}
-		varDisagg += varPrefillDisagg(nowUs, prefill, tIterP, chunkP, rPrefillUs, kernel)
+		if d.cfg.VarExactPrefillOverlap {
+			disagg.prefillPool = varPrefillDisaggExactAfter(
+				nowUs,
+				prefill,
+				tIterP,
+				chunkPFloat,
+				prefillAdmissionSteps,
+				maxInt(apP, 0),
+				len(req.InputTokens),
+				d.coeffs,
+				kernel,
+			)
+		} else {
+			disagg.prefillPool = varPrefillDisaggAfter(nowUs, prefill, tIterP, chunkPFloat, prefillAdmissionSteps, rPrefillUs, kernel)
+		}
 	}
 
-	return varLocal - varDisagg
+	return local, disagg
+}
+
+// varReducedLHS is the reduced-rule value-currency benefit:
+// VaR_local − VaR_disagg.
+func (d *EDPPDecider) varReducedLHS(
+	req *Request, nowUs float64,
+	decSnap RoutingSnapshot, prefillSnaps []RoutingSnapshot,
+	thetaD EDPPCoeffs, bDec int, kv, sPf int64,
+	chunk int, nChunks float64, apP, chunkP int, nChunksP float64,
+	tAdmD, tAdmP, decodeJoinUs float64, sPfPrefill int64,
+) float64 {
+	local, disagg := d.varReducedBreakdown(
+		req, nowUs, decSnap, prefillSnaps, thetaD, bDec, kv, sPf,
+		chunk, nChunks, apP, chunkP, nChunksP,
+		tAdmD, tAdmP, decodeJoinUs, sPfPrefill,
+	)
+	return local.total() - disagg.total()
 }
 
 // varJointCandidateExternality computes the value-currency externality term for ONE joint
@@ -597,12 +808,53 @@ func (d *EDPPDecider) varReducedLHS(
 // co-residents plus the prefill-side VaR on *ps's occupants. The decode node physics use ds's
 // θ_i; the prefill physics use *ps's θ_i. Mirrors jointCandidateCost's operands (INV-6).
 func (d *EDPPDecider) varJointCandidateExternality(
-	req *Request, nowUs float64, ds RoutingSnapshot, ps *RoutingSnapshot,
+	req *Request, nowUs float64, ds RoutingSnapshot, ps *RoutingSnapshot, decodeAdmissionUs, prefillAdmissionUs float64,
 ) float64 {
+	return d.varJointCandidateBreakdown(req, nowUs, ds, ps, decodeAdmissionUs, prefillAdmissionUs).total()
+}
+
+// varJointCandidateBreakdown is the diagnostic-preserving form of
+// varJointCandidateExternality. Keeping the three causal populations separate lets
+// candidate tracing attribute router-induced VaR without changing the scalar used by
+// the routing objective.
+func (d *EDPPDecider) varJointCandidateBreakdown(
+	req *Request, nowUs float64, ds RoutingSnapshot, ps *RoutingSnapshot, decodeAdmissionUs, prefillAdmissionUs float64,
+) varPathBreakdown {
+	return d.varJointCandidateBreakdownWithKernel(
+		req, nowUs, ds, ps, decodeAdmissionUs, prefillAdmissionUs, d.varMetric,
+	)
+}
+
+func (d *EDPPDecider) varJointCandidateBreakdownWithKernel(
+	req *Request, nowUs float64, ds RoutingSnapshot, ps *RoutingSnapshot,
+	decodeAdmissionUs, prefillAdmissionUs float64, kernel varKernel,
+) varPathBreakdown {
+	return d.varJointCandidateBreakdownCore(
+		req, nowUs, ds, ps, decodeAdmissionUs, prefillAdmissionUs,
+		math.NaN(), kernel,
+	)
+}
+
+// varJointCandidateBreakdownAtJoinWithKernel is the remote-path form used by
+// the causal policy after applying the scheduler-rollout TTFT model. The caller
+// supplies the already composed concurrent decode-join time max(P+xfer,TadmD),
+// avoiding reconstruction with the obsolete serial closed form.
+func (d *EDPPDecider) varJointCandidateBreakdownAtJoinWithKernel(
+	req *Request, nowUs float64, ds RoutingSnapshot, ps *RoutingSnapshot,
+	decodeJoinUs, prefillAdmissionUs float64, kernel varKernel,
+) varPathBreakdown {
+	return d.varJointCandidateBreakdownCore(
+		req, nowUs, ds, ps, 0, prefillAdmissionUs, decodeJoinUs, kernel,
+	)
+}
+
+func (d *EDPPDecider) varJointCandidateBreakdownCore(
+	req *Request, nowUs float64, ds RoutingSnapshot, ps *RoutingSnapshot,
+	decodeAdmissionUs, prefillAdmissionUs, decodeJoinOverrideUs float64, kernel varKernel,
+) varPathBreakdown {
 	thetaD := d.coeffsFor(ds.GPUType)
 	bDec, kv, sPfD := ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens
 	decode := d.varDecodeInputs(ds.RunningDecode)
-	kernel := d.varMetric
 
 	if ps == nil {
 		apLoc := d.apForInstance(req, ds.ID)
@@ -611,11 +863,18 @@ func (d *EDPPDecider) varJointCandidateExternality(
 			chunkLoc = d.cfg.ChunkTokens
 		}
 		rt := d.varReTimingFor(req, thetaD, bDec, kv, sPfD, chunkLoc)
+		if d.cfg.VarExactPrefillOverlap {
+			rt.exactPrefillOverlap = true
+			rt.cPf = thetaD.CPf
+			rt.ap = float64(maxInt(apLoc, 0))
+			rt.ar = float64(len(req.InputTokens))
+		}
 		nChunksLoc, _ := d.chunkTerms(thetaD, apLoc)
-		v := varDecodeLocal(nowUs, decode, rt, nChunksLoc, kernel)
+		admissionSteps := math.Ceil(decodeAdmissionUs / math.Max(rt.tIter0, 1))
+		v := varPathBreakdown{decode: varDecodeLocalAfter(nowUs, decode, rt, nChunksLoc, admissionSteps, kernel)}
 		if d.varCollocPrefill && len(ds.RunningPrefill) > 0 {
 			colloc := d.varPrefillInputs(ds.RunningPrefill)
-			v += varCollocPrefillLocal(nowUs, colloc, rt, float64(chunkLoc), nChunksLoc, kernel)
+			v.collocPrefill = varCollocPrefillLocalAfter(nowUs, colloc, rt, float64(chunkLoc), nChunksLoc, admissionSteps, kernel)
 		}
 		return v
 	}
@@ -630,25 +889,52 @@ func (d *EDPPDecider) varJointCandidateExternality(
 	}
 	// Δkv_R / decode re-timing still use ds's θ (decode happens on ds in both placements).
 	rt := d.varReTimingFor(req, thetaD, bDec, kv, sPfD, chunkP)
+	if d.cfg.VarExactPrefillOverlap {
+		rt.exactPrefillOverlap = true
+		rt.cPf = thetaD.CPf
+		rt.ap = float64(maxInt(apP, 0))
+		rt.ar = float64(len(req.InputTokens))
+	}
 	nChunksP, _ := d.chunkTerms(thetaP, apP)
 	sPfP := ps.ResidentPrefillTokens
 	tIterP := thetaP.tIterPrefill(sPfP)
 	cXferUs := d.cXferUsFor(req)
-	tAdmP := 0.0 // conservative: R arrives after prefill compute + transfer (admission folded into ttft below)
-	ttftP := tAdmP + nChunksP*tIterP + thetaP.Wp(maxInt(apP, 0), len(req.InputTokens)) + cXferUs
-	arrivalSteps := math.Ceil(ttftP / math.Max(rt.tIter0, 1))
-	v := varDecodeDisagg(nowUs, decode, rt, arrivalSteps, kernel)
+	// Decode interference starts when R is admitted, not when its first token
+	// completes. Keep this join-time clock separate from client-visible TTFT.
+	decodeJoinUs := nChunksP*tIterP +
+		thetaP.Wp(maxInt(apP, 0), len(req.InputTokens)) +
+		prefillAdmissionUs + cXferUs + decodeAdmissionUs
+	if !math.IsNaN(decodeJoinOverrideUs) {
+		decodeJoinUs = decodeJoinOverrideUs
+	}
+	arrivalSteps := math.Ceil(decodeJoinUs / math.Max(rt.tIter0, 1))
+	v := varPathBreakdown{decode: varDecodeDisagg(nowUs, decode, rt, arrivalSteps, kernel)}
 
 	// Collocated prefill occupants on the decode node ds are undisturbed until R arrives from the
 	// pool; only those still prefilling past arrivalSteps have their first token delayed.
 	if d.varCollocPrefill && len(ds.RunningPrefill) > 0 {
 		colloc := d.varPrefillInputs(ds.RunningPrefill)
-		v += varCollocPrefillDisagg(nowUs, colloc, rt, float64(chunkP), arrivalSteps, kernel)
+		v.collocPrefill = varCollocPrefillDisagg(nowUs, colloc, rt, float64(chunkP), arrivalSteps, kernel)
 	}
 
 	rPrefillUs := nChunksP*tIterP + thetaP.Wp(maxInt(apP, 0), len(req.InputTokens))
 	prefill := d.varPrefillInputs(ps.RunningPrefill)
-	v += varPrefillDisagg(nowUs, prefill, tIterP, float64(chunkP), rPrefillUs, kernel)
+	prefillAdmissionSteps := math.Ceil(prefillAdmissionUs / math.Max(tIterP, 1))
+	if d.cfg.VarExactPrefillOverlap {
+		v.prefillPool = varPrefillDisaggExactAfter(
+			nowUs,
+			prefill,
+			tIterP,
+			float64(chunkP),
+			prefillAdmissionSteps,
+			maxInt(apP, 0),
+			len(req.InputTokens),
+			thetaP,
+			kernel,
+		)
+	} else {
+		v.prefillPool = varPrefillDisaggAfter(nowUs, prefill, tIterP, float64(chunkP), prefillAdmissionSteps, rPrefillUs, kernel)
+	}
 	return v
 }
 
@@ -674,6 +960,8 @@ func goodSelf(slo varSLO, tHatFromNow, tIterAfter, nOut float64, kernel varKerne
 	e2e := tHatFromNow + nOut*tIterAfter
 	meanITL := tIterAfter
 	switch kernel {
+	case varKernelComposite:
+		return sloCompositeValue(slo, ttft, e2e)
 	case varKernelUtil, varKernelHazard:
 		scale := slo.tauTTFTUs
 		if scale <= 0 {

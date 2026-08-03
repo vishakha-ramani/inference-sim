@@ -253,21 +253,70 @@ Example:
 		if pdDecider != "prefix-threshold" && cmd.Flags().Changed("pd-prefix-threshold") {
 			logrus.Fatalf("--pd-prefix-threshold=%d has no effect when --pd-decider=%q (only applies to the prefix-threshold decider); remove the flag or set --pd-decider=prefix-threshold", pdPrefixThreshold, pdDecider)
 		}
+		if pdDecider != "prefix-threshold" && cmd.Flags().Changed("pd-prefix-threshold-classes") {
+			logrus.Fatalf("--pd-prefix-threshold-classes has no effect when --pd-decider=%q; remove the flag or set --pd-decider=prefix-threshold", pdDecider)
+		}
 		if pdDecider != "" && pdDecider != "never" && prefillInstances == 0 {
 			logrus.Fatalf("--pd-decider=%q has no effect because --prefill-instances=0 (disaggregation is disabled); set --prefill-instances > 0 and --decode-instances > 0, or omit --pd-decider", pdDecider)
 		}
 		if edppRule == "least-ttft" && edppJoint {
 			logrus.Infof("--edpp-rule least-ttft --edpp-joint: least-TTFT-joint arm — scores each candidate's own forward TTFT under its θ_i over the full (decode, prefill) action set, no drift/z/VaR (the fair hardware-aware least-TTFT).")
 		}
-		if edppRule == "var" {
+		if edppJointCausalVar && edppDecomposedCausalVar {
+			logrus.Fatalf("--edpp-joint-causal-var and --edpp-decomposed-causal-var are mutually exclusive")
+		}
+		sloExternalityPolicy := edppJointSLOExternality || edppDecomposedSLOExternality
+		if edppJointSLOExternality && edppDecomposedSLOExternality {
+			logrus.Fatalf("--edpp-joint-slo-externality and --edpp-decomposed-slo-externality are mutually exclusive")
+		}
+		if sloExternalityPolicy && (edppJointCausalVar || edppDecomposedCausalVar) {
+			logrus.Fatalf("causal-SLO-externality policy flags are mutually exclusive with --edpp-joint-causal-var and --edpp-decomposed-causal-var")
+		}
+		if (edppSLOExternalityNoExternality || edppSLOExternalityNoOwnGood || edppSLOExternalityNoCapacity) && !sloExternalityPolicy {
+			logrus.Fatalf("causal-SLO-externality ablation flags require --edpp-joint-slo-externality or --edpp-decomposed-slo-externality")
+		}
+		if edppSLOExternalityOccupancyCapacity && !sloExternalityPolicy {
+			logrus.Fatalf("--edpp-slo-externality-occupancy-capacity requires --edpp-joint-slo-externality or --edpp-decomposed-slo-externality")
+		}
+		if sloExternalityPolicy && edppV <= 0 {
+			logrus.Fatalf("causal-SLO-externality policies require --edpp-v > 0, got %v", edppV)
+		}
+		if sloExternalityPolicy && (prefillInstances <= 0 || decodeInstances <= 0) {
+			logrus.Fatalf("causal-SLO-externality policies require --prefill-instances > 0 and --decode-instances > 0")
+		}
+		if sloExternalityPolicy && prefillDecodeInstances > 0 {
+			logrus.Fatalf("causal-SLO-externality policies currently require disjoint prefill and decode pools; --prefill-decode-instances must be 0")
+		}
+		if edppJointSLOExternality {
+			logrus.Infof("--edpp-joint-slo-externality: jointly selecting decode and prefill placement by projected net good plus per-instance capacity shadow prices.")
+		}
+		if edppDecomposedSLOExternality {
+			logrus.Infof("--edpp-decomposed-slo-externality: the decode scorer fixes decode placement; projected net good plus capacity shadow prices select local or remote prefill.")
+		}
+		if edppSLOExternalityNoExternality {
+			logrus.Infof("--edpp-slo-externality-no-externality: removing only the causal resident-SLO externality term.")
+		}
+		if edppSLOExternalityNoOwnGood {
+			logrus.Infof("--edpp-slo-externality-no-own-good: removing only the arriving-request projected-good term.")
+		}
+		if edppSLOExternalityNoCapacity {
+			logrus.Infof("--edpp-slo-externality-no-capacity: removing only the capacity shadow-price term.")
+		}
+		if edppSLOExternalityOccupancyCapacity {
+			logrus.Infof("--edpp-slo-externality-occupancy-capacity: capacity queues book physical t^P/t^D/t^coll occupancy and drain at one unit per wall-time unit (reference decode width %d).", maxRunningReqs)
+		}
+		if !edppJointCausalVar && !edppDecomposedCausalVar && !sloExternalityPolicy && (edppRule == "var" || edppRule == "var-prefill") {
 			if edppVarDeployable {
-				logrus.Infof("--edpp-rule var --edpp-var-deployable: DEPLOYABLE value-at-risk — co-resident remaining is estimated from the per-class N̂_out (INV-9-safe, reads no hidden output length).")
+				logrus.Infof("--edpp-rule %s --edpp-var-deployable: DEPLOYABLE value-at-risk — co-resident remaining is estimated from the per-class N̂_out (INV-9-safe, reads no hidden output length).", edppRule)
 			} else {
-				logrus.Warnf("--edpp-rule var is a DIAGNOSTIC ORACLE: it reads co-residents' TRUE remaining output length to price the value-at-risk externality (violates INV-9). Results are an UPPER BOUND, not an achievable policy. Add --edpp-var-deployable for the INV-9-safe estimate.")
+				logrus.Warnf("--edpp-rule %s is a DIAGNOSTIC ORACLE: it reads co-residents' TRUE remaining output length to price the value-at-risk externality (violates INV-9). Results are an UPPER BOUND, not an achievable policy. Add --edpp-var-deployable for the INV-9-safe estimate.", edppRule)
 			}
 			if edppVarCollocPrefill {
 				logrus.Infof("--edpp-var-colloc-prefill: also pricing the first-token VaR of collocated prefill occupants on the decode instance (deployable, INV-9-safe).")
 			}
+		}
+		if edppRule == "var-prefill" && !sloExternalityPolicy {
+			logrus.Infof("--edpp-rule var-prefill: PREFILL-STABLE simplified policy — decode scorer selects the decode instance; EDPP compares co-resident VaR(local)−VaR(disagg) against λ_p·prefill-queue stability only.")
 		}
 		if edppOracleOutputLen {
 			logrus.Warnf("--edpp-oracle-output-len is a DIAGNOSTIC oracle: it charges each routed request's own decode work with its TRUE output length (violates INV-9). Results are an UPPER BOUND, not an achievable policy.")
@@ -472,82 +521,97 @@ Example:
 				PolicyConfig:         sim.NewPolicyConfig(scheduler, preemptionPolicy),
 				SLOPriorityOverrides: sloPriorityOverrides,
 			},
-			NumInstances:                    numInstances,
-			AdmissionPolicy:                 admissionPolicy,
-			AdmissionLatency:                admissionLatency,
-			RoutingLatency:                  routingLatency,
-			TokenBucketCapacity:             tokenBucketCapacity,
-			TokenBucketRefillRate:           tokenBucketRefillRate,
-			RoutingPolicy:                   routingPolicy,
-			RoutingScorerConfigs:            parsedScorerConfigs,
-			TraceLevel:                      traceLevel,
-			CounterfactualK:                 counterfactualK,
-			RecordRoutingDecisions:          routingDecisionTracePath != "",
-			SnapshotRefreshInterval:         snapshotRefreshInterval,
-			CacheSignalDelay:                cacheSignalDelay,
-			PrefillInstances:                prefillInstances,
-			DecodeInstances:                 decodeInstances,
-			SharedInstances:                 prefillDecodeInstances,
-			EncodeInstances:                 encodeInstances,
-			EncodeDecider:                   encodeDecider,
-			PDDecider:                       pdDecider,
-			PDPrefixThreshold:               pdPrefixThreshold,
-			PDPlanPath:                      pdPlanPath,
-			EDPPTauTTFTUs:                   edppTauTTFT.Microseconds(),
-			EDPPTauRefUs:                    edppTauRef.Microseconds(),
-			EDPPTauITLUs:                    edppTauITL.Microseconds(),
-			EDPPTauTTFTByClassUs:            parseEDPPClassTargets(edppTauTTFTClasses, "edpp-tau-ttft-classes"),
-			EDPPTauITLByClassUs:             parseEDPPClassTargets(edppTauITLClasses, "edpp-tau-itl-classes"),
-			EDPPV:                           edppV,
-			EDPPCXferUs:                     edppCXfer.Microseconds(),
-			EDPPNomPrefillTokens:            edppNomPrefillTokens,
-			EDPPNomDecodeCtx:                edppNomDecodeCtx,
-			EDPPCoeffs:                      resolveEDPPCoeffs(pdDecider, edppCoeffsPath),
-			EDPPTAdmEstimator:               edppTAdmEstimator,
-			EDPPJoint:                       edppJoint,
-			EDPPRule:                        edppRule,
-			EDPPVarMetric:                   edppVarMetric,
-			EDPPVarKeepCongestion:           edppVarCongestion,
-			EDPPVarCongestionWeight:         edppVarCongestionWeight,
-			EDPPVarNormalize:                edppVarNormalize,
-			EDPPVarNormalizeFloorScale:      edppVarNormalizeFloorScale,
-			EDPPVarDeployable:               edppVarDeployable,
-			EDPPVarCollocPrefill:            edppVarCollocPrefill,
-			EDPPVarGoodputObjective:         edppVarGoodput,
-			EDPPKairosBeta:                  edppKairosBeta,
-			EDPPTauE2EUs:                    edppTauE2E.Microseconds(),
-			EDPPTauE2EByClassUs:             parseEDPPClassTargets(edppTauE2EClasses, "edpp-tau-e2e-classes"),
-			EDPPOracleOutputLen:             edppOracleOutputLen,
-			EDPPCXferSizeAware:              edppCXferSizeAware,
-			EDPPJointTrace:                  edppJointTracePath != "",
-			PDTransferBandwidthGBps:         pdTransferBandwidth,
-			PDTransferBaseLatencyMs:         pdTransferBaseLatency,
-			PDTransferContention:            pdTransferContention,
-			PrefillScorerConfigs:            prefillScorerCfgs,
-			DecodeScorerConfigs:             decodeScorerCfgs,
-			PrefillOverrides:                prefillOverrides,
-			DecodeOverrides:                 decodeOverrides,
-			FlowControlEnabled:              flowControlEnabled,
-			FlowControlDetector:             flowControlDetector,
-			FlowControlDispatchOrder:        flowControlDispatchOrder,
-			FlowControlSLOTargets:           sloTargetsMap,
-			FlowControlMaxQueueDepth:        flowControlMaxQueueDepth,
-			FlowControlQueueDepthThreshold:  flowControlQueueDepthThreshold,
-			FlowControlKVCacheUtilThreshold: flowControlKVCacheUtilThreshold,
-			FlowControlMaxConcurrency:       flowControlMaxConcurrency,
-			FlowControlPerBandCapacity:      flowControlPerBandCapacity,
-			FlowControlUsageLimitThreshold:  flowControlUsageLimitThreshold,
-			FlowControlFairnessPolicy:       flowControlFairnessPolicy,
-			FlowControlRequestTTL:           flowControlRequestTTL,
-			FlowControlQueueShedding:        flowControlQueueShedding,
-			FlowControlDispatchTickInterval: flowControlDispatchTickInterval,
-			FlowControlInFlightEviction:     flowControlInFlightEviction,
-			TierShedThreshold:               tierShedThreshold,
-			TierShedMinPriority:             tierShedMinPriority,
-			GAIEQDThreshold:                 gaieQDThreshold,
-			GAIEKVThreshold:                 gaieKVThreshold,
-			TenantBudgets:                   tenantBudgets,
-			InstanceLifecycle:               bundleInstanceLifecycle,
+			NumInstances:                        numInstances,
+			AdmissionPolicy:                     admissionPolicy,
+			AdmissionLatency:                    admissionLatency,
+			RoutingLatency:                      routingLatency,
+			TokenBucketCapacity:                 tokenBucketCapacity,
+			TokenBucketRefillRate:               tokenBucketRefillRate,
+			RoutingPolicy:                       routingPolicy,
+			RoutingScorerConfigs:                parsedScorerConfigs,
+			TraceLevel:                          traceLevel,
+			CounterfactualK:                     counterfactualK,
+			RecordRoutingDecisions:              routingDecisionTracePath != "",
+			SnapshotRefreshInterval:             snapshotRefreshInterval,
+			CacheSignalDelay:                    cacheSignalDelay,
+			PrefillInstances:                    prefillInstances,
+			DecodeInstances:                     decodeInstances,
+			SharedInstances:                     prefillDecodeInstances,
+			EncodeInstances:                     encodeInstances,
+			EncodeDecider:                       encodeDecider,
+			PDDecider:                           pdDecider,
+			PDPrefixThreshold:                   pdPrefixThreshold,
+			PDPrefixThresholdByClass:            parseNonnegativeClassInts(pdPrefixThresholdClasses, "pd-prefix-threshold-classes"),
+			PDPlanPath:                          pdPlanPath,
+			EDPPTauTTFTUs:                       edppTauTTFT.Microseconds(),
+			EDPPTauRefUs:                        edppTauRef.Microseconds(),
+			EDPPTauITLUs:                        edppTauITL.Microseconds(),
+			EDPPTauTTFTByClassUs:                parseEDPPClassTargets(edppTauTTFTClasses, "edpp-tau-ttft-classes"),
+			EDPPTauITLByClassUs:                 parseEDPPClassTargets(edppTauITLClasses, "edpp-tau-itl-classes"),
+			EDPPV:                               edppV,
+			EDPPCXferUs:                         edppCXfer.Microseconds(),
+			EDPPNomPrefillTokens:                edppNomPrefillTokens,
+			EDPPNomDecodeCtx:                    edppNomDecodeCtx,
+			EDPPCoeffs:                          resolveEDPPCoeffs(pdDecider, edppCoeffsPath),
+			EDPPTAdmEstimator:                   edppTAdmEstimator,
+			EDPPJoint:                           edppJoint || edppJointCausalVar || edppDecomposedCausalVar || edppJointSLOExternality || edppDecomposedSLOExternality,
+			EDPPJointCausalVar:                  edppJointCausalVar,
+			EDPPDecomposedCausalVar:             edppDecomposedCausalVar,
+			EDPPJointSLOExternality:             edppJointSLOExternality,
+			EDPPDecomposedSLOExternality:        edppDecomposedSLOExternality,
+			EDPPSLOExternalityNoExternality:     edppSLOExternalityNoExternality,
+			EDPPSLOExternalityNoOwnGood:         edppSLOExternalityNoOwnGood,
+			EDPPSLOExternalityNoCapacity:        edppSLOExternalityNoCapacity,
+			EDPPSLOExternalityOccupancyCapacity: edppSLOExternalityOccupancyCapacity,
+			EDPPRule:                            effectiveEDPPRule(edppRule, edppJointCausalVar || edppDecomposedCausalVar),
+			EDPPVarMetric:                       edppVarMetric,
+			EDPPVarPrefillWeight:                edppVarPrefillWeight,
+			EDPPVarKeepCongestion:               edppVarCongestion,
+			EDPPVarCongestionWeight:             edppVarCongestionWeight,
+			EDPPVarNormalize:                    edppVarNormalize,
+			EDPPVarNormalizeFloorScale:          edppVarNormalizeFloorScale,
+			EDPPVarDeployable:                   edppVarDeployable,
+			EDPPVarCollocPrefill:                edppVarCollocPrefill,
+			EDPPVarGoodputObjective:             edppVarGoodput,
+			EDPPTTFTOverlapAware:                edppTTFTOverlapAware,
+			EDPPVarExactPrefillOverlap:          edppVarExactPrefillOverlap,
+			EDPPPathSpecificPrefillWork:         edppPathSpecificPrefillWork,
+			EDPPKairosAlpha:                     edppKairosAlpha,
+			EDPPKairosBeta:                      edppKairosBeta,
+			EDPPTauE2EUs:                        edppTauE2E.Microseconds(),
+			EDPPTauE2EByClassUs:                 parseEDPPClassTargets(edppTauE2EClasses, "edpp-tau-e2e-classes"),
+			EDPPOracleOutputLen:                 edppOracleOutputLen,
+			EDPPCXferSizeAware:                  edppCXferSizeAware,
+			EDPPJointTrace:                      edppJointTracePath != "",
+			EDPPJointCandidateTrace:             edppJointCandidateTracePath != "",
+			PDTransferBandwidthGBps:             pdTransferBandwidth,
+			PDTransferBaseLatencyMs:             pdTransferBaseLatency,
+			PDTransferContention:                pdTransferContention,
+			PrefillScorerConfigs:                prefillScorerCfgs,
+			DecodeScorerConfigs:                 decodeScorerCfgs,
+			PrefillOverrides:                    prefillOverrides,
+			DecodeOverrides:                     decodeOverrides,
+			FlowControlEnabled:                  flowControlEnabled,
+			FlowControlDetector:                 flowControlDetector,
+			FlowControlDispatchOrder:            flowControlDispatchOrder,
+			FlowControlSLOTargets:               sloTargetsMap,
+			FlowControlMaxQueueDepth:            flowControlMaxQueueDepth,
+			FlowControlQueueDepthThreshold:      flowControlQueueDepthThreshold,
+			FlowControlKVCacheUtilThreshold:     flowControlKVCacheUtilThreshold,
+			FlowControlMaxConcurrency:           flowControlMaxConcurrency,
+			FlowControlPerBandCapacity:          flowControlPerBandCapacity,
+			FlowControlUsageLimitThreshold:      flowControlUsageLimitThreshold,
+			FlowControlFairnessPolicy:           flowControlFairnessPolicy,
+			FlowControlRequestTTL:               flowControlRequestTTL,
+			FlowControlQueueShedding:            flowControlQueueShedding,
+			FlowControlDispatchTickInterval:     flowControlDispatchTickInterval,
+			FlowControlInFlightEviction:         flowControlInFlightEviction,
+			TierShedThreshold:                   tierShedThreshold,
+			TierShedMinPriority:                 tierShedMinPriority,
+			GAIEQDThreshold:                     gaieQDThreshold,
+			GAIEKVThreshold:                     gaieKVThreshold,
+			TenantBudgets:                       tenantBudgets,
+			InstanceLifecycle:                   bundleInstanceLifecycle,
 		}
 
 		// Run simulation — wire SessionManager for closed-loop, nil for fixed mode
@@ -778,6 +842,7 @@ Example:
 
 		// Write scorer-vs-joint divergence CSV if requested (shared with run; INV-13 parity).
 		writeEDPPJointTrace(cs.Trace(), edppJointTracePath)
+		writeEDPPJointCandidateTrace(cs.Trace(), edppJointCandidateTracePath)
 
 		// Warn if --fitness-weights is set (not supported in replay mode per R1)
 		if fitnessWeights != "" {

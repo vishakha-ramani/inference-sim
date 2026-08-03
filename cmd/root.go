@@ -120,15 +120,16 @@ var (
 	fitnessWeights string // Fitness weights string "key:val,key:val"
 
 	// Decision trace config (PR13)
-	traceLevel               string // Trace verbosity level
-	counterfactualK          int    // Number of counterfactual candidates
-	summarizeTrace           bool   // Print trace summary after simulation
-	edppDecisionTracePath    string // Path to write EDPP per-decision rule-term CSV (requires --trace-level decisions + --pd-decider edpp)
-	edppJointTracePath       string // Path to write EDPP scorer-vs-joint divergence CSV (requires --edpp-joint)
-	pdOutcomeTracePath       string // Path to write per-request realized-outcome CSV (Stage A estimator validation)
-	edppWorkTracePath        string // Stage B: per-request realized-vs-closed work CSV
-	edppAdmissionTracePath   string // Stage C: per-request realized-vs-predicted admission-delay CSV
-	routingDecisionTracePath string // Path to write per-candidate routing-decision CSV (every prefill/decode/standard target selection)
+	traceLevel                  string // Trace verbosity level
+	counterfactualK             int    // Number of counterfactual candidates
+	summarizeTrace              bool   // Print trace summary after simulation
+	edppDecisionTracePath       string // Path to write EDPP per-decision rule-term CSV (requires --trace-level decisions + --pd-decider edpp)
+	edppJointTracePath          string // Path to write EDPP scorer-vs-joint divergence CSV (requires --edpp-joint)
+	edppJointCandidateTracePath string // Path to write every joint candidate's causal-VaR breakdown
+	pdOutcomeTracePath          string // Path to write per-request realized-outcome CSV (Stage A estimator validation)
+	edppWorkTracePath           string // Stage B: per-request realized-vs-closed work CSV
+	edppAdmissionTracePath      string // Stage C: per-request realized-vs-predicted admission-delay CSV
+	routingDecisionTracePath    string // Path to write per-candidate routing-decision CSV (every prefill/decode/standard target selection)
 
 	// Workload spec config (PR10)
 	workloadSpecPath string // Path to YAML workload specification file
@@ -143,43 +144,57 @@ var (
 	gpuMemoryUtilization    float64
 
 	// PD disaggregation config
-	prefillInstances           int           // Number of instances dedicated to prefill
-	decodeInstances            int           // Number of instances dedicated to decode
-	prefillDecodeInstances     int           // Number of shared-role instances (both prefill and decode), issue #1276
-	pdDecider                  string        // Disaggregation decider name
-	pdTransferBandwidth        float64       // Inter-instance KV transfer bandwidth in GB/s
-	pdTransferBaseLatency      float64       // Inter-instance KV transfer base latency in ms
-	pdTransferContention       bool          // Enable fair-share bandwidth contention model
-	pdPrefixThreshold          int           // Non-cached token threshold for prefix-threshold decider
-	pdPlanPath                 string        // Path to fixed-plan CSV (counterfactual-regret harness); overrides --pd-decider
-	edppTauTTFT                time.Duration // EDPP τ_ttft: time-average TTFT SLO target
-	edppTauRef                 time.Duration // EDPP τ_ref: fixed reference for the transfer-penalty normalization
-	edppTauITL                 time.Duration // EDPP τ_itl: time-average ITL SLO target
-	edppV                      float64       // EDPP V: penalty/stability tradeoff knob
-	edppCXfer                  time.Duration // EDPP c_xfer: assumed KV-transfer cost when routing P
-	edppNomPrefillTokens       int           // EDPP nominal prefill chunk for the fixed prefill normalizer
-	edppNomDecodeCtx           int           // EDPP nominal decode context for the fixed decode normalizer
-	edppTauTTFTClasses         string        // EDPP per-class τ_ttft overrides ("critical=100ms,batch=10s")
-	edppTauITLClasses          string        // EDPP per-class τ_itl overrides ("critical=20ms,batch=500ms")
-	edppCoeffsPath             string        // path to frozen EDPP E3 coefficients JSON
-	edppTAdmEstimator          string        // EDPP admission-delay estimator that drives routing ("" ⇒ waiting)
-	edppJoint                  bool          // EDPP joint (decode, prefill) argmin routing (--edpp-joint)
-	edppOracleOutputLen        bool          // EDPP diagnostic oracle: charge routed request's own decode work with TRUE output length (--edpp-oracle-output-len); upper-bound only, violates INV-9
-	edppCXferSizeAware         bool          // EDPP size-aware c_xfer: compute transfer cost per request from KV size (--edpp-c-xfer-size-aware), mirroring the DES executor, instead of the flat --edpp-c-xfer
-	edppRule                   string        // EDPP reduced-path decision rule (--edpp-rule): dpp (default) | least-ttft | var
-	edppVarMetric              string        // EDPP VaR scoring kernel (--edpp-var-metric): flip (default) | util | hazard; used only with --edpp-rule var
-	edppVarCongestion          bool          // EDPP drift-plus-VaR (--edpp-var-congestion): keep the congestion drift AND add the VaR externality; used only with --edpp-rule var
-	edppVarCongestionWeight    float64       // EDPP drift-plus-VaR congestion weight (--edpp-var-congestion-weight): scales congestion vs VaR; used only with --edpp-rule var --edpp-var-congestion
-	edppVarNormalize           bool          // EDPP drift-plus-VaR auto-normalization (--edpp-var-normalize): per-decision min-max normalize congestion vs VaR so the weight is scale-free (≈1)
-	edppVarNormalizeFloorScale float64       // EDPP normalization spread floor scale (--edpp-var-normalize-floor-scale): scales ε₀ = scale·(dwork/W*); a term whose cross-candidate spread falls below ε₀ is compressed out instead of amplified. 0 ⇒ 1.0. Swept by the sensitivity study.
-	edppVarDeployable          bool          // EDPP DEPLOYABLE VaR (--edpp-var-deployable): estimate co-resident remaining from censored N̂_out instead of the oracle true remaining (INV-9-safe)
-	edppVarCollocPrefill       bool          // EDPP DEPLOYABLE VaR extra (--edpp-var-colloc-prefill): also price the first-token VaR of collocated prefill occupants on the decode instance (INV-9-safe; default ON — the rule prices this externality; set =false to ablate)
-	edppVarGoodput             bool          // EDPP goodput-objective diagnostic (--edpp-var-goodput): charge VaR − good_r and drop the standalone transfer penalty; upper bound with --edpp-oracle-output-len
-	edppKairosBeta             float64       // Kairos baseline TBT safety margin (--kairos-beta); used only with --edpp-rule kairos
-	edppTauE2E                 time.Duration // EDPP default τ_e2e for the VaR E2E composite (--edpp-tau-e2e); 0 ⇒ E2E conjunct disabled
-	edppTauE2EClasses          string        // EDPP per-class τ_e2e overrides (--edpp-tau-e2e-classes, "critical=5s,batch=60s")
-	prefillRoutingScorers      string        // Scorer weights for prefill pool routing
-	decodeRoutingScorers       string        // Scorer weights for decode pool routing
+	prefillInstances                    int           // Number of instances dedicated to prefill
+	decodeInstances                     int           // Number of instances dedicated to decode
+	prefillDecodeInstances              int           // Number of shared-role instances (both prefill and decode), issue #1276
+	pdDecider                           string        // Disaggregation decider name
+	pdTransferBandwidth                 float64       // Inter-instance KV transfer bandwidth in GB/s
+	pdTransferBaseLatency               float64       // Inter-instance KV transfer base latency in ms
+	pdTransferContention                bool          // Enable fair-share bandwidth contention model
+	pdPrefixThreshold                   int           // Non-cached token threshold for prefix-threshold decider
+	pdPrefixThresholdClasses            string        // Per-SLO-class prefix thresholds ("critical=1024,batch=16")
+	pdPlanPath                          string        // Path to fixed-plan CSV (counterfactual-regret harness); overrides --pd-decider
+	edppTauTTFT                         time.Duration // EDPP τ_ttft: time-average TTFT SLO target
+	edppTauRef                          time.Duration // EDPP τ_ref: fixed reference for the transfer-penalty normalization
+	edppTauITL                          time.Duration // EDPP τ_itl: time-average ITL SLO target
+	edppV                               float64       // EDPP V: penalty/stability tradeoff knob
+	edppCXfer                           time.Duration // EDPP c_xfer: assumed KV-transfer cost when routing P
+	edppNomPrefillTokens                int           // EDPP nominal prefill chunk for the fixed prefill normalizer
+	edppNomDecodeCtx                    int           // EDPP nominal decode context for the fixed decode normalizer
+	edppTauTTFTClasses                  string        // EDPP per-class τ_ttft overrides ("critical=100ms,batch=10s")
+	edppTauITLClasses                   string        // EDPP per-class τ_itl overrides ("critical=20ms,batch=500ms")
+	edppCoeffsPath                      string        // path to frozen EDPP E3 coefficients JSON
+	edppTAdmEstimator                   string        // EDPP admission-delay estimator that drives routing ("" ⇒ waiting)
+	edppJoint                           bool          // EDPP joint (decode, prefill) argmin routing (--edpp-joint)
+	edppJointCausalVar                  bool          // corrected causal-VaR-only joint policy; implies joint enumeration
+	edppDecomposedCausalVar             bool          // corrected causal VaR with decode placement fixed by the scorer
+	edppJointSLOExternality             bool          // constrained joint causal-SLO-externality policy
+	edppDecomposedSLOExternality        bool          // constrained causal-SLO-externality policy with scorer-fixed decode placement
+	edppSLOExternalityNoExternality     bool          // ablation: remove causal externality only
+	edppSLOExternalityNoOwnGood         bool          // ablation: remove arriving-request projected good only
+	edppSLOExternalityNoCapacity        bool          // ablation: remove capacity shadow prices only
+	edppSLOExternalityOccupancyCapacity bool          // physical occupancy-time capacity queues
+	edppOracleOutputLen                 bool          // EDPP diagnostic oracle: charge routed request's own decode work with TRUE output length (--edpp-oracle-output-len); upper-bound only, violates INV-9
+	edppCXferSizeAware                  bool          // EDPP size-aware c_xfer: compute transfer cost per request from KV size (--edpp-c-xfer-size-aware), mirroring the DES executor, instead of the flat --edpp-c-xfer
+	edppRule                            string        // EDPP reduced-path decision rule (--edpp-rule): dpp (default) | least-ttft | var
+	edppVarMetric                       string        // EDPP VaR scoring kernel (--edpp-var-metric): flip (default) | util | hazard; used only with --edpp-rule var
+	edppVarPrefillWeight                float64       // EDPP simplified var-prefill prefill-queue stability weight (--edpp-var-prefill-weight)
+	edppVarCongestion                   bool          // EDPP drift-plus-VaR (--edpp-var-congestion): keep the congestion drift AND add the VaR externality; used only with --edpp-rule var
+	edppVarCongestionWeight             float64       // EDPP drift-plus-VaR congestion weight (--edpp-var-congestion-weight): scales congestion vs VaR; used only with --edpp-rule var --edpp-var-congestion
+	edppVarNormalize                    bool          // EDPP drift-plus-VaR auto-normalization (--edpp-var-normalize): per-decision min-max normalize congestion vs VaR so the weight is scale-free (≈1)
+	edppVarNormalizeFloorScale          float64       // EDPP normalization spread floor scale (--edpp-var-normalize-floor-scale): scales ε₀ = scale·(dwork/W*); a term whose cross-candidate spread falls below ε₀ is compressed out instead of amplified. 0 ⇒ 1.0. Swept by the sensitivity study.
+	edppVarDeployable                   bool          // EDPP DEPLOYABLE VaR (--edpp-var-deployable): estimate co-resident remaining from censored N̂_out instead of the oracle true remaining (INV-9-safe)
+	edppVarCollocPrefill                bool          // EDPP DEPLOYABLE VaR extra (--edpp-var-colloc-prefill): also price the first-token VaR of collocated prefill occupants on the decode instance (INV-9-safe; default ON — the rule prices this externality; set =false to ablate)
+	edppVarGoodput                      bool          // EDPP arriving-request goodput term (--edpp-var-goodput); upper bound with --edpp-oracle-output-len
+	edppTTFTOverlapAware                bool          // EDPP reduced-path TTFT ablation: overlap remote prefill/transfer with decode queue drainage
+	edppVarExactPrefillOverlap          bool          // EDPP VaR ablation: exact marginal prefill overlap instead of full serial prefill charge
+	edppPathSpecificPrefillWork         bool          // EDPP reduced-path ablation: path-specific prefix-cache work and backlog booking
+	edppKairosAlpha                     float64       // Kairos paper TTFT margin (--kairos-alpha); used only with --edpp-rule kairos-paper
+	edppKairosBeta                      float64       // Kairos TBT safety margin (--kairos-beta); used with either Kairos mode
+	edppTauE2E                          time.Duration // EDPP default τ_e2e for the VaR E2E composite (--edpp-tau-e2e); 0 ⇒ E2E conjunct disabled
+	edppTauE2EClasses                   string        // EDPP per-class τ_e2e overrides (--edpp-tau-e2e-classes, "critical=5s,batch=60s")
+	prefillRoutingScorers               string        // Scorer weights for prefill pool routing
+	decodeRoutingScorers                string        // Scorer weights for decode pool routing
 
 	// E/P/D disaggregation config (GAP-4, issue #1264)
 	encodeInstances int    // Number of instances dedicated to encoding multimodal input (0 = disabled)
@@ -1069,6 +1084,16 @@ func resolvePoolScorerConfigs(flagVal, pool string, pdEnabled bool) []sim.Scorer
 	return cfgs
 }
 
+// effectiveEDPPRule makes the causal policy name an invariant rather than a
+// fragile combination of flags. The joint causal path directly minimizes VaR,
+// while Rule="var" also selects the frozen VaR kernel/configuration elsewhere.
+func effectiveEDPPRule(rule string, causalVar bool) string {
+	if causalVar {
+		return "var"
+	}
+	return rule
+}
+
 // writeRoutingDecisionTrace writes the per-candidate routing-decision CSV to path
 // (no-op when path is empty). Shared by run and replay for INV-13 parity.
 func writeRoutingDecisionTrace(tr *trace.SimulationTrace, path string) {
@@ -1120,6 +1145,30 @@ func writeEDPPJointTrace(tr *trace.SimulationTrace, path string) {
 		logrus.Errorf("--edpp-joint-trace: close failed: %v", cerr)
 	} else {
 		logrus.Infof("Wrote %d scorer-vs-joint records to %s", len(tr.EDPPJointDecisions), path)
+	}
+}
+
+func writeEDPPJointCandidateTrace(tr *trace.SimulationTrace, path string) {
+	if path == "" {
+		return
+	}
+	if tr == nil || len(tr.EDPPJointCandidates) == 0 {
+		logrus.Warnf("--edpp-joint-candidate-trace: no candidate records to write (need --edpp-joint with --pd-decider edpp)")
+		return
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		logrus.Errorf("--edpp-joint-candidate-trace: could not create %q: %v", path, err)
+		return
+	}
+	werr := trace.WriteEDPPJointCandidateCSV(f, tr.EDPPJointCandidates)
+	cerr := f.Close()
+	if werr != nil {
+		logrus.Errorf("--edpp-joint-candidate-trace: write failed: %v", werr)
+	} else if cerr != nil {
+		logrus.Errorf("--edpp-joint-candidate-trace: close failed: %v", cerr)
+	} else {
+		logrus.Infof("Wrote %d EDPP joint candidate records to %s", len(tr.EDPPJointCandidates), path)
 	}
 }
 
@@ -1322,6 +1371,7 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&summarizeTrace, "summarize-trace", false, "Print trace summary after simulation")
 	cmd.Flags().StringVar(&edppDecisionTracePath, "edpp-decision-trace", "", "Write per-decision EDPP rule-term breakdown to this CSV path (requires --trace-level decisions and --pd-decider edpp)")
 	cmd.Flags().StringVar(&edppJointTracePath, "edpp-joint-trace", "", "Write per-decision scorer-vs-joint divergence breakdown (scorer_d/p vs joint_d/p, J_scorer vs J_joint, agreement flags) to this CSV path (requires --edpp-joint). Pure instrumentation; does not change routing.")
+	cmd.Flags().StringVar(&edppJointCandidateTracePath, "edpp-joint-candidate-trace", "", "Write every joint local and (decode,prefill) candidate's causal-VaR breakdown to CSV (requires --edpp-joint). Pure instrumentation.")
 	cmd.Flags().StringVar(&routingDecisionTracePath, "routing-decision-trace", "", "Write per-candidate routing-decision breakdown (every prefill/decode/standard target selection: per-candidate queue/KV/inflight/prefix score) to this CSV path. All deciders.")
 	cmd.Flags().StringVar(&pdOutcomeTracePath, "pd-outcome-trace", "", "Write per-request realized outcomes (T_adm/TTFT/ITL/E2E) to this CSV path for EDPP estimator validation. Requires PD/disaggregation.")
 	cmd.Flags().StringVar(&edppWorkTracePath, "edpp-work-trace", "", "Write per-request realized-vs-closed work model CSV (Stage B validation). Requires --pd-decider edpp (uses its coeffs).")
@@ -1347,6 +1397,7 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().Float64Var(&pdTransferBaseLatency, "pd-transfer-base-latency", 0.05, "PD KV transfer base latency in ms")
 	cmd.Flags().BoolVar(&pdTransferContention, "pd-transfer-contention", false, "Enable fair-share bandwidth contention model for concurrent KV transfers (INV-P2-2)")
 	cmd.Flags().IntVar(&pdPrefixThreshold, "pd-prefix-threshold", 16, "Non-cached token threshold for prefix-threshold decider (>= 0); disaggregate when non-cached tokens exceed this value. Default 16 matches llm-d's shipped P/D configs (deploy/config/pd-epp-config.yaml).")
+	cmd.Flags().StringVar(&pdPrefixThresholdClasses, "pd-prefix-threshold-classes", "", "Optional per-SLO-class prefix thresholds (e.g. \"critical=1024,batch=16\"); unlisted classes use --pd-prefix-threshold.")
 	// EDPP (Lyapunov drift-plus-penalty) decider knobs — used only with --pd-decider edpp.
 	cmd.Flags().DurationVar(&edppTauTTFT, "edpp-tau-ttft", 500*time.Millisecond, "EDPP τ_ttft: time-average TTFT SLO target (only used with --pd-decider edpp)")
 	cmd.Flags().DurationVar(&edppTauRef, "edpp-tau-ref", 500*time.Millisecond, "EDPP τ_ref: fixed reference τ for the transfer-penalty normalization; makes the penalty scale 1/τ_ttft² like the other terms. Default 500ms (= shipped τ_ttft default ⇒ no change at the default operating point); loosening --edpp-tau-ttft above τ_ref attenuates the penalty (only used with --pd-decider edpp)")
@@ -1360,18 +1411,31 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&edppCoeffsPath, "edpp-coeffs", "", "Path to frozen EDPP E3 coefficients JSON (required with --pd-decider edpp). See scripts/calibration/.")
 	cmd.Flags().StringVar(&edppTAdmEstimator, "edpp-tadm-estimator", "", "EDPP admission-delay estimator that DRIVES routing: waiting|little|fluid|rollforward (default waiting). Oracle variants are logging-only and rejected here.")
 	cmd.Flags().BoolVar(&edppJoint, "edpp-joint", false, "EDPP joint P/D routing: enumerate all (decode, prefill) candidates and pick the drift-plus-penalty argmin, instead of the reduced fixed-decode local-vs-disagg rule (only used with --pd-decider edpp).")
+	cmd.Flags().BoolVar(&edppJointCausalVar, "edpp-joint-causal-var", false, "Opt-in corrected causal-VaR-only joint policy over all D(P+1) actions; existing routing scorers break VaR ties within a fixed 1e-9 tolerance. Implies --edpp-joint semantics without changing the legacy joint objective.")
+	cmd.Flags().BoolVar(&edppDecomposedCausalVar, "edpp-decomposed-causal-var", false, "Corrected causal VaR with decode placement fixed by the existing scorer; minimizes over local and remote prefill choices only. Matched control for --edpp-joint-causal-var.")
+	cmd.Flags().BoolVar(&edppJointSLOExternality, "edpp-joint-slo-externality", false, "Constrained joint P/D policy over all D(P+1) actions: minimize V times projected net-good loss plus per-instance capacity shadow prices.")
+	cmd.Flags().BoolVar(&edppDecomposedSLOExternality, "edpp-decomposed-slo-externality", false, "Matched decomposition control for --edpp-joint-slo-externality: the existing decode scorer fixes decode placement, then the constrained policy selects local or remote prefill.")
+	cmd.Flags().BoolVar(&edppSLOExternalityNoExternality, "edpp-slo-externality-no-externality", false, "Ablation for a causal-SLO-externality policy: remove the resident externality while retaining projected own good and capacity shadow prices.")
+	cmd.Flags().BoolVar(&edppSLOExternalityNoOwnGood, "edpp-slo-externality-no-own-good", false, "Ablation for a causal-SLO-externality policy: remove arriving-request projected good while retaining resident externality and capacity shadow prices.")
+	cmd.Flags().BoolVar(&edppSLOExternalityNoCapacity, "edpp-slo-externality-no-capacity", false, "Ablation for a causal-SLO-externality policy: remove capacity shadow prices while retaining causal SLO externality and projected own good.")
+	cmd.Flags().BoolVar(&edppSLOExternalityOccupancyCapacity, "edpp-slo-externality-occupancy-capacity", false, "Use physical per-request occupancy-time queues for a causal-SLO-externality policy; decode width is fixed by --max-num-running-reqs.")
 	cmd.Flags().BoolVar(&edppOracleOutputLen, "edpp-oracle-output-len", false, "DIAGNOSTIC/UPPER-BOUND ONLY: charge each routed request's own decode work with its TRUE output length instead of the N̂_out estimate (only --pd-decider edpp). Violates INV-9; never a deployable policy. Used to isolate output-length estimation error from the drift-currency hypothesis.")
 	cmd.Flags().BoolVar(&edppCXferSizeAware, "edpp-c-xfer-size-aware", false, "EDPP computes c_xfer per request from KV size (base + ⌈a_r/blockSize⌉·blockSize·kvBytesPerToken / --pd-transfer-bandwidth), mirroring the actual KV-transfer executor, instead of the flat --edpp-c-xfer constant (only --pd-decider edpp). Deployable (input-only).")
-	cmd.Flags().StringVar(&edppRule, "edpp-rule", "dpp", "EDPP reduced-path decision rule: dpp (drift-plus-penalty, default) | least-ttft (disaggregate iff predicted-TTFT-disagg < predicted-TTFT-local; bypasses drift/z/V) | var (DIAGNOSTIC ORACLE: replace the work-currency balance term with a value-at-risk externality — goodput destroyed among co-residents; violates INV-9, upper bound only). Only used with --pd-decider edpp.")
-	cmd.Flags().StringVar(&edppVarMetric, "edpp-var-metric", "flip", "EDPP VaR scoring kernel (only with --edpp-rule var): flip (A, binary composite-good flip count; default) | util (B, saturating slack utility) | hazard (C, deadline-slack hazard × delay).")
+	cmd.Flags().StringVar(&edppRule, "edpp-rule", "dpp", "EDPP decision rule: dpp (default) | least-ttft | var | var-prefill | kairos-paper (published alpha/TTFT-gated discrete rule) | kairos-adapted (historical physics-normalized adaptation); kairos is an adapted compatibility alias. Only used with --pd-decider edpp.")
+	cmd.Flags().StringVar(&edppVarMetric, "edpp-var-metric", "flip", "EDPP VaR scoring kernel (only with --edpp-rule var or var-prefill): flip (A, binary composite-good flip count; default) | util (B, saturating slack utility) | hazard (C, deadline-slack hazard × delay).")
+	cmd.Flags().Float64Var(&edppVarPrefillWeight, "edpp-var-prefill-weight", 1.0, "Prefill-queue stability weight λ_p for --edpp-rule var-prefill: disaggregate iff VaR(local)−VaR(disagg) > λ_p·q_p·(W_p/W*_p). Set 0 for the VaR-only ablation.")
 	cmd.Flags().BoolVar(&edppVarCongestion, "edpp-var-congestion", false, "EDPP drift-plus-VaR (only with --edpp-rule var): KEEP the Lyapunov work-congestion drift term and ADD the VaR externality, instead of replacing congestion. The congestion term feels a node saturating (capacity/heterogeneity); VaR supplies the SLO externality.")
 	cmd.Flags().Float64Var(&edppVarCongestionWeight, "edpp-var-congestion-weight", 1.0, "EDPP drift-plus-VaR congestion weight (only with --edpp-var-congestion): cost = weight·congestion + VaR. Makes the two terms commensurate; larger ⇒ congestion dominates (toward dpp), smaller ⇒ VaR dominates (toward pure VaR).")
 	cmd.Flags().BoolVar(&edppVarNormalize, "edpp-var-normalize", false, "EDPP drift-plus-VaR auto-normalization (only with --edpp-var-congestion): per-decision min-max normalize congestion and VaR across joint candidates so --edpp-var-congestion-weight is a scale-free relative weight (≈1) instead of an absolute scale. Symmetric congestion (identical hardware) cancels automatically.")
 	cmd.Flags().Float64Var(&edppVarNormalizeFloorScale, "edpp-var-normalize-floor-scale", 1.0, "EDPP normalization spread floor scale (only with --edpp-var-normalize): the min-max denominator is max{spread, ε₀} with ε₀ = scale·(dwork/W*), one arriving request's work on the nominal decode instance. A term whose cross-candidate spread falls below ε₀ is compressed toward zero instead of amplified to [0,1] (the noise-amplification fix). The sensitivity study sweeps this scale.")
 	cmd.Flags().BoolVar(&edppVarDeployable, "edpp-var-deployable", false, "EDPP DEPLOYABLE VaR (only with --edpp-rule var): estimate each decode co-resident's remaining steps from the censored per-class N̂_out (max(N̂_out−StepsDone,1)) instead of the ORACLE true remaining. INV-9-safe (reads no hidden output length) — turns the diagnostic ceiling into a runnable policy.")
 	cmd.Flags().BoolVar(&edppVarCollocPrefill, "edpp-var-colloc-prefill", true, "EDPP DEPLOYABLE VaR extra (only with --edpp-rule var): also price the first-token (TTFT) value-at-risk of collocated prefill occupants ON the decode instance. These are pre-first-token requests a prior collocate decision placed there, which the decode-side VaR terms skip. Reads only remaining prompt tokens (INV-9-safe). On by default so the rule prices this externality. Set =false to ablate it.")
-	cmd.Flags().BoolVar(&edppVarGoodput, "edpp-var-goodput", false, "EDPP goodput-objective diagnostic (only with --edpp-rule var --edpp-var-congestion): reframe the objective from minimizing transfer cost to maximizing goodput. The rule charges VaR − good_r (goodput destroyed among co-residents minus goodput EARNED for the arriving request) and DROPS the standalone transfer penalty, whose effect already flows through the request's own projected TTFT. good_r uses the request's decode length; pair with --edpp-oracle-output-len for the TRUE-output-length upper bound (violates INV-9). Off ⇒ byte-identical to the current rule.")
-	cmd.Flags().Float64Var(&edppKairosBeta, "kairos-beta", 1.0, "Kairos baseline TBT safety margin β (only with --edpp-rule kairos): a deflected prefill chunk must keep the decode step within β·τ_itl. Lower β = more conservative deflection.")
+	cmd.Flags().BoolVar(&edppVarGoodput, "edpp-var-goodput", false, "Add the arriving request's predicted composite-good to a VaR objective. With --edpp-rule var, charge VaR−good_r and drop the standalone transfer penalty. With --edpp-rule var-prefill, add good_r(disagg)−good_r(local) to the disaggregation benefit. Uses deployable N-hat output length unless paired with --edpp-oracle-output-len (diagnostic upper bound). Off preserves the prior objectives.")
+	cmd.Flags().BoolVar(&edppTTFTOverlapAware, "edpp-ttft-overlap-aware", false, "TTFT-estimator ablation for reduced EDPP: model remote prefill+KV transfer as overlapping decode-queue drainage, using decode join=max(remote lead, predicted decode admission delay), instead of adding both delays serially.")
+	cmd.Flags().BoolVar(&edppVarExactPrefillOverlap, "edpp-var-exact-prefill-overlap", false, "VaR ablation: price only the arriving request's exact marginal prefill work over chunks that overlap each co-resident; handles cached prefixes and partial final chunks instead of charging the full serial remote prefill duration.")
+	cmd.Flags().BoolVar(&edppPathSpecificPrefillWork, "edpp-path-specific-prefill-work", false, "Reduced EDPP ablation: compute local and remote prefill work/chunks from each path's own prefix-cache state, and book Q_p/Q_d with that path-specific observable work (exact in the evaluated one-prefill-node topology).")
+	cmd.Flags().Float64Var(&edppKairosAlpha, "kairos-alpha", 1.3, "Kairos paper TTFT margin α (only with --edpp-rule kairos-paper): require predicted decode TTFT ≤ α·predicted prefill TTFT and within the request TTFT SLO.")
+	cmd.Flags().Float64Var(&edppKairosBeta, "kairos-beta", 1.0, "Kairos TBT safety margin β: a deflected prefill chunk must keep the decode step within β·the strictest resident TBT target. Lower β = more conservative deflection.")
 	cmd.Flags().DurationVar(&edppTauE2E, "edpp-tau-e2e", 0, "EDPP default τ_e2e end-to-end SLO deadline budget for the VaR E2E composite (e.g. 5s; only with --edpp-rule var). 0 ⇒ E2E conjunct disabled in g().")
 	cmd.Flags().StringVar(&edppTauE2EClasses, "edpp-tau-e2e-classes", "", "EDPP per-SLO-class τ_e2e overrides (e.g. \"critical=5s,batch=60s\"); unlisted classes use --edpp-tau-e2e. Only with --edpp-rule var.")
 	cmd.Flags().StringVar(&prefillRoutingScorers, "prefill-routing-scorers", "", "Scorer weights for prefill pool routing (e.g., queue-depth:2,kv-utilization:2)")
@@ -1858,24 +1922,97 @@ var runCmd = &cobra.Command{
 		if pdDecider != "prefix-threshold" && cmd.Flags().Changed("pd-prefix-threshold") {
 			logrus.Warnf("--pd-prefix-threshold=%d is ignored when --pd-decider=%q (only applies to the prefix-threshold decider)", pdPrefixThreshold, pdDecider)
 		}
+		if pdDecider != "prefix-threshold" && cmd.Flags().Changed("pd-prefix-threshold-classes") {
+			logrus.Warnf("--pd-prefix-threshold-classes is ignored when --pd-decider=%q (only applies to the prefix-threshold decider)", pdDecider)
+		}
 		if pdDecider != "" && pdDecider != "never" && prefillInstances == 0 {
 			logrus.Warnf("--pd-decider=%q has no effect because --prefill-instances=0 (disaggregation is disabled); set --prefill-instances and --decode-instances to enable", pdDecider)
 		}
 		if edppRule == "least-ttft" && edppJoint {
 			logrus.Infof("--edpp-rule least-ttft --edpp-joint: least-TTFT-joint arm — scores each candidate's own forward TTFT under its θ_i over the full (decode, prefill) action set, no drift/z/VaR (the fair hardware-aware least-TTFT).")
 		}
-		if edppRule == "var" {
+		if edppRule == "kairos" {
+			logrus.Warnf("--edpp-rule kairos is the historical adapted compatibility alias, not the published algorithm; use --edpp-rule kairos-paper for the alpha/TTFT-gated discrete rule")
+		}
+		if edppRule == "kairos-paper" {
+			logrus.Infof("--edpp-rule kairos-paper: published decision inequalities with alpha=%g, beta=%g, discrete chunk candidates, request TTFT gate, and strictest-resident TBT protection", edppKairosAlpha, edppKairosBeta)
+		}
+		if edppJointCausalVar {
+			logrus.Infof("--edpp-joint-causal-var: corrected deployable causal VaR over D(P+1) actions (rule=var, deployable remaining estimate, exact marginal prefill overlap, candidate-specific cache/work); scorer ordering breaks ties within 1e-9 only.")
+		}
+		if edppDecomposedCausalVar {
+			logrus.Infof("--edpp-decomposed-causal-var: scorer fixes decode placement; corrected deployable causal VaR selects local or a remote prefill instance.")
+		}
+		if edppJointCausalVar && edppDecomposedCausalVar {
+			logrus.Fatalf("--edpp-joint-causal-var and --edpp-decomposed-causal-var are mutually exclusive")
+		}
+		sloExternalityPolicy := edppJointSLOExternality || edppDecomposedSLOExternality
+		if edppJointSLOExternality && edppDecomposedSLOExternality {
+			logrus.Fatalf("--edpp-joint-slo-externality and --edpp-decomposed-slo-externality are mutually exclusive")
+		}
+		if sloExternalityPolicy && (edppJointCausalVar || edppDecomposedCausalVar) {
+			logrus.Fatalf("causal-SLO-externality policy flags are mutually exclusive with --edpp-joint-causal-var and --edpp-decomposed-causal-var")
+		}
+		if (edppSLOExternalityNoExternality || edppSLOExternalityNoOwnGood || edppSLOExternalityNoCapacity) && !sloExternalityPolicy {
+			logrus.Fatalf("causal-SLO-externality ablation flags require --edpp-joint-slo-externality or --edpp-decomposed-slo-externality")
+		}
+		if edppSLOExternalityOccupancyCapacity && !sloExternalityPolicy {
+			logrus.Fatalf("--edpp-slo-externality-occupancy-capacity requires --edpp-joint-slo-externality or --edpp-decomposed-slo-externality")
+		}
+		if sloExternalityPolicy && edppV <= 0 {
+			logrus.Fatalf("causal-SLO-externality policies require --edpp-v > 0, got %v", edppV)
+		}
+		if sloExternalityPolicy && (prefillInstances <= 0 || decodeInstances <= 0) {
+			logrus.Fatalf("causal-SLO-externality policies require --prefill-instances > 0 and --decode-instances > 0")
+		}
+		if sloExternalityPolicy && prefillDecodeInstances > 0 {
+			logrus.Fatalf("causal-SLO-externality policies currently require disjoint prefill and decode pools; --prefill-decode-instances must be 0")
+		}
+		if edppJointSLOExternality {
+			logrus.Infof("--edpp-joint-slo-externality: jointly selecting decode and prefill placement by projected net good plus per-instance capacity shadow prices.")
+		}
+		if edppDecomposedSLOExternality {
+			logrus.Infof("--edpp-decomposed-slo-externality: the decode scorer fixes decode placement; projected net good plus capacity shadow prices select local or remote prefill.")
+		}
+		if edppSLOExternalityNoExternality {
+			logrus.Infof("--edpp-slo-externality-no-externality: removing only the causal resident-SLO externality term.")
+		}
+		if edppSLOExternalityNoOwnGood {
+			logrus.Infof("--edpp-slo-externality-no-own-good: removing only the arriving-request projected-good term.")
+		}
+		if edppSLOExternalityNoCapacity {
+			logrus.Infof("--edpp-slo-externality-no-capacity: removing only the capacity shadow-price term.")
+		}
+		if edppSLOExternalityOccupancyCapacity {
+			logrus.Infof("--edpp-slo-externality-occupancy-capacity: capacity queues book physical t^P/t^D/t^coll occupancy and drain at one unit per wall-time unit (reference decode width %d).", maxRunningReqs)
+		}
+		if !edppJointCausalVar && !edppDecomposedCausalVar && !sloExternalityPolicy && (edppRule == "var" || edppRule == "var-prefill") {
 			if edppVarDeployable {
-				logrus.Infof("--edpp-rule var --edpp-var-deployable: DEPLOYABLE value-at-risk — co-resident remaining is estimated from the per-class N̂_out (INV-9-safe, reads no hidden output length).")
+				logrus.Infof("--edpp-rule %s --edpp-var-deployable: DEPLOYABLE value-at-risk — co-resident remaining is estimated from the per-class N̂_out (INV-9-safe, reads no hidden output length).", edppRule)
 			} else {
-				logrus.Warnf("--edpp-rule var is a DIAGNOSTIC ORACLE: it reads co-residents' TRUE remaining output length to price the value-at-risk externality (violates INV-9). Results are an UPPER BOUND, not an achievable policy. Add --edpp-var-deployable for the INV-9-safe estimate.")
+				logrus.Warnf("--edpp-rule %s is a DIAGNOSTIC ORACLE: it reads co-residents' TRUE remaining output length to price the value-at-risk externality (violates INV-9). Results are an UPPER BOUND, not an achievable policy. Add --edpp-var-deployable for the INV-9-safe estimate.", edppRule)
 			}
 			if edppVarCollocPrefill {
 				logrus.Infof("--edpp-var-colloc-prefill: also pricing the first-token VaR of collocated prefill occupants on the decode instance (deployable, INV-9-safe).")
 			}
-			if edppVarGoodput {
+			if edppRule == "var" && edppVarGoodput {
 				logrus.Warnf("--edpp-var-goodput: GOODPUT-OBJECTIVE diagnostic — the rule charges VaR − good_r and drops the standalone transfer penalty. good_r uses the request's decode length; with --edpp-oracle-output-len it reads the TRUE output length (violates INV-9, UPPER BOUND). Requires --edpp-var-congestion.")
 			}
+			if edppRule == "var-prefill" && edppVarGoodput {
+				logrus.Infof("--edpp-var-goodput: adding the arriving request's deployable predicted composite-good difference to the reduced var-prefill benefit.")
+			}
+		}
+		if edppRule == "var-prefill" && !sloExternalityPolicy {
+			logrus.Infof("--edpp-rule var-prefill: PREFILL-STABLE simplified policy — decode scorer selects the decode instance; EDPP compares co-resident VaR(local)−VaR(disagg), optionally plus the arriving-request goodput difference, against λ_p·prefill-queue stability.")
+		}
+		if edppTTFTOverlapAware {
+			logrus.Infof("--edpp-ttft-overlap-aware: remote prefill/transfer overlaps decode-queue drainage in the reduced-path TTFT estimate (explicit ablation).")
+		}
+		if edppVarExactPrefillOverlap {
+			logrus.Infof("--edpp-var-exact-prefill-overlap: VaR prices exact marginal prefill work only over chunks that overlap each co-resident (explicit ablation).")
+		}
+		if edppPathSpecificPrefillWork {
+			logrus.Infof("--edpp-path-specific-prefill-work: reduced EDPP uses path-specific prefix-cache work for TTFT, stability, and Q bookkeeping (explicit 1P ablation).")
 		}
 		if edppOracleOutputLen {
 			logrus.Warnf("--edpp-oracle-output-len is a DIAGNOSTIC oracle: it charges each routed request's own decode work with its TRUE output length (violates INV-9). Results are an UPPER BOUND, not an achievable policy.")
@@ -1986,90 +2123,105 @@ var runCmd = &cobra.Command{
 				PolicyConfig:         sim.NewPolicyConfig(scheduler, preemptionPolicy),
 				SLOPriorityOverrides: sloPriorityOverrides,
 			},
-			NumInstances:                    numInstances,
-			AdmissionPolicy:                 admissionPolicy,
-			AdmissionLatency:                admissionLatency,
-			RoutingLatency:                  routingLatency,
-			TokenBucketCapacity:             tokenBucketCapacity,
-			TokenBucketRefillRate:           tokenBucketRefillRate,
-			RoutingPolicy:                   routingPolicy,
-			RoutingScorerConfigs:            parsedScorerConfigs,
-			TraceLevel:                      traceLevel,
-			CounterfactualK:                 counterfactualK,
-			RecordRoutingDecisions:          routingDecisionTracePath != "",
-			SnapshotRefreshInterval:         snapshotRefreshInterval,
-			CacheSignalDelay:                cacheSignalDelay,
-			PrefillInstances:                prefillInstances,
-			DecodeInstances:                 decodeInstances,
-			SharedInstances:                 prefillDecodeInstances,
-			EncodeInstances:                 encodeInstances,
-			EncodeDecider:                   encodeDecider,
-			PDDecider:                       pdDecider,
-			PDPrefixThreshold:               pdPrefixThreshold,
-			PDPlanPath:                      pdPlanPath,
-			EDPPTauTTFTUs:                   edppTauTTFT.Microseconds(),
-			EDPPTauRefUs:                    edppTauRef.Microseconds(),
-			EDPPTauITLUs:                    edppTauITL.Microseconds(),
-			EDPPTauTTFTByClassUs:            parseEDPPClassTargets(edppTauTTFTClasses, "edpp-tau-ttft-classes"),
-			EDPPTauITLByClassUs:             parseEDPPClassTargets(edppTauITLClasses, "edpp-tau-itl-classes"),
-			EDPPV:                           edppV,
-			EDPPCXferUs:                     edppCXfer.Microseconds(),
-			EDPPNomPrefillTokens:            edppNomPrefillTokens,
-			EDPPNomDecodeCtx:                edppNomDecodeCtx,
-			EDPPCoeffs:                      resolveEDPPCoeffs(pdDecider, edppCoeffsPath),
-			EDPPCoeffsByGPU:                 bundleEDPPCoeffsByGPU,
-			EDPPTAdmEstimator:               edppTAdmEstimator,
-			EDPPJoint:                       edppJoint,
-			EDPPRule:                        edppRule,
-			EDPPVarMetric:                   edppVarMetric,
-			EDPPVarKeepCongestion:           edppVarCongestion,
-			EDPPVarCongestionWeight:         edppVarCongestionWeight,
-			EDPPVarNormalize:                edppVarNormalize,
-			EDPPVarNormalizeFloorScale:      edppVarNormalizeFloorScale,
-			EDPPVarDeployable:               edppVarDeployable,
-			EDPPVarCollocPrefill:            edppVarCollocPrefill,
-			EDPPVarGoodputObjective:         edppVarGoodput,
-			EDPPKairosBeta:                  edppKairosBeta,
-			EDPPTauE2EUs:                    edppTauE2E.Microseconds(),
-			EDPPTauE2EByClassUs:             parseEDPPClassTargets(edppTauE2EClasses, "edpp-tau-e2e-classes"),
-			EDPPOracleOutputLen:             edppOracleOutputLen,
-			EDPPCXferSizeAware:              edppCXferSizeAware,
-			EDPPJointTrace:                  edppJointTracePath != "",
-			PDTransferBandwidthGBps:         pdTransferBandwidth,
-			PDTransferBaseLatencyMs:         pdTransferBaseLatency,
-			PDTransferContention:            pdTransferContention,
-			PrefillScorerConfigs:            prefillScorerCfgs,
-			DecodeScorerConfigs:             decodeScorerCfgs,
-			PrefillOverrides:                prefillOverrides,
-			DecodeOverrides:                 decodeOverrides,
-			TierShedThreshold:               tierShedThreshold,
-			TierShedMinPriority:             tierShedMinPriority,
-			GAIEQDThreshold:                 gaieQDThreshold,
-			GAIEKVThreshold:                 gaieKVThreshold,
-			TenantBudgets:                   tenantBudgets,
-			FlowControlEnabled:              flowControlEnabled,
-			FlowControlDetector:             flowControlDetector,
-			FlowControlDispatchOrder:        flowControlDispatchOrder,
-			FlowControlSLOTargets:           sloTargetsMap,
-			FlowControlMaxQueueDepth:        flowControlMaxQueueDepth,
-			FlowControlQueueDepthThreshold:  flowControlQueueDepthThreshold,
-			FlowControlKVCacheUtilThreshold: flowControlKVCacheUtilThreshold,
-			FlowControlMaxConcurrency:       flowControlMaxConcurrency,
-			FlowControlPerBandCapacity:      flowControlPerBandCapacity,
-			FlowControlUsageLimitThreshold:  flowControlUsageLimitThreshold,
-			FlowControlFairnessPolicy:       flowControlFairnessPolicy,
-			FlowControlRequestTTL:           flowControlRequestTTL,
-			FlowControlQueueShedding:        flowControlQueueShedding,
-			FlowControlDispatchTickInterval: flowControlDispatchTickInterval,
-			FlowControlInFlightEviction:     flowControlInFlightEviction,
-			ModelAutoscalerIntervalUs:       bundleAutoscalerIntervalUs,
-			ScaleUpStabilizationWindowUs:    bundleScaleUpStabilizationWindowUs,
-			ScaleDownStabilizationWindowUs:  bundleScaleDownStabilizationWindowUs,
-			HPAScrapeDelay:                  cluster.DelaySpec{Mean: bundleHPAScrapeDelayMean, Stddev: bundleHPAScrapeDelayStddev},
-			AutoscalerAnalyzerConfig:        bundleAnalyzerCfg,
-			NodePools:                       bundleNodePools,
-			HWConfigByGPU:                   bundleHWConfigByGPU,
-			InstanceLifecycle:               bundleInstanceLifecycle,
+			NumInstances:                        numInstances,
+			AdmissionPolicy:                     admissionPolicy,
+			AdmissionLatency:                    admissionLatency,
+			RoutingLatency:                      routingLatency,
+			TokenBucketCapacity:                 tokenBucketCapacity,
+			TokenBucketRefillRate:               tokenBucketRefillRate,
+			RoutingPolicy:                       routingPolicy,
+			RoutingScorerConfigs:                parsedScorerConfigs,
+			TraceLevel:                          traceLevel,
+			CounterfactualK:                     counterfactualK,
+			RecordRoutingDecisions:              routingDecisionTracePath != "",
+			SnapshotRefreshInterval:             snapshotRefreshInterval,
+			CacheSignalDelay:                    cacheSignalDelay,
+			PrefillInstances:                    prefillInstances,
+			DecodeInstances:                     decodeInstances,
+			SharedInstances:                     prefillDecodeInstances,
+			EncodeInstances:                     encodeInstances,
+			EncodeDecider:                       encodeDecider,
+			PDDecider:                           pdDecider,
+			PDPrefixThreshold:                   pdPrefixThreshold,
+			PDPrefixThresholdByClass:            parseNonnegativeClassInts(pdPrefixThresholdClasses, "pd-prefix-threshold-classes"),
+			PDPlanPath:                          pdPlanPath,
+			EDPPTauTTFTUs:                       edppTauTTFT.Microseconds(),
+			EDPPTauRefUs:                        edppTauRef.Microseconds(),
+			EDPPTauITLUs:                        edppTauITL.Microseconds(),
+			EDPPTauTTFTByClassUs:                parseEDPPClassTargets(edppTauTTFTClasses, "edpp-tau-ttft-classes"),
+			EDPPTauITLByClassUs:                 parseEDPPClassTargets(edppTauITLClasses, "edpp-tau-itl-classes"),
+			EDPPV:                               edppV,
+			EDPPCXferUs:                         edppCXfer.Microseconds(),
+			EDPPNomPrefillTokens:                edppNomPrefillTokens,
+			EDPPNomDecodeCtx:                    edppNomDecodeCtx,
+			EDPPCoeffs:                          resolveEDPPCoeffs(pdDecider, edppCoeffsPath),
+			EDPPCoeffsByGPU:                     bundleEDPPCoeffsByGPU,
+			EDPPTAdmEstimator:                   edppTAdmEstimator,
+			EDPPJoint:                           edppJoint || edppJointCausalVar || edppDecomposedCausalVar || edppJointSLOExternality || edppDecomposedSLOExternality,
+			EDPPJointCausalVar:                  edppJointCausalVar,
+			EDPPDecomposedCausalVar:             edppDecomposedCausalVar,
+			EDPPJointSLOExternality:             edppJointSLOExternality,
+			EDPPDecomposedSLOExternality:        edppDecomposedSLOExternality,
+			EDPPSLOExternalityNoExternality:     edppSLOExternalityNoExternality,
+			EDPPSLOExternalityNoOwnGood:         edppSLOExternalityNoOwnGood,
+			EDPPSLOExternalityNoCapacity:        edppSLOExternalityNoCapacity,
+			EDPPSLOExternalityOccupancyCapacity: edppSLOExternalityOccupancyCapacity,
+			EDPPRule:                            effectiveEDPPRule(edppRule, edppJointCausalVar || edppDecomposedCausalVar),
+			EDPPVarMetric:                       edppVarMetric,
+			EDPPVarPrefillWeight:                edppVarPrefillWeight,
+			EDPPVarKeepCongestion:               edppVarCongestion,
+			EDPPVarCongestionWeight:             edppVarCongestionWeight,
+			EDPPVarNormalize:                    edppVarNormalize,
+			EDPPVarNormalizeFloorScale:          edppVarNormalizeFloorScale,
+			EDPPVarDeployable:                   edppVarDeployable,
+			EDPPVarCollocPrefill:                edppVarCollocPrefill,
+			EDPPVarGoodputObjective:             edppVarGoodput,
+			EDPPTTFTOverlapAware:                edppTTFTOverlapAware,
+			EDPPVarExactPrefillOverlap:          edppVarExactPrefillOverlap,
+			EDPPPathSpecificPrefillWork:         edppPathSpecificPrefillWork,
+			EDPPKairosAlpha:                     edppKairosAlpha,
+			EDPPKairosBeta:                      edppKairosBeta,
+			EDPPTauE2EUs:                        edppTauE2E.Microseconds(),
+			EDPPTauE2EByClassUs:                 parseEDPPClassTargets(edppTauE2EClasses, "edpp-tau-e2e-classes"),
+			EDPPOracleOutputLen:                 edppOracleOutputLen,
+			EDPPCXferSizeAware:                  edppCXferSizeAware,
+			EDPPJointTrace:                      edppJointTracePath != "",
+			EDPPJointCandidateTrace:             edppJointCandidateTracePath != "",
+			PDTransferBandwidthGBps:             pdTransferBandwidth,
+			PDTransferBaseLatencyMs:             pdTransferBaseLatency,
+			PDTransferContention:                pdTransferContention,
+			PrefillScorerConfigs:                prefillScorerCfgs,
+			DecodeScorerConfigs:                 decodeScorerCfgs,
+			PrefillOverrides:                    prefillOverrides,
+			DecodeOverrides:                     decodeOverrides,
+			TierShedThreshold:                   tierShedThreshold,
+			TierShedMinPriority:                 tierShedMinPriority,
+			GAIEQDThreshold:                     gaieQDThreshold,
+			GAIEKVThreshold:                     gaieKVThreshold,
+			TenantBudgets:                       tenantBudgets,
+			FlowControlEnabled:                  flowControlEnabled,
+			FlowControlDetector:                 flowControlDetector,
+			FlowControlDispatchOrder:            flowControlDispatchOrder,
+			FlowControlSLOTargets:               sloTargetsMap,
+			FlowControlMaxQueueDepth:            flowControlMaxQueueDepth,
+			FlowControlQueueDepthThreshold:      flowControlQueueDepthThreshold,
+			FlowControlKVCacheUtilThreshold:     flowControlKVCacheUtilThreshold,
+			FlowControlMaxConcurrency:           flowControlMaxConcurrency,
+			FlowControlPerBandCapacity:          flowControlPerBandCapacity,
+			FlowControlUsageLimitThreshold:      flowControlUsageLimitThreshold,
+			FlowControlFairnessPolicy:           flowControlFairnessPolicy,
+			FlowControlRequestTTL:               flowControlRequestTTL,
+			FlowControlQueueShedding:            flowControlQueueShedding,
+			FlowControlDispatchTickInterval:     flowControlDispatchTickInterval,
+			FlowControlInFlightEviction:         flowControlInFlightEviction,
+			ModelAutoscalerIntervalUs:           bundleAutoscalerIntervalUs,
+			ScaleUpStabilizationWindowUs:        bundleScaleUpStabilizationWindowUs,
+			ScaleDownStabilizationWindowUs:      bundleScaleDownStabilizationWindowUs,
+			HPAScrapeDelay:                      cluster.DelaySpec{Mean: bundleHPAScrapeDelayMean, Stddev: bundleHPAScrapeDelayStddev},
+			AutoscalerAnalyzerConfig:            bundleAnalyzerCfg,
+			NodePools:                           bundleNodePools,
+			HWConfigByGPU:                       bundleHWConfigByGPU,
+			InstanceLifecycle:                   bundleInstanceLifecycle,
 		}
 		// Session callback installation (Constraint 3 fix):
 		// Follow-up collection must be UNCONDITIONAL for saturation analysis correctness.
@@ -2408,6 +2560,7 @@ var runCmd = &cobra.Command{
 
 		// Write scorer-vs-joint divergence CSV if requested (shared with replay; INV-13 parity).
 		writeEDPPJointTrace(cs.Trace(), edppJointTracePath)
+		writeEDPPJointCandidateTrace(cs.Trace(), edppJointCandidateTracePath)
 
 		logrus.Info("Simulation complete.")
 	},

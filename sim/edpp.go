@@ -34,8 +34,10 @@ import (
 // OnComplete updates only z and N̂_out (the running batch is captured by T(B−1)/μ in
 // the predictors, not by Q). Forget releases any still-waiting share on terminal
 // non-completion (timeout/drop). Decode work uses the per-class running-mean output
-// length N̂_out (INV-9: realized length read only at completion). The TTFT predictors
-// are symmetric co-residency: TTFT_x = Q_x^wait/μ_x + n·(T_x(B−1)+δ_pf-chunk) [+c_xfer].
+// length N̂_out (INV-9: realized length read only at completion). Both TTFT predictors
+// end at the client-visible first token: local includes decode admission, local prefill,
+// and token post-processing; disagg additionally includes transfer, decode admission,
+// and the first B+1 decode iteration.
 //
 // # Oracle safety (INV-9)
 //
@@ -64,40 +66,55 @@ import (
 // the request's own class: a stricter class reads the same server backlog as more
 // threatening, and its realized-SLO feedback accumulates in its own virtual queue.
 type EDPPConfig struct {
-	TauTTFTUs              int64                 // default τ_ttft: time-average TTFT SLO target (µs)
-	TauITLUs               int64                 // default τ_itl: time-average ITL SLO target (µs)
-	TauRefUs               int64                 // fixed reference τ for the transfer-penalty normalization (µs); makes the penalty scale 1/τ_ttft² like the other terms. Independent of the operating τ_ttft.
-	TauTTFTByClassUs       map[string]int64      // per-class τ_ttft overrides (µs); nil = use default for all
-	TauITLByClassUs        map[string]int64      // per-class τ_itl overrides (µs); nil = use default for all
-	TauE2EUs               int64                 // default τ_e2e: end-to-end SLO deadline budget (µs); used ONLY by the VaR drift oracle (Rule=="var") to evaluate a co-resident's E2E composite-good (deadline = arrival + τ_e2e). 0 ⇒ E2E conjunct disabled in g(). Not read by dpp/least-ttft.
-	TauE2EByClassUs        map[string]int64      // per-class τ_e2e overrides (µs); nil = use default for all
-	V                      float64               // penalty/stability tradeoff knob (Neely's V); larger ⇒ fewer offloads
-	CXferUs                int64                 // c_xfer: KV-transfer cost paid when routing P (µs)
-	NomPrefillTokens       int                   // S_nom: nominal prefill chunk for the fixed prefill normalizer
-	NomDecodeCtx           int                   // L_nom: nominal decode context for the fixed decode normalizer
-	BlockSize              int                   // token block size for the prefix-cache a_p computation
-	ChunkTokens            int                   // per-step prefill token budget (max_num_batched_tokens); caps δ_pf-chunk. 0 = no cap (whole prefill counts as one chunk)
-	Coeffs                 EDPPCoeffs            // frozen E3 latency-law coefficients (design §1.1); required
-	CoeffsByGPU            map[string]EDPPCoeffs // per-GPU-type θ_i overrides; nil ⇒ use Coeffs for every candidate (homogeneous)
-	TraceEnabled           bool                  // when true, Decide attaches an EDPPDecisionTrace (intermediate rule terms) to each decision. Off ⇒ zero allocation.
-	TAdmEstimator          string                // admission-delay estimator name ("" ⇒ waiting, the current formula)
-	Joint                  bool                  // when true, Decide enumerates all (decode, prefill) candidates and picks the drift-plus-penalty argmin (joint P/D routing, --edpp-joint); false ⇒ the reduced fixed-d local-vs-disagg rule.
-	JointTraceEnabled      bool                  // when true (joint mode only), decideJoint attaches an EDPPJointDecisionTrace comparing the scorer's (d,p) pick to the joint argmin. Off ⇒ zero allocation, no shadow prefill scorer run.
-	Rule                   string                // reduced-path decision rule: "" / "dpp" (drift-plus-penalty, default) | "least-ttft" (disaggregate iff ttftP < ttftD; bypasses the drift/z/V machinery, design 2026-07-15) | "var" (replace the work-currency balance term with a value-at-risk externality; DIAGNOSTIC ORACLE, design 2026-07-21).
-	VarMetric              string                // VaR scoring kernel when Rule=="var": "flip" (A, binary composite-good flip count; default), "util" (B, saturating slack utility), "hazard" (C, deadline-slack hazard × delay). Ignored unless Rule=="var".
-	VarKeepCongestion      bool                  // when Rule=="var": KEEP the Lyapunov work-congestion drift term and ADD the VaR externality (drift-plus-VaR), instead of replacing it. The congestion term feels a node saturating (capacity + heterogeneity); VaR supplies the SLO externality. false ⇒ pure VaR (externality replaces congestion). Ignored unless Rule=="var".
-	VarCongestionWeight    float64               // drift-plus-VaR balance: cost = VarCongestionWeight·congestion + VaR (the two terms live on different scales, so this makes them commensurate). 0 ⇒ 1.0. Used only when Rule=="var" and VarKeepCongestion.
-	VarNormalize           bool                  // drift-plus-VaR auto-normalization (joint path): per-decision min-max normalize congestion and VaR across candidates to [0,1] before combining, so VarCongestionWeight is a scale-free relative weight (default ≈1) instead of an absolute scale. The spread floor (VarNormalizeFloorScale) makes a symmetric congestion term (identical hardware) cancel automatically. Used only when Rule=="var" and VarKeepCongestion.
-	VarNormalizeFloorScale float64               // drift-plus-VaR normalization spread floor (joint path, only with VarNormalize): the min-max denominator is max{spread, ε₀} with ε₀ = scale·(dwork/W*) — one arriving request's work on the nominal decode instance in reference units. A term whose cross-candidate spread falls below ε₀ is compressed toward zero in proportion instead of amplified to the full unit range (the noise-amplification fix). 0 ⇒ 1.0 (paper default); the sensitivity study varies this scale alongside VarCongestionWeight.
-	KairosBeta             float64               // Kairos baseline (Rule=="kairos") TBT safety margin β: a deflected prefill chunk must keep the decode step within β·τ_itl. 0 ⇒ 1.0. See sim/edpp_kairos.go (arXiv:2607.02043).
-	VarDeployable          bool                  // DEPLOYABLE VaR (Rule=="var"): estimate each decode co-resident's remaining steps from the censored per-class N̂_out (max(N̂_out − StepsDone, 1)) instead of the ORACLE true remaining. INV-9-safe (no output-length read). Turns the diagnostic ceiling into a runnable policy; measures the oracle→deployable gap.
-	VarCollocPrefill       bool                  // DEPLOYABLE VaR extra (Rule=="var"): also price the first-token (TTFT) value-at-risk of collocated prefill occupants ON the decode instance. These are requests a prior collocate decision placed there that are still pre-first-token, which RunningDecode skips so the decode-side terms miss them. Reads only remaining prompt tokens (known input, INV-9-safe). On by default so the rule prices this externality; set false to ablate.
-	VarGoodputObjective    bool                  // DIAGNOSTIC (Rule=="var" && VarKeepCongestion, --edpp-var-goodput): reframe the objective from "minimize transfer cost" to "maximize goodput". The rule charges VaR − good_r (the goodput destroyed among co-residents minus the goodput EARNED for the arriving request) and DROPS the standalone transfer penalty (its effect already flows through the request's own projected TTFT). good_r uses the request's decode length via reqNHatOut — the censored N̂_out, or the TRUE output length when OracleOutputLen is also set (an INV-9 upper bound). Off ⇒ byte-identical to the current rule (INV-6). Tests whether the goodput reframing beats the transfer-cost objective.
-	OracleOutputLen        bool                  // DIAGNOSTIC / UPPER-BOUND ONLY (--edpp-oracle-output-len): substitute the routed request's TRUE output length (len(req.OutputTokens)) for the per-class N̂_out estimate when charging its OWN decode work (joint W_d and the qdWork backlog bookkeeping). Violates INV-9 by design; never a deployable policy. Co-resident remaining stays estimated/censored. Used to test whether output-length estimation error explains the overload collapse (control for the value-vs-work-currency hypothesis).
-	CXferSizeAware         bool                  // --edpp-c-xfer-size-aware: compute c_xfer per request from KV size (XferBaseUs + ⌈a_r/blockSize⌉·blockSize·KVBytesPerTokenPerGPU / bandwidth), mirroring the DES KV-transfer executor, instead of the flat CXferUs. Off ⇒ byte-identical to the flat-c_xfer behavior. Deployable (input-only, oracle-safe).
-	KVBytesPerTokenPerGPU  float64               // per-GPU KV bytes per token (from ModelConfig + prefill TP); used only when CXferSizeAware
-	XferBandwidthGBps      float64               // inter-instance KV-transfer bandwidth (GB/s), matching the DES executor; used only when CXferSizeAware
-	XferBaseUs             float64               // KV-transfer base latency (µs), matching the DES executor; used only when CXferSizeAware
+	TauTTFTUs                       int64                 // default τ_ttft: time-average TTFT SLO target (µs)
+	TauITLUs                        int64                 // default τ_itl: time-average ITL SLO target (µs)
+	TauRefUs                        int64                 // fixed reference τ for the transfer-penalty normalization (µs); makes the penalty scale 1/τ_ttft² like the other terms. Independent of the operating τ_ttft.
+	TauTTFTByClassUs                map[string]int64      // per-class τ_ttft overrides (µs); nil = use default for all
+	TauITLByClassUs                 map[string]int64      // per-class τ_itl overrides (µs); nil = use default for all
+	TauE2EUs                        int64                 // default τ_e2e: end-to-end SLO deadline budget (µs); used ONLY by the VaR rules ("var"/"var-prefill") to evaluate a co-resident's E2E composite-good (deadline = arrival + τ_e2e). 0 ⇒ E2E conjunct disabled in g(). Not read by dpp/least-ttft.
+	TauE2EByClassUs                 map[string]int64      // per-class τ_e2e overrides (µs); nil = use default for all
+	V                               float64               // penalty/stability tradeoff knob (Neely's V); larger ⇒ fewer offloads
+	CXferUs                         int64                 // c_xfer: KV-transfer cost paid when routing P (µs)
+	NomPrefillTokens                int                   // S_nom: nominal prefill chunk for the fixed prefill normalizer
+	NomDecodeCtx                    int                   // L_nom: nominal decode context for the fixed decode normalizer
+	BlockSize                       int                   // token block size for the prefix-cache a_p computation
+	ChunkTokens                     int                   // per-step prefill token budget (max_num_batched_tokens); caps δ_pf-chunk. 0 = no cap (whole prefill counts as one chunk)
+	Coeffs                          EDPPCoeffs            // frozen E3 latency-law coefficients (design §1.1); required
+	CoeffsByGPU                     map[string]EDPPCoeffs // per-GPU-type θ_i overrides; nil ⇒ use Coeffs for every candidate (homogeneous)
+	TraceEnabled                    bool                  // when true, Decide attaches an EDPPDecisionTrace (intermediate rule terms) to each decision. Off ⇒ zero allocation.
+	TAdmEstimator                   string                // admission-delay estimator name ("" ⇒ waiting, the current formula)
+	Joint                           bool                  // when true, Decide enumerates all (decode, prefill) candidates and picks the drift-plus-penalty argmin (joint P/D routing, --edpp-joint); false ⇒ the reduced fixed-d local-vs-disagg rule.
+	JointCausalVar                  bool                  // opt-in corrected causal-VaR-only joint policy; legacy Joint objective is unchanged when false.
+	DecomposedCausalVar             bool                  // corrected causal VaR with decode fixed to the existing scorer's choice.
+	JointSLOExternality             bool                  // constrained externality-aware joint policy: V*(causal SLO externality-own good)+per-instance capacity drift.
+	DecomposedSLOExternality        bool                  // same constrained score, but fixes decode placement to the existing scorer; matched decomposition control.
+	SLOExternalityNoExternality     bool                  // ablation: remove the causal SLO externality while retaining own good and capacity drift.
+	SLOExternalityNoOwnGood         bool                  // ablation: remove arriving-request projected good while retaining causal externality and capacity drift.
+	SLOExternalityNoCapacity        bool                  // ablation: remove capacity drift while retaining causal SLO externality and own good.
+	SLOExternalityOccupancyCapacity bool                  // use physical per-request occupancy time, rather than marginal work/nominal-mu, for the capacity queues.
+	SLOCapacityReferenceBatch       int                   // fixed decode width B used by the occupancy-time account.
+	JointTraceEnabled               bool                  // when true (joint mode only), decideJoint attaches an EDPPJointDecisionTrace comparing the scorer's (d,p) pick to the joint argmin. Off ⇒ zero allocation, no shadow prefill scorer run.
+	JointCandidateTraceEnabled      bool                  // when true (joint mode only), attach every local and (decode,prefill) candidate's causal-VaR breakdown after committing the argmin. Pure instrumentation.
+	Rule                            string                // reduced-path decision rule: "" / "dpp" (drift-plus-penalty, default) | "least-ttft" (disaggregate iff ttftP < ttftD; bypasses the drift/z/V machinery, design 2026-07-15) | "var" (replace the work-currency balance term with a value-at-risk externality; DIAGNOSTIC ORACLE, design 2026-07-21) | "var-prefill" (reduced VaR externality vs prefill-queue stability only).
+	VarMetric                       string                // VaR scoring kernel when Rule is "var" or "var-prefill": "flip" (A, binary composite-good flip count; default), "util" (B, saturating slack utility), "hazard" (C, deadline-slack hazard × delay).
+	VarPrefillWeight                float64               // simplified var-prefill balance: disaggregate iff VaR_local−VaR_disagg > VarPrefillWeight·q_p·(W_p/W*_p). 0 disables the stability term for the VaR-only ground-floor ablation; the CLI default is 1.0.
+	VarKeepCongestion               bool                  // when Rule=="var": KEEP the Lyapunov work-congestion drift term and ADD the VaR externality (drift-plus-VaR), instead of replacing it. The congestion term feels a node saturating (capacity + heterogeneity); VaR supplies the SLO externality. false ⇒ pure VaR (externality replaces congestion). Ignored unless Rule=="var".
+	VarCongestionWeight             float64               // drift-plus-VaR balance: cost = VarCongestionWeight·congestion + VaR (the two terms live on different scales, so this makes them commensurate). 0 ⇒ 1.0. Used only when Rule=="var" and VarKeepCongestion.
+	VarNormalize                    bool                  // drift-plus-VaR auto-normalization (joint path): per-decision min-max normalize congestion and VaR across candidates to [0,1] before combining, so VarCongestionWeight is a scale-free relative weight (default ≈1) instead of an absolute scale. The spread floor (VarNormalizeFloorScale) makes a symmetric congestion term (identical hardware) cancel automatically. Used only when Rule=="var" and VarKeepCongestion.
+	VarNormalizeFloorScale          float64               // drift-plus-VaR normalization spread floor (joint path, only with VarNormalize): the min-max denominator is max{spread, ε₀} with ε₀ = scale·(dwork/W*) — one arriving request's work on the nominal decode instance in reference units. A term whose cross-candidate spread falls below ε₀ is compressed toward zero in proportion instead of amplified to the full unit range (the noise-amplification fix). 0 ⇒ 1.0 (paper default); the sensitivity study varies this scale alongside VarCongestionWeight.
+	KairosAlpha                     float64               // Kairos paper mode (Rule=="kairos-paper") TTFT margin α: deflect only when TTFT_dec ≤ α·TTFT_pf and TTFT_dec ≤ τ_ttft. 0 ⇒ 1.3 (the paper's setting).
+	KairosBeta                      float64               // Kairos TBT safety margin β: a deflected prefill chunk must keep the decode step within β·τ_itl. 0 ⇒ 1.0. Used by kairos-paper and kairos-adapted; "kairos" is an adapted compatibility alias.
+	VarDeployable                   bool                  // DEPLOYABLE VaR ("var"/"var-prefill"): estimate each decode co-resident's remaining steps from the censored per-class N̂_out (max(N̂_out − StepsDone, 1)) instead of the ORACLE true remaining. INV-9-safe (no output-length read). Turns the diagnostic ceiling into a runnable policy; measures the oracle→deployable gap.
+	VarCollocPrefill                bool                  // DEPLOYABLE VaR extra ("var"/"var-prefill"): also price the first-token (TTFT) value-at-risk of collocated prefill occupants ON the decode instance. These are requests a prior collocate decision placed there that are still pre-first-token, which RunningDecode skips so the decode-side terms miss them. Reads only remaining prompt tokens (known input, INV-9-safe). On by default so the rule prices this externality; set false to ablate.
+	VarGoodputObjective             bool                  // Arriving-request goodput term (--edpp-var-goodput). For Rule=="var", charge VaR−good_r and drop the standalone transfer penalty. For Rule=="var-prefill", add good_r(disagg)−good_r(local) to the VaR benefit. good_r uses censored N̂_out, or TRUE output length with OracleOutputLen (diagnostic upper bound). Off preserves the prior rules byte-identically.
+	TTFTOverlapAware                bool                  // --edpp-ttft-overlap-aware: model decode-queue drainage during remote prefill+transfer as overlap, so remote decode join=max(remote lead, local decode admission delay), instead of adding both serially. Reduced-path ablation; off preserves the prior formula.
+	VarExactPrefillOverlap          bool                  // --edpp-var-exact-prefill-overlap: price only the deciding request's exact marginal prefill work over chunks that overlap each co-resident, instead of charging its full serial prefill duration. VaR ablation; off preserves the prior externality model.
+	PathSpecificPrefillWork         bool                  // --edpp-path-specific-prefill-work: compute local and remote a_p/W_p/chunks from their own cache locations and book Q_p/Q_d with that path-specific observable work. In the reduced rule this is exact for the evaluated 1P topology; multi-P falls back to the local/cold estimate until a prefill node is selected.
+	OracleOutputLen                 bool                  // DIAGNOSTIC / UPPER-BOUND ONLY (--edpp-oracle-output-len): substitute the routed request's TRUE output length (len(req.OutputTokens)) for the per-class N̂_out estimate when charging its OWN decode work (joint W_d and the qdWork backlog bookkeeping). Violates INV-9 by design; never a deployable policy. Co-resident remaining stays estimated/censored. Used to test whether output-length estimation error explains the overload collapse (control for the value-vs-work-currency hypothesis).
+	CXferSizeAware                  bool                  // --edpp-c-xfer-size-aware: compute c_xfer per request from KV size (XferBaseUs + ⌈a_r/blockSize⌉·blockSize·KVBytesPerTokenPerGPU / bandwidth), mirroring the DES KV-transfer executor, instead of the flat CXferUs. Off ⇒ byte-identical to the flat-c_xfer behavior. Deployable (input-only, oracle-safe).
+	KVBytesPerTokenPerGPU           float64               // per-GPU KV bytes per token (from ModelConfig + prefill TP); used only when CXferSizeAware
+	XferBandwidthGBps               float64               // inter-instance KV-transfer bandwidth (GB/s), matching the DES executor; used only when CXferSizeAware
+	XferBaseUs                      float64               // KV-transfer base latency (µs), matching the DES executor; used only when CXferSizeAware
 }
 
 // EDPPJointDecisionTrace records, for one joint (--edpp-joint) decision, the scorer's
@@ -126,14 +143,43 @@ type EDPPJointDecisionTrace struct {
 	Disaggregate bool    // the joint decision (disagg vs local)
 }
 
+// EDPPJointCandidateTrace is one action in the complete joint action set:
+// D local actions plus D×P disaggregated actions. The fields are the corrected
+// causal-VaR externality alone, not the legacy composite joint objective.
+type EDPPJointCandidateTrace struct {
+	Class                                       string
+	DecodePod, PrefillPod                       string
+	Local, Chosen, RouterDecode                 bool
+	VarDecode, VarCollocPrefill                 float64
+	VarPrefillPool, VarTotal, BestVar           float64
+	ChosenVarRegret                             float64
+	SLOExternality, OwnGood                     float64
+	NetGoodCost                                 float64
+	CapacityQueueDecode, CapacityQueuePrefill   float64
+	CapacityDemandDecode, CapacityDemandPrefill float64
+	CapacityDecode, CapacityPrefill             float64
+	CapacityTotal, Score, BestScore             float64
+	ChosenScoreRegret                           float64
+}
+
+type EDPPJointCandidateTraceSet struct {
+	Candidates []EDPPJointCandidateTrace
+}
+
 // EDPPDecisionTrace records the intermediate terms of one E14 rule evaluation, for
 // diagnostics. It is attached to DisaggregationDecision.EDPPTrace only when the decider
 // has TraceEnabled set. Every field is dimensionless or in microseconds; LHS and RHS are
 // the two sides of the (E14) inequality and decompose exactly into the listed components:
 //
 //	LHS = BalanceTermD − BalanceTermP
-//	RHS = TransferTerm + TTFTTerm + ITLTerm
+//	RHS = TransferTerm + TTFTTerm + ITLTerm + PrefillStabilityTerm
 //	Disaggregate = LHS > RHS
+//
+// Rule-specific modes may replace LHS/RHS while preserving this decomposition:
+// var-prefill uses
+// LHS=VaR_local−VaR_disagg+[SelfGoodDisagg−SelfGoodLocal] and
+// RHS=PrefillStabilityTerm. The bracketed term is present only when
+// VarGoodputObjective is enabled; transfer/TTFT/ITL fields remain zero.
 //
 // On early-return paths (empty prompt, fully prefix-cached) the rule is not evaluated;
 // SkipReason names the path and the term fields are left zero.
@@ -155,6 +201,13 @@ type EDPPDecisionTrace struct {
 	TauITL       float64 // τ_itl for this class (µs)
 	TTFTP        float64 // predicted TTFT under P (µs)
 	TTFTD        float64 // predicted TTFT under D (µs)
+	ApPrefill    int     // remote path's uncached prompt tokens (a_p^P); Ap remains the local/decode value
+	WpPrefill    float64 // remote path's prefill work W_p^P; Wp remains the local/decode value
+	TAdmP        float64 // predicted prefill-pool admission delay (µs)
+	TAdmD        float64 // predicted selected-decode admission delay from decision time (µs)
+	RemoteLead   float64 // time through remote prefill admission/work and KV transfer (µs)
+	LocalService float64 // local prefill plus output-token processing after admission (µs)
+	DisaggFirst  float64 // first decode iteration plus output-token processing after decode admission (µs)
 	ITLP         float64 // retained for compatibility; always 0 — ITL pressure is now the collapsed ITLTerm (Task 7 design); Decide no longer sets this field
 	ITLD         float64 // retained for compatibility; always 0 — ITL pressure is now the collapsed ITLTerm (Task 7 design); Decide no longer sets this field
 	ZTTFT        float64 // normalized TTFT virtual queue (z_ttft = Z_ttft / τ_ttft)
@@ -164,9 +217,37 @@ type EDPPDecisionTrace struct {
 	TransferTerm float64 // V·(c_xfer/τ_ttft)
 	TTFTTerm     float64 // z_ttft·(TTFT_P−TTFT_D)/τ_ttft
 	ITLTerm      float64 // z_itl·(ITL_P−ITL_D)/τ_itl
-	LHS          float64 // backlog-balancing benefit
-	RHS          float64 // transfer penalty + SLO pressure
-	Disaggregate bool    // the decision (LHS > RHS)
+	// PrefillStabilityTerm is nonzero only for Rule=="var-prefill":
+	// λ_p·q_p·(W_p/W*_p), the marginal stability cost of adding this
+	// request to the dedicated prefill waiting queue.
+	PrefillStabilityTerm float64
+	// VaR component fields are populated for the reduced "var" and
+	// "var-prefill" rules. They expose which co-resident population each
+	// placement harms; each path total is the sum of its listed components.
+	VarLocalDecode         float64
+	VarLocalCollocPrefill  float64
+	VarLocalTotal          float64
+	VarDisaggDecode        float64
+	VarDisaggCollocPrefill float64
+	VarDisaggPrefillPool   float64
+	VarDisaggTotal         float64
+	SelfGoodLocal          float64 // arriving request's predicted composite-good if local
+	SelfGoodDisagg         float64 // arriving request's predicted composite-good if disaggregated
+	// Kairos fields are populated only by the Kairos modes. TTFTP and TTFTD carry
+	// the regular-prefill and best decode-node estimates respectively.
+	KairosMode             string  // "paper" or "adapted"
+	KairosAlpha            float64 // TTFT margin used by the decision (paper: configured α; adapted: 1)
+	KairosAlphaThreshold   float64 // α·TTFT_pf (µs)
+	KairosTTFTGateRequired bool    // true only for paper mode
+	KairosTTFTGatePassed   bool    // best decode TTFT ≤ arriving request's τ_ttft
+	KairosResidentTauITL   float64 // strictest relevant resident TBT target before β (µs)
+	KairosTBTBudget        float64 // β·KairosResidentTauITL (µs)
+	KairosFirstChunk       float64 // first selected decode-side prefill chunk (tokens)
+	KairosMinChunk         float64 // smallest selected chunk in the schedule (tokens)
+	KairosChunkSteps       int     // number of chunks in the selected schedule
+	LHS                    float64 // active rule's disaggregation benefit
+	RHS                    float64 // active rule's disaggregation cost
+	Disaggregate           bool    // the decision (LHS > RHS)
 }
 
 func (c EDPPConfig) validate() {
@@ -193,6 +274,28 @@ func (c EDPPConfig) validate() {
 		panic(fmt.Sprintf("EDPPConfig: NomDecodeCtx must be > 0, got %d", c.NomDecodeCtx))
 	case c.BlockSize <= 0:
 		panic(fmt.Sprintf("EDPPConfig: BlockSize must be > 0, got %d", c.BlockSize))
+	case c.VarPrefillWeight < 0 || math.IsNaN(c.VarPrefillWeight) || math.IsInf(c.VarPrefillWeight, 0):
+		panic(fmt.Sprintf("EDPPConfig: VarPrefillWeight must be finite and >= 0, got %v", c.VarPrefillWeight))
+	}
+	if c.JointSLOExternality && c.DecomposedSLOExternality {
+		panic("EDPPConfig: JointSLOExternality and DecomposedSLOExternality are mutually exclusive")
+	}
+	if (c.JointSLOExternality || c.DecomposedSLOExternality) &&
+		(c.JointCausalVar || c.DecomposedCausalVar) {
+		panic("EDPPConfig: constrained SLO-externality policies are mutually exclusive with causal-VaR-only policies")
+	}
+	if (c.SLOExternalityNoExternality || c.SLOExternalityNoOwnGood || c.SLOExternalityNoCapacity) &&
+		!(c.JointSLOExternality || c.DecomposedSLOExternality) {
+		panic("EDPPConfig: SLO-externality ablations require JointSLOExternality or DecomposedSLOExternality")
+	}
+	if c.SLOExternalityOccupancyCapacity && !(c.JointSLOExternality || c.DecomposedSLOExternality) {
+		panic("EDPPConfig: occupancy capacity requires JointSLOExternality or DecomposedSLOExternality")
+	}
+	if c.SLOExternalityOccupancyCapacity && c.SLOCapacityReferenceBatch <= 0 {
+		panic(fmt.Sprintf("EDPPConfig: occupancy capacity requires SLOCapacityReferenceBatch > 0, got %d", c.SLOCapacityReferenceBatch))
+	}
+	if (c.JointSLOExternality || c.DecomposedSLOExternality) && c.V <= 0 {
+		panic(fmt.Sprintf("EDPPConfig: constrained SLO-externality policy requires V > 0, got %v", c.V))
 	}
 	for cls, v := range c.TauTTFTByClassUs {
 		if v <= 0 {
@@ -205,13 +308,26 @@ func (c EDPPConfig) validate() {
 		}
 	}
 	switch c.Rule {
-	case "", "dpp", "least-ttft", "kairos":
-	case "var":
+	case "", "dpp", "least-ttft", "kairos", "kairos-adapted", "kairos-paper":
+	case "var", "var-prefill":
 		if _, ok := parseVarKernel(c.VarMetric); !ok {
-			panic(fmt.Sprintf("EDPPConfig: Rule==\"var\" requires VarMetric in {flip,util,hazard}, got %q", c.VarMetric))
+			panic(fmt.Sprintf("EDPPConfig: Rule==%q requires VarMetric in {flip,util,hazard}, got %q", c.Rule, c.VarMetric))
 		}
 	default:
-		panic(fmt.Sprintf("EDPPConfig: Rule must be \"\", \"dpp\", \"least-ttft\", \"var\", or \"kairos\", got %q", c.Rule))
+		panic(fmt.Sprintf("EDPPConfig: Rule must be \"\", \"dpp\", \"least-ttft\", \"var\", \"var-prefill\", \"kairos\", \"kairos-adapted\", or \"kairos-paper\", got %q", c.Rule))
+	}
+	if c.Rule == "kairos-paper" && c.KairosAlpha != 0 && c.KairosAlpha < 1 {
+		panic(fmt.Sprintf("EDPPConfig: Rule==\"kairos-paper\" requires KairosAlpha >= 1 (or 0 for the 1.3 default), got %v", c.KairosAlpha))
+	}
+	if c.Rule == "var-prefill" {
+		switch {
+		case c.Joint:
+			panic("EDPPConfig: Rule==\"var-prefill\" is reduced-only; remove Joint so the decode routing scorer retains decode load balancing")
+		case c.VarKeepCongestion:
+			panic("EDPPConfig: Rule==\"var-prefill\" excludes decode congestion; VarKeepCongestion must be false")
+		case c.VarNormalize:
+			panic("EDPPConfig: Rule==\"var-prefill\" uses its two raw terms directly; VarNormalize must be false")
+		}
 	}
 	for cls, v := range c.TauE2EByClassUs {
 		if v <= 0 {
@@ -227,9 +343,10 @@ const edppMinMu = 1e-3
 // SLOFeedbackDecider is the lifecycle hook. OnRoute fires once when a request is
 // committed to a pool (increments the work backlog Q). OnAdmit fires when a routed
 // request first enters a running batch (drains the admitted side's waiting backlog
-// share). OnComplete fires at the request's terminal completion (bumps the virtual
-// queues and updates the per-class output-length estimate N̂_out — backlog is already
-// gone via OnAdmit). Forget releases any remaining backlog for a routed request that
+// share). OnFirstToken trues up the TTFT virtual queue at the client-visible boundary.
+// OnComplete fires at terminal completion (bumps the ITL virtual queue and updates the
+// per-class output-length estimate N̂_out — backlog is already gone via OnAdmit).
+// Forget releases any remaining backlog for a routed request that
 // reaches a terminal state WITHOUT a normal completion (timeout/drop) — no z bump, no
 // N̂_out update. Call sites discover it via a type assertion, so adding it does not
 // break DisaggregationDecider.
@@ -279,6 +396,17 @@ type edppPendingWork struct {
 // P/D routing reader; the reduced (pool-level) path never reads it.
 type edppInstWork struct {
 	wp, wd float64
+}
+
+// sloCapacityState is the constrained joint policy's virtual workload queue for one
+// concrete instance. Unlike qByInstance (which predicts admission waiting and drains
+// an entire request at admission), q drains continuously by the fixed nominal service
+// rate mu. scale is the fixed work normalizer mu*TauRefUs used by the original
+// quadratic-drift cross term. In occupancy mode q is microseconds of physical
+// instance occupancy, mu is one, and scale converts both factors to seconds.
+type sloCapacityState struct {
+	q, mu, scale float64
+	gpuType      string
 }
 
 // edppRunningMean is a per-class running mean of realized output lengths (N̂_out).
@@ -333,11 +461,13 @@ type EDPPDecider struct {
 	joint bool
 
 	// rule selects the reduced-path decision: "" / "dpp" => lhs > rhs (drift-plus-penalty);
-	// "least-ttft" => ttftP < ttftD; "var" => lhs_var (value-at-risk externality) > rhs.
-	// Estimation is identical; only the LHS/comparison differs.
+	// "least-ttft" => ttftP < ttftD; "var" => lhs_var (value-at-risk externality) > rhs;
+	// "var-prefill" => lhs_var > weighted prefill-queue stability, with every self/decode-
+	// congestion term removed.
 	rule string
 
-	// varMetric is the VaR scoring kernel (A/B/C) used when rule == "var". Parsed once at
+	// varMetric is the VaR scoring kernel (A/B/C) used by "var" and
+	// "var-prefill". Parsed once at
 	// construction from cfg.VarMetric (validated). Meaningless (zero value) for other rules.
 	varMetric varKernel
 
@@ -348,6 +478,10 @@ type EDPPDecider struct {
 	// varCongestionWeight scales the congestion term in drift-plus-VaR so it is commensurate
 	// with the VaR externality (they live on different scales). Defaults to 1.0.
 	varCongestionWeight float64
+
+	// varPrefillWeight scales the sole queue-stability term in the reduced
+	// var-prefill rule. Defaults to 1.0.
+	varPrefillWeight float64
 
 	// varNormalize enables per-decision min-max normalization of the congestion and VaR terms
 	// (joint path) so varCongestionWeight is a scale-free relative weight. See EDPPConfig.VarNormalize.
@@ -376,8 +510,10 @@ type EDPPDecider struct {
 	// by the congestion and goodput terms? Pure instrumentation; never read by the rule.
 	deficit edppDeficitAccum
 
-	// kairosBeta is the TBT safety margin for the Kairos baseline (rule == "kairos").
-	kairosBeta float64
+	// kairosAlpha and kairosBeta are the TTFT and TBT margins for the Kairos modes.
+	// The historical "kairos" rule remains an alias for kairos-adapted.
+	kairosAlpha float64
+	kairosBeta  float64
 
 	// Pluggable admission-delay estimator (default "waiting" reproduces QWork/Mu).
 	tadmEstimator AdmissionDelayEstimator
@@ -413,6 +549,13 @@ type EDPPDecider struct {
 	// a dedicated-RNG policy instance) — the shadow pick is logged, never acted on
 	// (INV-6). nil ⇒ ScorerP is left empty and J_scorer falls back to the local slice.
 	prefillScorer func(*Request, []RoutingSnapshot) string
+
+	// Dedicated state for the constrained causal-SLO-externality policy. It is
+	// intentionally separate from qByInstance so historical policies retain their
+	// admission-wait queue semantics byte-for-byte.
+	sloCapacity         map[string]*sloCapacityState
+	sloCapacityClock    int64
+	sloCapacityClockSet bool
 }
 
 // SetPrefillScorer injects the shadow prefill-routing scorer used to populate
@@ -446,12 +589,17 @@ func NewEDPPDecider(cfg EDPPConfig, model LatencyModel, cacheQuery map[string]fu
 	cfg.TauITLByClassUs = copyClassTargets(cfg.TauITLByClassUs)
 	cfg.TauE2EByClassUs = copyClassTargets(cfg.TauE2EByClassUs)
 
-	// VarMetric is validated in cfg.validate() only when Rule=="var"; parse defensively
+	// VarMetric is validated in cfg.validate() for both VaR rules; parse defensively
 	// (unknown ⇒ varKernelFlip, unreachable past validation) so the field is always well-defined.
 	varMetric, _ := parseVarKernel(cfg.VarMetric)
 	varCongestionWeight := cfg.VarCongestionWeight
 	if varCongestionWeight <= 0 {
 		varCongestionWeight = 1.0
+	}
+	varPrefillWeight := cfg.VarPrefillWeight
+	kairosAlpha := cfg.KairosAlpha
+	if kairosAlpha <= 0 {
+		kairosAlpha = 1.3
 	}
 	kairosBeta := cfg.KairosBeta
 	if kairosBeta <= 0 {
@@ -467,22 +615,25 @@ func NewEDPPDecider(cfg EDPPConfig, model LatencyModel, cacheQuery map[string]fu
 		model:                  model,
 		cacheQuery:             cacheQuery,
 		prefillSnapshots:       prefillSnapshots,
-		joint:                  cfg.Joint,
+		joint:                  cfg.Joint || cfg.JointSLOExternality || cfg.DecomposedSLOExternality,
 		rule:                   cfg.Rule,
 		varMetric:              varMetric,
 		varKeepCongestion:      cfg.VarKeepCongestion,
 		varCongestionWeight:    varCongestionWeight,
+		varPrefillWeight:       varPrefillWeight,
 		varNormalize:           cfg.VarNormalize,
 		varNormalizeFloorScale: varNormalizeFloorScale,
 		varDeployable:          cfg.VarDeployable,
 		varCollocPrefill:       cfg.VarCollocPrefill,
 		varGoodputObjective:    cfg.VarGoodputObjective,
+		kairosAlpha:            kairosAlpha,
 		kairosBeta:             kairosBeta,
 		zByClass:               make(map[string]*edppClassState),
 		coeffs:                 cfg.Coeffs,
 		coeffsByGPU:            cfg.CoeffsByGPU,
 		pending:                make(map[string]edppPendingWork),
 		qByInstance:            make(map[string]*edppInstWork),
+		sloCapacity:            make(map[string]*sloCapacityState),
 		nHatOut:                make(map[string]*edppRunningMean),
 
 		awaitingFirstToken: make(map[string]*edppAwaiting),
@@ -541,7 +692,7 @@ func (d *EDPPDecider) targetsFor(class string) (tauTTFTUs, tauITLUs int64) {
 
 // e2eFor resolves the E2E SLO deadline budget (µs) for a class, mirroring targetsFor:
 // the per-class override if present, else the default TauE2EUs. Used only by the VaR
-// oracle (Rule=="var") to compute a co-resident's absolute E2E deadline = arrival + τ_e2e.
+// oracle (Rule=="var" or "var-prefill") to compute a co-resident's absolute E2E deadline = arrival + τ_e2e.
 // Returns 0 when no E2E target is configured (⇒ the E2E conjunct is disabled in g()).
 func (d *EDPPDecider) e2eFor(class string) int64 {
 	tauE2EUs := d.cfg.TauE2EUs
@@ -593,10 +744,16 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 		d.creditAwaiting(state.Clock)
 	}
 
-	// Kairos baseline (--edpp-rule kairos, arXiv:2607.02043): load-aware prefill deflection.
-	// It picks its own decode node (the deflection target), so it branches ahead of both the
-	// joint and reduced paths. Baseline only — not our rule. See sim/edpp_kairos.go.
-	if d.rule == "kairos" {
+	// The constrained controller has a dedicated policy identity. Historical Rule
+	// values must not silently replace it when both reach the library config.
+	if d.usesSLOExternalityPolicy() {
+		return d.decideJoint(req, state)
+	}
+
+	// Kairos modes select their own decode node, so dispatch before both the historical
+	// joint and reduced paths. "kairos" is retained as an alias for the adapted historical
+	// implementation; use "kairos-paper" for the published decision rule.
+	if d.rule == "kairos" || d.rule == "kairos-adapted" || d.rule == "kairos-paper" {
 		return d.decideKairos(req, state)
 	}
 
@@ -656,6 +813,17 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 	// prefill side is pool-aggregate (no single p chosen in the reduced rule) → global coeffs
 	muPf := d.coeffs.muPrefill(sPfPrefill)
 
+	// The local and remote paths can see different prefix-cache residency.
+	// The reduced policy does not select a prefill node, but in the evaluated
+	// 1P topology its only possible remote cache is known exactly. Preserve the
+	// legacy symmetric estimate for multi-P until the normal prefill router has
+	// selected a node.
+	apP := ap
+	if d.cfg.PathSpecificPrefillWork && len(prefillSnaps) == 1 {
+		apP = d.apForInstance(req, prefillSnaps[0].ID)
+	}
+	wpP := d.coeffs.Wp(maxInt(apP, 0), len(req.InputTokens))
+
 	n := d.normFor(req.SLOClass)
 
 	// Conservation-bookkept backlogs (Task 6), in work-µs.
@@ -671,6 +839,14 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 		chunk = d.cfg.ChunkTokens
 	}
 	nChunks := math.Ceil(float64(ap) / float64(chunk))
+	chunkP := maxInt(apP, 1)
+	if d.cfg.ChunkTokens > 0 && d.cfg.ChunkTokens < chunkP {
+		chunkP = d.cfg.ChunkTokens
+	}
+	nChunksP := 0.0
+	if apP > 0 {
+		nChunksP = math.Ceil(float64(apP) / float64(chunkP))
+	}
 	// Occupancy inputs for the admission-delay estimators (fluid/rollforward, Tasks 4/5).
 	// Decode side reads the selected decode snapshot; prefill side reads the first prefill snapshot.
 	// ReqKVNeed: KV blocks this request needs ≈ ⌈a_r / blockSize⌉ (a_r = full input length; oracle-safe).
@@ -720,14 +896,27 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 	tAdmP := d.tadmEstimator.EstimateTAdm(prefillCtx)
 	tAdmD := d.tadmEstimator.EstimateTAdm(decodeCtx)
 	cXferUs := d.cXferUsFor(req) // flat CXferUs, or the size-aware transfer cost
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(req.InputTokens)), sPf)
 	// Prefill time = admission delay + the batch-iteration overhead the request waits through
 	// (nChunks iterations at the path's per-iteration time: the decode batch's load for the local
 	// path, the prefill pool's for the disagg path) + the request's OWN prefill work Wp. Wp carries
 	// both projection (C_pf·a_p) AND attention over context (C_attn·a_p·(a_r+a_p/2)), matching the
 	// executor's per-prefill-step charge. (Earlier this charged only the projection term C_pf·chunk,
 	// which under-modelled long-context prefill; the attention term is now included for fidelity.)
-	ttftP := tAdmP + nChunks*d.coeffs.tIterPrefill(sPfPrefill) + d.coeffs.Wp(ap, len(req.InputTokens)) + cXferUs
-	ttftD := tAdmD + nChunks*tBminus1 + thetaD.Wp(ap, len(req.InputTokens))
+	remoteLead := tAdmP + nChunksP*d.coeffs.tIterPrefill(sPfPrefill) +
+		wpP + cXferUs
+	decodeJoinP := remoteLead + tAdmD
+	if d.cfg.TTFTOverlapAware {
+		// Remote prefill and transfer happen while the selected decode server
+		// continues draining its current queue. A decode sub-request that arrives
+		// after remoteLead therefore waits only the residual of the admission
+		// delay predicted at decision time, not a second full tAdmD.
+		decodeJoinP = math.Max(remoteLead, tAdmD)
+	}
+	ttftP := decodeJoinP + tIterFirstDecode + d.outputTokenProcessingUs()
+	ttftD := d.projectedLocalTTFT(tAdmD, nChunks, tBminus1, thetaD.Wp(ap, len(req.InputTokens)))
+	localService := ttftD - tAdmD
+	disaggFirst := tIterFirstDecode + d.outputTokenProcessingUs()
 
 	// Per-class virtual queues.
 	var zTTFT, zITL float64
@@ -740,14 +929,17 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 	// E14, with the ITL term in collapsed closed form (§5.2/§9.2):
 	//   z_itl·(ITL_P − ITL_D)/τ_itl = − z_itl·(c_pf·chunk)/τ_itl
 	balanceTermD := qd * (wp / n.wStarD)
-	balanceTermP := qp * (wp / n.wStarP)
+	balanceTermP := qp * (wpP / n.wStarP)
 	lhs := balanceTermD - balanceTermP
 
 	transferTerm := d.transferPenalty(n, cXferUs)
 	ttftTerm := zTTFT * (ttftP - ttftD) / n.tauTTFT
 	itlTerm := -zITL * (thetaD.CPf * float64(chunk)) / n.tauITL
+	prefillStabilityTerm := 0.0
 	rhs := transferTerm + ttftTerm + itlTerm
 
+	var varLocal, varDisagg varPathBreakdown
+	var selfGoodLocal, selfGoodDisagg float64
 	disagg := lhs > rhs
 	switch d.rule {
 	case "least-ttft":
@@ -761,7 +953,12 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 		if state != nil {
 			nowUs = float64(state.Clock)
 		}
-		varLHS := d.varReducedLHS(req, nowUs, decSnap, prefillSnaps, thetaD, bDec, kv, sPf, chunk, nChunks, ttftP, sPfPrefill)
+		varLocal, varDisagg = d.varReducedBreakdown(
+			req, nowUs, decSnap, prefillSnaps, thetaD, bDec, kv, sPf,
+			chunk, nChunks, apP, chunkP, nChunksP,
+			tAdmD, tAdmP, decodeJoinP, sPfPrefill,
+		)
+		varLHS := varLocal.total() - varDisagg.total()
 		if d.varKeepCongestion {
 			// drift-plus-VaR: the work-congestion drift (current lhs = balanceTermD − balanceTermP)
 			// PLUS the value-currency externality. Congestion feels a node's backlog; VaR the SLO cost.
@@ -771,19 +968,73 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 			lhs = varLHS // pure VaR: the externality replaces the work-currency balance term
 		}
 		disagg = lhs > rhs
+	case "var-prefill":
+		// Simplified, reduced-only dpVaR:
+		//   J_local  = VaR_local
+		//   J_disagg = VaR_disagg + λ_p·q_p·(W_p/W*_p)
+		// Therefore disaggregate iff VaR_local−VaR_disagg exceeds the
+		// marginal prefill waiting-queue stability cost. The selected decode
+		// instance still comes from the external decode-routing scorer; this
+		// rule has no decode-congestion, virtual-queue, or transfer-penalty
+		// term. The arriving-request own-good difference is an explicit,
+		// optional ablation.
+		var nowUs float64
+		if state != nil {
+			nowUs = float64(state.Clock)
+		}
+		varLocal, varDisagg = d.varReducedBreakdown(
+			req, nowUs, decSnap, prefillSnaps, thetaD, bDec, kv, sPf,
+			chunk, nChunks, apP, chunkP, nChunksP,
+			tAdmD, tAdmP, decodeJoinP, sPfPrefill,
+		)
+		lhs = varLocal.total() - varDisagg.total()
+		if d.varGoodputObjective {
+			// Complete the value balance with the goodput earned for the
+			// arriving request. Both candidates use the decode scorer's
+			// selected instance, so this remains a reduced P/D decision.
+			rt := d.varReTimingFor(req, thetaD, bDec, kv, sPf, 0)
+			slo := d.varSLOFor(req.SLOClass)
+			nOut := d.reqNHatOut(req)
+			selfGoodLocal = goodSelf(
+				slo, ttftD, rt.tIterAfter, nOut, d.varMetric,
+			)
+			selfGoodDisagg = goodSelf(
+				slo, ttftP, rt.tIterAfter, nOut, d.varMetric,
+			)
+			lhs += selfGoodDisagg - selfGoodLocal
+		}
+		prefillStabilityTerm = d.varPrefillWeight * balanceTermP
+		transferTerm = 0
+		ttftTerm = 0
+		itlTerm = 0
+		rhs = prefillStabilityTerm
+		disagg = lhs > rhs
 	}
 	dec := DisaggregationDecision{Disaggregate: disagg}
 	if d.cfg.TraceEnabled {
 		dec.EDPPTrace = &EDPPDecisionTrace{
 			Class: req.SLOClass, Ap: ap, Wp: wp, DeltaPfChunk: thetaD.CPf * float64(chunk),
+			ApPrefill: apP, WpPrefill: wpP,
 			QdRaw: qD, QpRaw: qP, Qd: qd, Qp: qp,
 			MuDNom: n.muDNom, MuPNom: n.muPNom, WStarD: n.wStarD, WStarP: n.wStarP,
 			TauTTFT: n.tauTTFT, TauITL: n.tauITL,
 			TTFTP: ttftP, TTFTD: ttftD,
+			TAdmP: tAdmP, TAdmD: tAdmD, RemoteLead: remoteLead,
+			LocalService: localService, DisaggFirst: disaggFirst,
 			ZTTFT: zTTFT, ZITL: zITL,
 			BalanceTermD: balanceTermD, BalanceTermP: balanceTermP,
 			TransferTerm: transferTerm, TTFTTerm: ttftTerm, ITLTerm: itlTerm,
-			LHS: lhs, RHS: rhs, Disaggregate: disagg,
+			PrefillStabilityTerm:   prefillStabilityTerm,
+			VarLocalDecode:         varLocal.decode,
+			VarLocalCollocPrefill:  varLocal.collocPrefill,
+			VarLocalTotal:          varLocal.total(),
+			VarDisaggDecode:        varDisagg.decode,
+			VarDisaggCollocPrefill: varDisagg.collocPrefill,
+			VarDisaggPrefillPool:   varDisagg.prefillPool,
+			VarDisaggTotal:         varDisagg.total(),
+			SelfGoodLocal:          selfGoodLocal,
+			SelfGoodDisagg:         selfGoodDisagg,
+			LHS:                    lhs, RHS: rhs, Disaggregate: disagg,
 		}
 	}
 	if d.captureAdmissionCtx {
@@ -894,6 +1145,74 @@ func (d *EDPPDecider) instWorkRaw(id string) (wp, wd float64) {
 	return 0, 0
 }
 
+func (d *EDPPDecider) refreshSLOCapacity(nowUs int64, decodeSnaps, prefillSnaps []RoutingSnapshot) {
+	if !d.sloCapacityClockSet {
+		d.sloCapacityClock = nowUs
+		d.sloCapacityClockSet = true
+	} else if nowUs > d.sloCapacityClock {
+		elapsed := float64(nowUs - d.sloCapacityClock)
+		for _, state := range d.sloCapacity {
+			drain := state.mu * elapsed
+			if d.cfg.SLOExternalityOccupancyCapacity {
+				drain = elapsed
+			}
+			state.q = math.Max(state.q-drain, 0)
+		}
+		d.sloCapacityClock = nowUs
+	}
+	set := func(snap RoutingSnapshot, mu float64) {
+		if snap.ID == "" {
+			return
+		}
+		state := d.sloCapacity[snap.ID]
+		if state == nil {
+			state = &sloCapacityState{}
+			d.sloCapacity[snap.ID] = state
+		}
+		if d.cfg.SLOExternalityOccupancyCapacity {
+			state.mu = 1
+			state.scale = 1_000_000 // express Q*DeltaT in physical seconds squared
+		} else {
+			state.mu = clampMu(mu)
+			state.scale = state.mu * float64(d.cfg.TauRefUs)
+		}
+		state.gpuType = snap.GPUType
+	}
+	for _, snap := range decodeSnaps {
+		theta := d.coeffsFor(snap.GPUType)
+		set(snap, theta.muDNom(float64(d.cfg.TauITLUs)))
+	}
+	for _, snap := range prefillSnaps {
+		theta := d.coeffsFor(snap.GPUType)
+		set(snap, theta.muPNom(d.cfg.NomPrefillTokens))
+	}
+}
+
+func (d *EDPPDecider) sloCapacityTerm(id string, work float64) float64 {
+	state := d.sloCapacity[id]
+	if state == nil || state.scale <= 0 || work <= 0 {
+		return 0
+	}
+	return (state.q / state.scale) * (work / state.scale)
+}
+
+func (d *EDPPDecider) sloCapacityQueue(id string) float64 {
+	if state := d.sloCapacity[id]; state != nil {
+		return state.q
+	}
+	return 0
+}
+
+// SLOCapacityForTest returns the constrained policy's virtual workload queues.
+// It is a copy so tests cannot mutate routing state.
+func (d *EDPPDecider) SLOCapacityForTest() map[string]struct{ Q, Mu, Scale float64 } {
+	out := make(map[string]struct{ Q, Mu, Scale float64 }, len(d.sloCapacity))
+	for id, state := range d.sloCapacity {
+		out[id] = struct{ Q, Mu, Scale float64 }{Q: state.q, Mu: state.mu, Scale: state.scale}
+	}
+	return out
+}
+
 // chunkTerms returns (n_chunks, δ_pf-chunk) for a_p uncached prefill tokens under the
 // decode batched-token budget (ChunkTokens), where δ_pf-chunk = theta.CPf·chunk is charged
 // on the pool the prefill runs on (local ⇒ decode θ, disagg ⇒ prefill θ). a_p ≤ 0 (fully
@@ -907,6 +1226,31 @@ func (d *EDPPDecider) chunkTerms(theta EDPPCoeffs, ap int) (nChunks, deltaPfChun
 		chunk = d.cfg.ChunkTokens
 	}
 	return math.Ceil(float64(ap) / float64(chunk)), theta.CPf * float64(chunk)
+}
+
+// outputTokenProcessingUs is the client-visible per-token post-processing
+// latency used by the executor (for example streaming detokenization). It is
+// outside the calibrated E3 GPU-step coefficients and must be added explicitly
+// to every TTFT projection.
+func (d *EDPPDecider) outputTokenProcessingUs() float64 {
+	if d.model == nil {
+		return 0
+	}
+	return float64(d.model.OutputTokenProcessingTime())
+}
+
+// projectedLocalTTFT ends at the local request's client-visible first token.
+// Local execution samples the first token when prefill completes, so there is
+// no separate decode iteration before post-processing.
+func (d *EDPPDecider) projectedLocalTTFT(tAdmD, nChunks, tIterD, wpLoc float64) float64 {
+	return tAdmD + nChunks*tIterD + wpLoc + d.outputTokenProcessingUs()
+}
+
+// projectedDisaggTTFT ends at the decode pod's first client-visible token.
+// decodeJoinUs is the time through prefill admission/work, transfer, and decode
+// admission. The first B+1 decode iteration and token post-processing follow.
+func (d *EDPPDecider) projectedDisaggTTFT(decodeJoinUs, tIterFirstDecode float64) float64 {
+	return decodeJoinUs + tIterFirstDecode + d.outputTokenProcessingUs()
 }
 
 // reqKVNeed is ⌈a_r / blockSize⌉ (a_r = full input length; oracle-safe). 0 when BlockSize ≤ 0.
@@ -1005,6 +1349,13 @@ func (d *EDPPDecider) decideJoint(req *Request, state *RouterState) Disaggregati
 	if d.prefillSnapshots != nil {
 		prefillSnaps = sortedSnapshotsByID(d.prefillSnapshots())
 	}
+	if d.usesSLOExternalityPolicy() {
+		now := int64(0)
+		if state != nil {
+			now = state.Clock
+		}
+		d.refreshSLOCapacity(now, decodeSnaps, prefillSnaps)
+	}
 
 	reqKVNeed := d.reqKVNeed(req)
 	nHatOut := d.reqNHatOut(req) // deployable N̂_out, or TRUE o_r under the diagnostic oracle flag
@@ -1028,11 +1379,69 @@ func (d *EDPPDecider) decideJoint(req *Request, state *RouterState) Disaggregati
 			best = &cc
 		}
 	}
+	if d.usesSLOExternalityPolicy() {
+		orderedD := scorerFirstSnapshots(decodeSnaps, stateSelectedInstance(state))
+		if d.cfg.DecomposedSLOExternality && len(orderedD) > 1 {
+			orderedD = orderedD[:1]
+		}
+		orderedP := prefillSnaps
+		if d.prefillScorer != nil && len(prefillSnaps) > 0 {
+			orderedP = scorerFirstSnapshots(prefillSnaps, d.prefillScorer(req, prefillSnaps))
+		}
+		for _, ds := range orderedD {
+			s := d.jointSLOExternalityCandidateScore(ec, ds, nil)
+			consider(cand{dID: ds.ID, local: true, J: s.total})
+			for i := range orderedP {
+				ps := orderedP[i]
+				s = d.jointSLOExternalityCandidateScore(ec, ds, &ps)
+				consider(cand{dID: ds.ID, pID: ps.ID, local: false, J: s.total})
+			}
+		}
+	}
+	if d.cfg.JointCausalVar || d.cfg.DecomposedCausalVar {
+		// Fixed before evaluation: candidates within 1e-9 VaR are ties. The
+		// existing router preference is enumerated first and can only break ties.
+		const causalVarTieTolerance = 1e-9
+		orderedD := scorerFirstSnapshots(decodeSnaps, stateSelectedInstance(state))
+		if d.cfg.DecomposedCausalVar && len(orderedD) > 1 {
+			orderedD = orderedD[:1]
+		}
+		orderedP := prefillSnaps
+		if d.prefillScorer != nil && len(prefillSnaps) > 0 {
+			orderedP = scorerFirstSnapshots(prefillSnaps, d.prefillScorer(req, prefillSnaps))
+		}
+		considerVar := func(ds RoutingSnapshot, ps *RoutingSnapshot) {
+			tAdmD := d.tadmEstimator.EstimateTAdm(d.jointDecodeAdmissionCtx(ec, ds))
+			tAdmP := 0.0
+			if ps != nil {
+				tAdmP = d.tadmEstimator.EstimateTAdm(d.jointPrefillAdmissionCtx(ec, *ps))
+			}
+			c := cand{dID: ds.ID, local: ps == nil, J: d.varJointCandidateBreakdown(req, ec.nowUs, ds, ps, tAdmD, tAdmP).total()}
+			if ps != nil {
+				c.pID = ps.ID
+			}
+			if best == nil || c.J < best.J-causalVarTieTolerance {
+				cc := c
+				best = &cc
+			}
+		}
+		for _, ds := range orderedD {
+			considerVar(ds, nil)
+			for i := range orderedP {
+				ps := orderedP[i]
+				considerVar(ds, &ps)
+			}
+		}
+	}
 
 	// drift-plus-VaR with auto-normalization: the congestion and VaR terms live on different
 	// scales, so a fixed weight is an absolute scale (see VarNormalize). The normalized path
 	// min-max normalizes both across the candidate set (two passes) so the weight is relative.
-	if d.rule == "var" && d.varKeepCongestion && d.varNormalize {
+	if d.usesSLOExternalityPolicy() {
+		// Selected above from the fixed-weight constrained net-good objective.
+	} else if d.cfg.JointCausalVar || d.cfg.DecomposedCausalVar {
+		// Selected above from corrected causal VaR alone.
+	} else if d.rule == "var" && d.varKeepCongestion && d.varNormalize {
 		for _, c := range d.jointNormalizedCandidates(ec, decodeSnaps, prefillSnaps) {
 			consider(c)
 		}
@@ -1094,7 +1503,95 @@ func (d *EDPPDecider) decideJoint(req *Request, state *RouterState) Disaggregati
 	if d.cfg.JointTraceEnabled {
 		dec.EDPPJointTrace = d.buildJointTrace(ec, state, decodeSnaps, prefillSnaps, best)
 	}
+	if d.cfg.JointCandidateTraceEnabled {
+		dec.EDPPJointCandidates = &EDPPJointCandidateTraceSet{Candidates: d.buildJointCandidateTrace(ec, state, decodeSnaps, prefillSnaps, best)}
+	}
 	return dec
+}
+
+// buildJointCandidateTrace runs only after the routing decision is committed. It
+// reuses the same admission contexts and causal-VaR implementation as the live
+// objective and enumerates candidates in the same deterministic order.
+func (d *EDPPDecider) buildJointCandidateTrace(ec *jointEvalCtx, state *RouterState, decodeSnaps, prefillSnaps []RoutingSnapshot, best *cand) []EDPPJointCandidateTrace {
+	// Candidate tracing always means corrected marginal-overlap VaR, even when it
+	// shadows a legacy joint policy. Use a value copy so instrumentation cannot
+	// mutate the live decider or its routing behavior.
+	traceDecider := *d
+	traceDecider.cfg.VarExactPrefillOverlap = true
+	rows := make([]EDPPJointCandidateTrace, 0, len(decodeSnaps)*(len(prefillSnaps)+1))
+	routerD := ""
+	if state != nil {
+		routerD = state.SelectedInstance
+	}
+	bestVar := math.Inf(1)
+	chosenVar := 0.0
+	bestScore := math.Inf(1)
+	chosenScore := 0.0
+	appendCandidate := func(ds RoutingSnapshot, ps *RoutingSnapshot) {
+		tAdmD := d.tadmEstimator.EstimateTAdm(d.jointDecodeAdmissionCtx(ec, ds))
+		tAdmP := 0.0
+		if ps != nil {
+			tAdmP = d.tadmEstimator.EstimateTAdm(d.jointPrefillAdmissionCtx(ec, *ps))
+		}
+		v := traceDecider.varJointCandidateBreakdown(ec.req, ec.nowUs, ds, ps, tAdmD, tAdmP)
+		row := EDPPJointCandidateTrace{
+			Class: ec.req.SLOClass, DecodePod: ds.ID, Local: ps == nil,
+			RouterDecode: ds.ID == routerD,
+			VarDecode:    v.decode, VarCollocPrefill: v.collocPrefill,
+			VarPrefillPool: v.prefillPool, VarTotal: v.total(),
+		}
+		if d.usesSLOExternalityPolicy() {
+			s := d.jointSLOExternalityCandidateScore(ec, ds, ps)
+			v = s.externalityBreakdown
+			row.VarDecode = v.decode
+			row.VarCollocPrefill = v.collocPrefill
+			row.VarPrefillPool = v.prefillPool
+			row.VarTotal = v.total()
+			row.SLOExternality = s.externality
+			row.OwnGood = s.ownGood
+			row.NetGoodCost = s.netGoodCost
+			row.CapacityQueueDecode = s.capacityQueueDecode
+			row.CapacityQueuePrefill = s.capacityQueuePrefill
+			row.CapacityDemandDecode = s.capacityDemandDecode
+			row.CapacityDemandPrefill = s.capacityDemandPrefill
+			row.CapacityDecode = s.capacityDecode
+			row.CapacityPrefill = s.capacityPrefill
+			row.CapacityTotal = s.capacityTotal
+			row.Score = s.total
+		}
+		if ps != nil {
+			row.PrefillPod = ps.ID
+		}
+		row.Chosen = ds.ID == best.dID && ((best.local && ps == nil) || (!best.local && ps != nil && ps.ID == best.pID))
+		if row.Chosen {
+			chosenVar = row.VarTotal
+			chosenScore = row.Score
+		}
+		if row.VarTotal < bestVar {
+			bestVar = row.VarTotal
+		}
+		if d.usesSLOExternalityPolicy() && row.Score < bestScore {
+			bestScore = row.Score
+		}
+		rows = append(rows, row)
+	}
+	for _, ds := range decodeSnaps {
+		appendCandidate(ds, nil)
+		for i := range prefillSnaps {
+			ps := prefillSnaps[i]
+			appendCandidate(ds, &ps)
+		}
+	}
+	regret := math.Max(0, chosenVar-bestVar)
+	for i := range rows {
+		rows[i].BestVar = bestVar
+		rows[i].ChosenVarRegret = regret
+		if d.usesSLOExternalityPolicy() {
+			rows[i].BestScore = bestScore
+			rows[i].ChosenScoreRegret = math.Max(0, chosenScore-bestScore)
+		}
+	}
+	return rows
 }
 
 // jointDecodeAdmissionCtx builds the decode-pool AdmissionContext the joint rule feeds to the
@@ -1158,6 +1655,7 @@ type jointEvalCtx struct {
 // enumeration and the scorer-slice shadow evaluation share one code path. The decode-side
 // terms depend only on ds and are recomputed per call with identical operands (byte-identical
 // float result, INV-6).
+//
 // jointSelfGood returns the arriving request's OWN smoothed goodput under a candidate
 // (goodput-objective diagnostic, VarGoodputObjective). tHat is the candidate's projected
 // time-to-first-token (tHatLocal or tHatDisagg — the same value the self term divides by τ_ttft),
@@ -1165,9 +1663,119 @@ type jointEvalCtx struct {
 // batch the request joins. The prefill chunk does not affect tIterAfter (only the overlap term),
 // so it is passed as 0. Decode always happens on ds, so ds's θ_i sets tIterAfter for both local
 // and disagg. Mirrors jointCandidateCost's operands (byte-identical arithmetic, INV-6).
-func (d *EDPPDecider) jointSelfGood(ec *jointEvalCtx, thetaD EDPPCoeffs, ds RoutingSnapshot, tHat float64) float64 {
+func (d *EDPPDecider) jointSelfGoodWithKernel(ec *jointEvalCtx, thetaD EDPPCoeffs, ds RoutingSnapshot, tHat float64, kernel varKernel) float64 {
 	rt := d.varReTimingFor(ec.req, thetaD, ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens, 0)
-	return goodSelf(d.varSLOFor(ec.req.SLOClass), tHat, rt.tIterAfter, ec.nHatOut, d.varMetric)
+	return goodSelf(d.varSLOFor(ec.req.SLOClass), tHat, rt.tIterAfter, ec.nHatOut, kernel)
+}
+
+func (d *EDPPDecider) jointSelfGood(ec *jointEvalCtx, thetaD EDPPCoeffs, ds RoutingSnapshot, tHat float64) float64 {
+	return d.jointSelfGoodWithKernel(ec, thetaD, ds, tHat, d.varMetric)
+}
+
+type sloJointCandidateScore struct {
+	externalityBreakdown                        varPathBreakdown
+	externality, ownGood, netGoodCost           float64
+	capacityQueueDecode, capacityQueuePrefill   float64
+	capacityDemandDecode, capacityDemandPrefill float64
+	capacityDecode, capacityPrefill             float64
+	capacityTotal, total                        float64
+}
+
+// jointSLOExternalityCandidateScore implements exactly the dedicated policy
+// contract: V*(causal SLO externality-own projected good) plus per-instance
+// quadratic-drift capacity cross terms. It intentionally carries no historical
+// TTFT/ITL deficit term, transfer residue, or per-decision normalization.
+func (d *EDPPDecider) jointSLOExternalityCandidateScore(ec *jointEvalCtx, ds RoutingSnapshot, ps *RoutingSnapshot) sloJointCandidateScore {
+	thetaD := d.coeffsFor(ds.GPUType)
+	bDec, kv, sPfD := ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens
+	tIterD := thetaD.tIterDecode(bDec, kv, sPfD)
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(ec.req.InputTokens)), sPfD)
+	wd := thetaD.Wd(len(ec.req.InputTokens), ec.nHatOut)
+	tAdmD := d.tadmEstimator.EstimateTAdm(d.jointDecodeAdmissionCtx(ec, ds))
+
+	score := sloJointCandidateScore{}
+	if ps == nil {
+		apLoc := d.apForInstance(ec.req, ds.ID)
+		nChunksLoc, _ := d.chunkTerms(thetaD, apLoc)
+		wpLoc := thetaD.Wp(maxInt(apLoc, 0), len(ec.req.InputTokens))
+		tHatLocal := d.projectedLocalTTFT(tAdmD, nChunksLoc, tIterD, wpLoc)
+		if rolloutAdm, rolloutTTFT, ok := d.rolloutLocalTTFT(ec, ds, thetaD); ok {
+			tAdmD, tHatLocal = rolloutAdm, rolloutTTFT
+		}
+
+		extDecider := *d
+		extDecider.cfg.VarExactPrefillOverlap = true
+		extDecider.varDeployable = true
+		extDecider.varCollocPrefill = true
+		score.externalityBreakdown = extDecider.varJointCandidateBreakdownWithKernel(
+			ec.req, ec.nowUs, ds, nil, tAdmD, 0, varKernelComposite,
+		)
+		if !d.cfg.SLOExternalityNoOwnGood {
+			score.ownGood = d.jointSelfGoodWithKernel(ec, thetaD, ds, tHatLocal, varKernelComposite)
+		}
+		if !d.cfg.SLOExternalityNoCapacity {
+			demand := wpLoc + wd
+			if d.cfg.SLOExternalityOccupancyCapacity {
+				demand = d.sloLocalOccupancy(thetaD, apLoc, len(ec.req.InputTokens), ec.nHatOut)
+			}
+			score.capacityQueueDecode = d.sloCapacityQueue(ds.ID)
+			score.capacityDemandDecode = demand
+			score.capacityDecode = d.sloCapacityTerm(ds.ID, demand)
+		}
+	} else {
+		if rolloutAdm, ok := d.rolloutDecodeAdmission(ec, ds, thetaD); ok {
+			tAdmD = rolloutAdm
+		}
+		thetaP := d.coeffsFor(ps.GPUType)
+		apP := d.apForInstance(ec.req, ps.ID)
+		nChunksP, _ := d.chunkTerms(thetaP, apP)
+		wpP := thetaP.Wp(maxInt(apP, 0), len(ec.req.InputTokens))
+		tIterP := thetaP.tIterPrefill(ps.ResidentPrefillTokens)
+		tAdmP := d.tadmEstimator.EstimateTAdm(d.jointPrefillAdmissionCtx(ec, *ps))
+		prefillCompletionUs := tAdmP + nChunksP*tIterP + wpP
+		if rolloutAdm, rolloutCompletion, ok := d.rolloutPrefillCompletion(ec, *ps, thetaP); ok {
+			tAdmP, prefillCompletionUs = rolloutAdm, rolloutCompletion
+		}
+		remoteLeadUs := prefillCompletionUs + d.cXferUsFor(ec.req)
+		// The decode admission estimate is an absolute wait measured at the
+		// routing instant. Remote prefill and transfer consume part (or all) of
+		// that interval while the decode queue continues to drain, so they must
+		// not be serialized with the full estimate a second time.
+		decodeJoinUs := math.Max(remoteLeadUs, tAdmD)
+		tHatDisagg := d.projectedDisaggTTFT(decodeJoinUs, tIterFirstDecode)
+
+		extDecider := *d
+		extDecider.cfg.VarExactPrefillOverlap = true
+		extDecider.varDeployable = true
+		extDecider.varCollocPrefill = true
+		score.externalityBreakdown = extDecider.varJointCandidateBreakdownAtJoinWithKernel(
+			ec.req, ec.nowUs, ds, ps, decodeJoinUs, tAdmP, varKernelComposite,
+		)
+		if !d.cfg.SLOExternalityNoOwnGood {
+			score.ownGood = d.jointSelfGoodWithKernel(ec, thetaD, ds, tHatDisagg, varKernelComposite)
+		}
+		if !d.cfg.SLOExternalityNoCapacity {
+			decodeDemand, prefillDemand := wd, wpP
+			if d.cfg.SLOExternalityOccupancyCapacity {
+				decodeDemand = d.sloDecodeOccupancy(thetaD, len(ec.req.InputTokens), ec.nHatOut)
+				prefillDemand = d.sloPrefillOccupancy(thetaP, apP, len(ec.req.InputTokens))
+			}
+			score.capacityQueueDecode = d.sloCapacityQueue(ds.ID)
+			score.capacityQueuePrefill = d.sloCapacityQueue(ps.ID)
+			score.capacityDemandDecode = decodeDemand
+			score.capacityDemandPrefill = prefillDemand
+			score.capacityDecode = d.sloCapacityTerm(ds.ID, decodeDemand)
+			score.capacityPrefill = d.sloCapacityTerm(ps.ID, prefillDemand)
+		}
+	}
+
+	if !d.cfg.SLOExternalityNoExternality {
+		score.externality = score.externalityBreakdown.total()
+	}
+	score.netGoodCost = score.externality - score.ownGood
+	score.capacityTotal = score.capacityDecode + score.capacityPrefill
+	score.total = d.cfg.V*score.netGoodCost + score.capacityTotal
+	return score
 }
 
 func (d *EDPPDecider) jointCandidateCost(ec *jointEvalCtx, ds RoutingSnapshot, ps *RoutingSnapshot) float64 {
@@ -1176,6 +1784,7 @@ func (d *EDPPDecider) jointCandidateCost(ec *jointEvalCtx, ds RoutingSnapshot, p
 	thetaD := d.coeffsFor(ds.GPUType)
 	bDec, kv, sPfD := ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens
 	tIterD := thetaD.tIterDecode(bDec, kv, sPfD)
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(ec.req.InputTokens)), sPfD)
 	// Per-candidate decode work W_d and base decode-step ITL marginal m_dec = δ̄_dec at mean
 	// context (design §3 z_itl term), both under this candidate's θ_i. Decode happens on d in
 	// both local and disagg, so jDecodeITL is added to both.
@@ -1205,12 +1814,12 @@ func (d *EDPPDecider) jointCandidateCost(ec *jointEvalCtx, ds RoutingSnapshot, p
 		// T̂_local: admission + batch-iteration overhead (nChunks·tIter) + the request's OWN
 		// prefill work Wp (projection AND attention over context). Wp replaces the projection-only
 		// nChunks·deltaPf so the estimate keeps the quadratic attention cost (matches the executor).
-		tHatLocal := tAdmD + nChunksLoc*tIterD + wpLoc // ABSOLUTE T̂_local(d)
+		tHatLocal := d.projectedLocalTTFT(tAdmD, nChunksLoc, tIterD, wpLoc)
 		// balance = the work-currency backlog contribution, or (Rule=="var") the value-currency
 		// externality VaR_local on ds's decode co-residents. Self terms below are unchanged.
 		balance := jDecodeBacklog + qd*(wpLoc/wStarD)
 		if d.rule == "var" {
-			v := d.varJointCandidateExternality(ec.req, ec.nowUs, ds, nil)
+			v := d.varJointCandidateExternality(ec.req, ec.nowUs, ds, nil, tAdmD, 0)
 			if d.varGoodputObjective {
 				v -= d.jointSelfGood(ec, thetaD, ds, tHatLocal) // goodput objective: VaR − good_r (−Δgood)
 			}
@@ -1239,14 +1848,15 @@ func (d *EDPPDecider) jointCandidateCost(ec *jointEvalCtx, ds RoutingSnapshot, p
 	prefillCtx := d.jointPrefillAdmissionCtx(ec, *ps)
 	tAdmP := d.tadmEstimator.EstimateTAdm(prefillCtx)
 	cXferUs := d.cXferUsFor(ec.req) // flat CXferUs, or the size-aware transfer cost
-	// T̂_disagg: admission + prefill-pool iteration overhead + the request's OWN prefill work Wp
-	// (projection AND attention, replacing the projection-only nChunks·deltaPf) + transfer time.
-	tHatDisagg := tAdmP + nChunksP*tIterP + wpP + cXferUs // ABSOLUTE T̂_disagg(d,p)
+	// The request joins decode after prefill admission/work, transfer, and
+	// decode admission; user TTFT then includes its first B+1 decode iteration.
+	decodeJoinUs := tAdmP + nChunksP*tIterP + wpP + cXferUs + tAdmD
+	tHatDisagg := d.projectedDisaggTTFT(decodeJoinUs, tIterFirstDecode)
 	// balance = the work-currency backlog contribution, or (Rule=="var") the value-currency
 	// externality VaR_disagg on ds's decode co-residents + *ps's prefill co-residents.
 	balance := jDecodeBacklog + qp*(wpP/wStarP)
 	if d.rule == "var" {
-		v := d.varJointCandidateExternality(ec.req, ec.nowUs, ds, ps)
+		v := d.varJointCandidateExternality(ec.req, ec.nowUs, ds, ps, tAdmD, tAdmP)
 		if d.varGoodputObjective {
 			v -= d.jointSelfGood(ec, thetaD, ds, tHatDisagg) // goodput objective: VaR − good_r (−Δgood)
 		}
@@ -1282,23 +1892,19 @@ func (d *EDPPDecider) jointCandidateTTFT(ec *jointEvalCtx, ds RoutingSnapshot, p
 	thetaD := d.coeffsFor(ds.GPUType)
 	bDec, kv, sPfD := ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens
 	tIterD := thetaD.tIterDecode(bDec, kv, sPfD)
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(ec.req.InputTokens)), sPfD)
+	tAdmD := d.tadmEstimator.EstimateTAdm(d.jointDecodeAdmissionCtx(ec, ds))
 
 	if ps == nil {
 		// --- local: prefill+decode co-resident on d ⇒ prefill uses the decode θ_i ---
-		_, qdRaw := d.instWorkRaw(ds.ID)
-		decodeCtx := AdmissionContext{
-			QWork: qdRaw, Mu: thetaD.muDecode(bDec, kv, sPfD),
-			BatchSize: ds.BatchSize, MaxBatchSize: int(ds.MaxBatchSize),
-			FreeKVBlocks: ds.FreeKVBlocks, ReqKVNeed: ec.reqKVNeed,
-			TIter: tIterD, QueueDepth: ds.QueueDepth,
-			AdmissionRate: admissionRateFromSnapshot(ds), RemainingStepsEst: d.decodeRemStepsEst(ds, ec.req.SLOClass),
-			Running: censorOracleRemaining(ds.RunningDecode),
-		}
-		tAdmD := d.tadmEstimator.EstimateTAdm(decodeCtx)
 		apLoc := d.apForInstance(ec.req, ds.ID)
 		nChunksLoc, _ := d.chunkTerms(thetaD, apLoc)
 		wpLoc := thetaD.Wp(maxInt(apLoc, 0), len(ec.req.InputTokens))
-		return tAdmD + nChunksLoc*tIterD + wpLoc // T̂_local(d)
+		tHat := d.projectedLocalTTFT(tAdmD, nChunksLoc, tIterD, wpLoc)
+		if _, rolloutTTFT, ok := d.rolloutLocalTTFT(ec, ds, thetaD); ok {
+			tHat = rolloutTTFT
+		}
+		return tHat
 	}
 
 	// --- disagg: decode on d, prefill on node *ps ⇒ prefill uses the prefill node's θ_i ---
@@ -1307,9 +1913,20 @@ func (d *EDPPDecider) jointCandidateTTFT(ec *jointEvalCtx, ds RoutingSnapshot, p
 	nChunksP, _ := d.chunkTerms(thetaP, apP)
 	wpP := thetaP.Wp(maxInt(apP, 0), len(ec.req.InputTokens))
 	tIterP := thetaP.tIterPrefill(ps.ResidentPrefillTokens)
+	if rolloutAdm, ok := d.rolloutDecodeAdmission(ec, ds, thetaD); ok {
+		tAdmD = rolloutAdm
+	}
 	tAdmP := d.tadmEstimator.EstimateTAdm(d.jointPrefillAdmissionCtx(ec, *ps))
 	cXferUs := d.cXferUsFor(ec.req)
-	return tAdmP + nChunksP*tIterP + wpP + cXferUs // T̂_disagg(d,p)
+	prefillCompletionUs := tAdmP + nChunksP*tIterP + wpP
+	if _, rolloutCompletion, ok := d.rolloutPrefillCompletion(ec, *ps, thetaP); ok {
+		prefillCompletionUs = rolloutCompletion
+	}
+	remoteLeadUs := prefillCompletionUs + cXferUs
+	// The validated paper formula treats remote preparation and decode admission
+	// as concurrent clocks from the routing instant.
+	decodeJoinUs := math.Max(remoteLeadUs, tAdmD)
+	return d.projectedDisaggTTFT(decodeJoinUs, tIterFirstDecode)
 }
 
 // jointVaRComponents evaluates one joint candidate for the AUTO-NORMALIZED drift-plus-VaR path,
@@ -1327,6 +1944,7 @@ func (d *EDPPDecider) jointVaRComponents(ec *jointEvalCtx, ds RoutingSnapshot, p
 	thetaD := d.coeffsFor(ds.GPUType)
 	bDec, kv, sPfD := ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens
 	tIterD := thetaD.tIterDecode(bDec, kv, sPfD)
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(ec.req.InputTokens)), sPfD)
 	wd := thetaD.Wd(len(ec.req.InputTokens), ec.nHatOut)
 	mDec := thetaD.deltaBarDecode(float64(len(ec.req.InputTokens)) + ec.nHatOut/2)
 	jDecodeITL := ec.zITL * (mDec / n.tauITL)
@@ -1345,9 +1963,9 @@ func (d *EDPPDecider) jointVaRComponents(ec *jointEvalCtx, ds RoutingSnapshot, p
 		apLoc := d.apForInstance(ec.req, ds.ID)
 		nChunksLoc, deltaPfLoc := d.chunkTerms(thetaD, apLoc)
 		wpLoc := thetaD.Wp(maxInt(apLoc, 0), len(ec.req.InputTokens))
-		tHatLocal := tAdmD + nChunksLoc*tIterD + wpLoc
+		tHatLocal := d.projectedLocalTTFT(tAdmD, nChunksLoc, tIterD, wpLoc)
 		cong = jDecodeBacklog + qd*(wpLoc/wStarD)
-		vv = d.varJointCandidateExternality(ec.req, ec.nowUs, ds, nil)
+		vv = d.varJointCandidateExternality(ec.req, ec.nowUs, ds, nil, tAdmD, 0)
 		if d.varGoodputObjective {
 			vv -= d.jointSelfGood(ec, thetaD, ds, tHatLocal) // normalize VaR − good_r as one penalty
 		}
@@ -1367,9 +1985,10 @@ func (d *EDPPDecider) jointVaRComponents(ec *jointEvalCtx, ds RoutingSnapshot, p
 	prefillCtx := d.jointPrefillAdmissionCtx(ec, *ps)
 	tAdmP := d.tadmEstimator.EstimateTAdm(prefillCtx)
 	cXferUs := d.cXferUsFor(ec.req)
-	tHatDisagg := tAdmP + nChunksP*tIterP + wpP + cXferUs
+	decodeJoinUs := tAdmP + nChunksP*tIterP + wpP + cXferUs + tAdmD
+	tHatDisagg := d.projectedDisaggTTFT(decodeJoinUs, tIterFirstDecode)
 	cong = jDecodeBacklog + qp*(wpP/wStarP)
-	vv = d.varJointCandidateExternality(ec.req, ec.nowUs, ds, ps)
+	vv = d.varJointCandidateExternality(ec.req, ec.nowUs, ds, ps, tAdmD, tAdmP)
 	xfer := d.transferPenalty(n, cXferUs)
 	if d.varGoodputObjective {
 		vv -= d.jointSelfGood(ec, thetaD, ds, tHatDisagg) // normalize VaR − good_r as one penalty
@@ -1486,7 +2105,11 @@ func (d *EDPPDecider) buildJointTrace(ec *jointEvalCtx, state *RouterState, deco
 	// Score the scorer's slice with the SAME objective the argmin used, so J_joint (best.J) and
 	// J_scorer share a scale and the J_joint <= J_scorer invariant holds under least-TTFT too.
 	costFn := d.jointCandidateCost
-	if d.rule == "least-ttft" {
+	if d.usesSLOExternalityPolicy() {
+		costFn = func(ec *jointEvalCtx, ds RoutingSnapshot, ps *RoutingSnapshot) float64 {
+			return d.jointSLOExternalityCandidateScore(ec, ds, ps).total
+		}
+	} else if d.rule == "least-ttft" {
 		costFn = d.jointCandidateTTFT
 	}
 
@@ -1541,6 +2164,34 @@ func sortedSnapshotsByID(snaps []RoutingSnapshot) []RoutingSnapshot {
 	out := make([]RoutingSnapshot, len(snaps))
 	copy(out, snaps)
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func stateSelectedInstance(state *RouterState) string {
+	if state == nil {
+		return ""
+	}
+	return state.SelectedInstance
+}
+
+// scorerFirstSnapshots preserves the stable ID order except for moving the
+// existing scorer's preferred instance to the front. It is used only as the
+// causal-VaR equality tie-break order.
+func scorerFirstSnapshots(snaps []RoutingSnapshot, preferred string) []RoutingSnapshot {
+	if preferred == "" || len(snaps) < 2 || snaps[0].ID == preferred {
+		return snaps
+	}
+	out := make([]RoutingSnapshot, 0, len(snaps))
+	for _, s := range snaps {
+		if s.ID == preferred {
+			out = append(out, s)
+		}
+	}
+	for _, s := range snaps {
+		if s.ID != preferred {
+			out = append(out, s)
+		}
+	}
 	return out
 }
 
@@ -1712,6 +2363,99 @@ func (d *EDPPDecider) reqNHatOut(req *Request) float64 {
 	return d.nHatFor(req.SLOClass).mean()
 }
 
+func (d *EDPPDecider) usesSLOExternalityPolicy() bool {
+	return d.cfg.JointSLOExternality || d.cfg.DecomposedSLOExternality
+}
+
+func (d *EDPPDecider) sloCoeffsForInstance(id string) EDPPCoeffs {
+	if state := d.sloCapacity[id]; state != nil {
+		return d.coeffsFor(state.gpuType)
+	}
+	return d.coeffs
+}
+
+// The occupancy-time capacity account follows the paper's allocation at a fixed
+// decode width B. Dedicated prefill pays one baseline per chunk; decode pays a
+// 1/B share of its iteration baseline per output token; collocation shares the
+// prefill baselines with the existing decode batch and therefore adds only Wp.
+func (d *EDPPDecider) sloDecodeOccupancy(theta EDPPCoeffs, ar int, nOut float64) float64 {
+	return nOut*theta.AlphaD/float64(d.cfg.SLOCapacityReferenceBatch) + theta.Wd(ar, nOut)
+}
+
+func (d *EDPPDecider) sloPrefillOccupancy(theta EDPPCoeffs, ap, ar int) float64 {
+	nChunks, _ := d.chunkTerms(theta, ap)
+	return nChunks*theta.AlphaP + theta.Wp(maxInt(ap, 0), ar)
+}
+
+func (d *EDPPDecider) sloLocalOccupancy(theta EDPPCoeffs, ap, ar int, nOut float64) float64 {
+	return d.sloDecodeOccupancy(theta, ar, nOut) + theta.Wp(maxInt(ap, 0), ar)
+}
+
+func (d *EDPPDecider) bookSLOCapacityWork(req *Request, toPrefill bool, decodeInst, prefillInst string) {
+	if decodeInst == "" {
+		return
+	}
+	thetaD := d.sloCoeffsForInstance(decodeInst)
+	wd := thetaD.Wd(len(req.InputTokens), d.reqNHatOut(req))
+	if toPrefill {
+		thetaP := d.sloCoeffsForInstance(prefillInst)
+		apP := d.apForInstance(req, prefillInst)
+		wpP := thetaP.Wp(maxInt(apP, 0), len(req.InputTokens))
+		decodeDemand, prefillDemand := wd, wpP
+		if d.cfg.SLOExternalityOccupancyCapacity {
+			decodeDemand = d.sloDecodeOccupancy(thetaD, len(req.InputTokens), d.reqNHatOut(req))
+			prefillDemand = d.sloPrefillOccupancy(thetaP, apP, len(req.InputTokens))
+		}
+		if state := d.sloCapacity[prefillInst]; state != nil {
+			state.q += prefillDemand
+		}
+		if state := d.sloCapacity[decodeInst]; state != nil {
+			state.q += decodeDemand
+		}
+		return
+	}
+	apD := d.apForInstance(req, decodeInst)
+	wpD := thetaD.Wp(maxInt(apD, 0), len(req.InputTokens))
+	demand := wpD + wd
+	if d.cfg.SLOExternalityOccupancyCapacity {
+		demand = d.sloLocalOccupancy(thetaD, apD, len(req.InputTokens), d.reqNHatOut(req))
+	}
+	if state := d.sloCapacity[decodeInst]; state != nil {
+		state.q += demand
+	}
+}
+
+// bookSLOAdmissionWork keeps the existing physical-wait estimator accurate for
+// the constrained policy without changing historical EDPP bookkeeping. Unlike
+// the historical path below, it uses the committed locations' coefficients and
+// cache states, and it retains decode work for a fully cached prompt.
+func (d *EDPPDecider) bookSLOAdmissionWork(req *Request, key string, toPrefill bool, decodeInst, prefillInst string) {
+	if decodeInst == "" {
+		return
+	}
+	thetaD := d.sloCoeffsForInstance(decodeInst)
+	wd := thetaD.Wd(len(req.InputTokens), d.reqNHatOut(req))
+	pw := edppPendingWork{toPrefill: toPrefill, decodeInst: decodeInst, prefillInst: prefillInst}
+	if toPrefill {
+		thetaP := d.sloCoeffsForInstance(prefillInst)
+		apP := d.apForInstance(req, prefillInst)
+		wpP := thetaP.Wp(maxInt(apP, 0), len(req.InputTokens))
+		pw.wp = wpP
+		pw.wd = wd
+		d.qpWork += wpP
+		d.qdWork += wd
+		d.instWork(prefillInst).wp += wpP
+		d.instWork(decodeInst).wd += wd
+	} else {
+		apD := d.apForInstance(req, decodeInst)
+		wpD := thetaD.Wp(maxInt(apD, 0), len(req.InputTokens))
+		pw.wd = wpD + wd
+		d.qdWork += pw.wd
+		d.instWork(decodeInst).wd += pw.wd
+	}
+	d.pending[key] = pw
+}
+
 // OnRoute increments the work backlog for a committed request (design §6.1,
 // conservation form). apTokens is the uncached prompt token count (input-only; INV-9
 // safe). W_d uses the class N̂_out estimate at the nominal decode context.
@@ -1720,7 +2464,27 @@ func (d *EDPPDecider) OnRoute(req *Request, key string, toPrefill bool, apTokens
 	// (a fully-cached request still has a TTFT and can still wait). The TTFT clock starts
 	// at arrival.
 	d.awaitingFirstToken[key] = &edppAwaiting{startUs: req.ArrivalTime, class: req.SLOClass}
+	if d.usesSLOExternalityPolicy() {
+		d.bookSLOCapacityWork(req, toPrefill, decodeInst, prefillInst)
+		d.bookSLOAdmissionWork(req, key, toPrefill, decodeInst, prefillInst)
+		return
+	}
 
+	if d.cfg.PathSpecificPrefillWork {
+		targetInst := decodeInst
+		if toPrefill {
+			targetInst = prefillInst
+			if targetInst == "" && d.prefillSnapshots != nil {
+				snaps := d.prefillSnapshots()
+				if len(snaps) == 1 {
+					targetInst = snaps[0].ID
+				}
+			}
+		}
+		if targetInst != "" {
+			apTokens = d.apForInstance(req, targetInst)
+		}
+	}
 	if apTokens <= 0 {
 		return
 	}

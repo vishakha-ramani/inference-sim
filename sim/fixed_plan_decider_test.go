@@ -25,6 +25,23 @@ func TestFixedPlanDecider_Disagg(t *testing.T) {
 	}
 }
 
+func TestFixedPlanDecider_RoutingPreservingActions(t *testing.T) {
+	d := NewFixedPlanDecider(map[string]FixedPlanAction{
+		"local":  {PrefillInstance: "local"},
+		"remote": {PrefillInstance: "auto"},
+	})
+
+	local := d.Decide(&Request{ID: "local"}, nil)
+	if local.Disaggregate || local.DecodePodOverride != "" || local.PrefillPodHint != "" {
+		t.Fatalf("routing-preserving local action = %+v, want no overrides", local)
+	}
+
+	remote := d.Decide(&Request{ID: "remote"}, nil)
+	if !remote.Disaggregate || remote.DecodePodOverride != "" || remote.PrefillPodHint != "" {
+		t.Fatalf("routing-preserving remote action = %+v, want disaggregate with no overrides", remote)
+	}
+}
+
 func TestFixedPlanDecider_MissingRequestPanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {

@@ -218,6 +218,15 @@ func (i *InstanceSimulator) QueueDepth() int {
 	return i.sim.QueueDepth()
 }
 
+// PrefillTokensAhead returns the exact remaining prompt tokens in the running
+// batch and wait queue. It is used by the paper-oriented Kairos FIFO estimate.
+func (i *InstanceSimulator) PrefillTokensAhead() int64 {
+	if i.sim == nil {
+		return 0
+	}
+	return i.sim.PrefillTokensAhead()
+}
+
 // BatchSize returns the number of requests in the running batch, or 0 if nil.
 func (i *InstanceSimulator) BatchSize() int {
 	return i.sim.BatchSize()
@@ -299,6 +308,13 @@ func (i *InstanceSimulator) RunningPrefillState() []sim.RunningReqState {
 		return nil
 	}
 	return i.sim.RunningPrefillState()
+}
+
+func (i *InstanceSimulator) SchedulerRolloutState() (running, waiting, current []sim.SchedulerReqState, currentStart, tokenBudget, longPrefill, blockSize int64, observed bool) {
+	if i.sim == nil {
+		return nil, nil, nil, 0, 0, 0, 0, false
+	}
+	return i.sim.SchedulerRolloutState()
 }
 
 // AdmissionDetailEnabled reports whether the underlying Simulator has admission-detail

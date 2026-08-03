@@ -27,6 +27,9 @@ type DisaggregationDecision struct {
 	// path and all non-EDPP deciders). Pure instrumentation — populating it does not change
 	// the decision (INV-6). Recorded into the SimulationTrace at the cluster call site.
 	EDPPJointTrace *EDPPJointDecisionTrace
+	// EDPPJointCandidates carries the complete candidate-level causal-VaR trace.
+	// It is nil unless JointCandidateTraceEnabled is set.
+	EDPPJointCandidates *EDPPJointCandidateTraceSet
 	// AdmissionCtxDecode / AdmissionCtxPrefill carry the exact per-pool AdmissionContext
 	// the EDPP decider assembled for this request, so the --edpp-admission-trace companion
 	// trace can recompute every estimator's prediction at end of run against the same
@@ -115,9 +118,10 @@ func NewDisaggregationDecider(name string) DisaggregationDecider {
 // (wired in sim/cluster/cluster.go from CachedSnapshotProvider.BuildCacheQueryFn).
 // Staleness is inherited from that provider — see --cache-signal-delay (INV-7).
 type PrefixThresholdDecider struct {
-	threshold  int
-	blockSize  int
-	cacheQuery map[string]func([]int) int
+	threshold        int
+	thresholdByClass map[string]int
+	blockSize        int
+	cacheQuery       map[string]func([]int) int
 }
 
 // NewPrefixThresholdDecider creates a PrefixThresholdDecider with the given
@@ -128,16 +132,34 @@ type PrefixThresholdDecider struct {
 // Disaggregate=false (conservative fallback, consistent with llm-d's
 // nil-endpoint guard at prefix_based_pd_decider.go:108-111).
 func NewPrefixThresholdDecider(threshold, blockSize int, cacheQuery map[string]func([]int) int) *PrefixThresholdDecider {
+	return NewPrefixThresholdDeciderByClass(threshold, nil, blockSize, cacheQuery)
+}
+
+// NewPrefixThresholdDeciderByClass creates a prefix-threshold decider with
+// optional per-SLO-class overrides. Classes absent from thresholdByClass use
+// threshold, preserving the shipped llm-d single-threshold behavior.
+func NewPrefixThresholdDeciderByClass(threshold int, thresholdByClass map[string]int, blockSize int, cacheQuery map[string]func([]int) int) *PrefixThresholdDecider {
 	if threshold < 0 {
-		panic(fmt.Sprintf("NewPrefixThresholdDecider: threshold must be >= 0, got %d", threshold))
+		panic(fmt.Sprintf("NewPrefixThresholdDeciderByClass: threshold must be >= 0, got %d", threshold))
 	}
 	if blockSize <= 0 {
-		panic(fmt.Sprintf("NewPrefixThresholdDecider: blockSize must be > 0, got %d", blockSize))
+		panic(fmt.Sprintf("NewPrefixThresholdDeciderByClass: blockSize must be > 0, got %d", blockSize))
+	}
+	classCopy := make(map[string]int, len(thresholdByClass))
+	for class, value := range thresholdByClass {
+		if class == "" {
+			panic("NewPrefixThresholdDeciderByClass: class must not be empty")
+		}
+		if value < 0 {
+			panic(fmt.Sprintf("NewPrefixThresholdDeciderByClass: threshold for class %q must be >= 0, got %d", class, value))
+		}
+		classCopy[class] = value
 	}
 	return &PrefixThresholdDecider{
-		threshold:  threshold,
-		blockSize:  blockSize,
-		cacheQuery: cacheQuery,
+		threshold:        threshold,
+		thresholdByClass: classCopy,
+		blockSize:        blockSize,
+		cacheQuery:       cacheQuery,
 	}
 }
 
@@ -163,7 +185,11 @@ func (p *PrefixThresholdDecider) Decide(req *Request, state *RouterState) Disagg
 	}
 	cachedBlocks := fn(req.InputTokens)
 	nonCachedTokens := len(req.InputTokens) - cachedBlocks*p.blockSize
-	return DisaggregationDecision{Disaggregate: nonCachedTokens > p.threshold}
+	threshold := p.threshold
+	if value, ok := p.thresholdByClass[req.SLOClass]; ok {
+		threshold = value
+	}
+	return DisaggregationDecision{Disaggregate: nonCachedTokens > threshold}
 }
 
 // Compile-time interface compliance checks.

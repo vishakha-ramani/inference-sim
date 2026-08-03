@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +12,26 @@ import (
 	"github.com/inference-sim/inference-sim/sim/workload"
 	"github.com/sirupsen/logrus"
 )
+
+func parseNonnegativeClassInts(s, flagName string) map[string]int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	out := make(map[string]int)
+	for _, pair := range strings.Split(s, ",") {
+		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
+			logrus.Fatalf("--%s: invalid pair %q (expected class=nonnegative-integer)", flagName, pair)
+		}
+		value, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil || value < 0 {
+			logrus.Fatalf("--%s: invalid threshold in pair %q (expected nonnegative integer)", flagName, pair)
+		}
+		out[strings.TrimSpace(parts[0])] = value
+	}
+	return out
+}
 
 // parseSLODurationFlag parses comma-separated key=duration pairs (e.g.
 // "critical=100ms,standard=500ms"). Empty input returns (nil, nil) — the

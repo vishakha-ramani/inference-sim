@@ -44,7 +44,8 @@ type SimulationTrace struct {
 	KVTransfers     []KVTransferRecord
 	EDPPDecisions   []EDPPDecisionRecord // EDPP rule-term traces (when EDPP tracing enabled)
 	// EDPPJointDecisions holds scorer-vs-joint divergence records (when --edpp-joint-trace set).
-	EDPPJointDecisions []EDPPJointDecisionRecord
+	EDPPJointDecisions  []EDPPJointDecisionRecord
+	EDPPJointCandidates []EDPPJointCandidateRecord
 	// RoutingDecisions holds per-candidate routing-decision traces (every
 	// prefill/decode/standard target selection) when Config.RecordRoutingDecisions.
 	RoutingDecisions []RoutingDecisionTraceRecord
@@ -53,17 +54,18 @@ type SimulationTrace struct {
 // NewSimulationTrace creates a SimulationTrace ready for recording.
 func NewSimulationTrace(config TraceConfig) *SimulationTrace {
 	return &SimulationTrace{
-		Config:             config,
-		Admissions:         make([]AdmissionDecisionRecord, 0),
-		Routings:           make([]RoutingRecord, 0),
-		Disaggregations:    make([]DisaggregationRecord, 0),
-		PrefillRoutings:    make([]PrefillRoutingRecord, 0),
-		DecodeRoutings:     make([]DecodeRoutingRecord, 0),
-		EncodeRoutings:     make([]EncodeRoutingRecord, 0),
-		KVTransfers:        make([]KVTransferRecord, 0),
-		EDPPDecisions:      make([]EDPPDecisionRecord, 0),
-		EDPPJointDecisions: make([]EDPPJointDecisionRecord, 0),
-		RoutingDecisions:   make([]RoutingDecisionTraceRecord, 0),
+		Config:              config,
+		Admissions:          make([]AdmissionDecisionRecord, 0),
+		Routings:            make([]RoutingRecord, 0),
+		Disaggregations:     make([]DisaggregationRecord, 0),
+		PrefillRoutings:     make([]PrefillRoutingRecord, 0),
+		DecodeRoutings:      make([]DecodeRoutingRecord, 0),
+		EncodeRoutings:      make([]EncodeRoutingRecord, 0),
+		KVTransfers:         make([]KVTransferRecord, 0),
+		EDPPDecisions:       make([]EDPPDecisionRecord, 0),
+		EDPPJointDecisions:  make([]EDPPJointDecisionRecord, 0),
+		EDPPJointCandidates: make([]EDPPJointCandidateRecord, 0),
+		RoutingDecisions:    make([]RoutingDecisionTraceRecord, 0),
 	}
 }
 
@@ -110,6 +112,10 @@ func (st *SimulationTrace) RecordEDPPDecision(record EDPPDecisionRecord) {
 // RecordEDPPJointDecision appends a scorer-vs-joint divergence trace record.
 func (st *SimulationTrace) RecordEDPPJointDecision(record EDPPJointDecisionRecord) {
 	st.EDPPJointDecisions = append(st.EDPPJointDecisions, record)
+}
+
+func (st *SimulationTrace) RecordEDPPJointCandidate(record EDPPJointCandidateRecord) {
+	st.EDPPJointCandidates = append(st.EDPPJointCandidates, record)
 }
 
 // RecordRoutingDecision appends a per-candidate routing-decision trace record.

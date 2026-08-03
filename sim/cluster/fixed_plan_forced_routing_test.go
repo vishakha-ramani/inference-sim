@@ -55,6 +55,63 @@ func TestFixedPlan_ForcedRouting_EndToEnd(t *testing.T) {
 	}
 }
 
+// PD outcome tracing is enabled by the CLI after cluster construction. Fixed-plan
+// replays do not install an EDPP SLO-feedback decider, so this test guards the
+// independent admission hook needed to capture both local and disaggregated
+// schedule instants.
+func TestFixedPlan_PDOutcomeTraceCapturesAdmissionTimes(t *testing.T) {
+	config := newTestDisaggDeploymentConfig(4, 2, 2)
+
+	dir := t.TempDir()
+	planPath := dir + "/plan.csv"
+	csv := "request_id,decode_instance,prefill_instance\n" +
+		"r1,instance_2,local\n" +
+		"r2,instance_3,instance_1\n"
+	if err := os.WriteFile(planPath, []byte(csv), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config.PDPlanPath = planPath
+
+	reqs := newTestRequests(2)
+	reqs[0].ID = "r1"
+	reqs[1].ID = "r2"
+
+	cs := NewClusterSimulator(config, reqs, nil)
+	cs.SetRecordPDOutcomes(true)
+	mustRun(t, cs)
+
+	records := cs.BuildPDOutcomeRecords(cs.AggregatedMetrics())
+	if len(records) != 2 {
+		t.Fatalf("outcome records = %d, want 2", len(records))
+	}
+	for _, record := range records {
+		switch record.RequestID {
+		case "r1":
+			if record.Disaggregated {
+				t.Fatalf("r1 disaggregated = true, want false")
+			}
+			// r1 arrives at simulation tick zero, which is also the trace's
+			// "unset" enqueue sentinel; the nonzero schedule is the regression
+			// signal that the post-construction hook fired.
+			if record.LocalSchedule == 0 {
+				t.Fatalf("r1 missing local admission timing: %+v", record)
+			}
+		case "r2":
+			if !record.Disaggregated {
+				t.Fatalf("r2 disaggregated = false, want true")
+			}
+			// Decode may admit immediately (t_adm=0); both nonzero schedule
+			// instants prove that each sub-request reached the hook.
+			if record.PrefillSchedule == 0 || record.DecodeSchedule == 0 ||
+				record.PrefillTAdm <= 0 {
+				t.Fatalf("r2 missing disaggregated admission timing: %+v", record)
+			}
+		default:
+			t.Fatalf("unexpected request %q", record.RequestID)
+		}
+	}
+}
+
 func instanceCompleted(cs *ClusterSimulator, instanceID, reqID string) bool {
 	for _, inst := range cs.instances {
 		if string(inst.ID()) != instanceID {

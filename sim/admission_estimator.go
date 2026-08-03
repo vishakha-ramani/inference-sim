@@ -35,6 +35,20 @@ type RunningReqState struct {
 	OracleOutputLen int64
 }
 
+// SchedulerReqState is the deployable request state needed to replay future
+// scheduler steps for admission and first-token prediction. It contains no
+// output length: the EDPP decider supplies its censored per-class running mean.
+type SchedulerReqState struct {
+	ID              string
+	SLOClass        string
+	PromptTokens    int64
+	ComputedTokens  int64
+	ScheduledTokens int64
+	KVBlocks        int64
+	Priority        float64
+	ArrivalUs       int64
+}
+
 // AdmissionContext bundles everything an admission-delay estimator may read for
 // one pool. The EDPPDecider assembles it from its backlog/rate state and the
 // (possibly enriched) selected snapshot. Times/work in µs.

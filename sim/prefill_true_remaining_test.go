@@ -48,3 +48,33 @@ func TestRunningPrefillState_TrueRemainingNotOracleGated(t *testing.T) {
 		t.Fatalf("decode TrueRemaining must stay oracle-gated (−1 with oracle off), got %d", decStates[0].TrueRemaining)
 	}
 }
+
+// RunningReqState.FirstTokenUs is an absolute simulation timestamp. Request.FirstTokenTime
+// is the elapsed TTFT duration, so the snapshot adapter must add ArrivalTime rather than
+// passing the duration through as though it were absolute.
+func TestRunningDecodeState_FirstTokenUsIsAbsolute(t *testing.T) {
+	cfg := SimConfig{
+		KVCacheConfig: NewKVCacheConfig(1000, 16, 0, 0, 0, 0),
+		BatchConfig:   NewBatchConfig(256, 2048, 0),
+		Seed:          42,
+	}
+	s, err := NewSimulator(cfg, MustNewKVStoreFromConfig(cfg.KVCacheConfig), &spyLatencyModel{})
+	if err != nil {
+		t.Fatalf("NewSimulator: %v", err)
+	}
+	req := &Request{
+		ID: "decode", InputTokens: make([]int, 8), OutputTokens: make([]int, 20),
+		ArrivalTime: 10_000, FirstTokenTime: 2_500, TTFTSet: true,
+		ProgressIndex: 12, NumNewTokens: 1, State: StateRunning,
+	}
+	s.RunningBatch = &Batch{Requests: []*Request{req}}
+	s.SetAdmissionDetail(false)
+
+	got := s.RunningDecodeState()
+	if len(got) != 1 {
+		t.Fatalf("RunningDecodeState length = %d, want 1", len(got))
+	}
+	if want := int64(12_500); got[0].FirstTokenUs != want {
+		t.Fatalf("FirstTokenUs = %d, want absolute timestamp %d", got[0].FirstTokenUs, want)
+	}
+}

@@ -27,6 +27,7 @@ type RoutingSnapshot struct {
 	TotalKvCapacityTokens int64             // Total KV cache capacity in tokens (TotalBlocks × BlockSizeTokens); used by V2SaturationAnalyzer
 	KvTokensInUse         int64             // Current KV cache occupancy in tokens (UsedBlocks × BlockSizeTokens); used by V2SaturationAnalyzer
 	ResidentPrefillTokens int64             // Σ NumNewTokens over requests currently in prefill phase (S_pf for the EDPP E3 law); 0 if not yet available
+	PrefillTokensAhead    int64             // Exact remaining prompt tokens in the running batch + wait queue; used by Kairos's FIFO prefill estimator
 	TTFT                  float64           // μs; 0 if not yet available
 	ITL                   float64           // μs; 0 if not yet available
 	DispatchRate          float64           // req/s completed by this instance; 0 if not yet available
@@ -37,6 +38,17 @@ type RoutingSnapshot struct {
 	AdmissionRate         float64           // req/µs admitted at this instance (for the little estimator); 0 if not available
 	RunningDecode         []RunningReqState // per-running-decode-request state for the roll-forward estimator; nil unless admission detail enabled
 	RunningPrefill        []RunningReqState // per-running-prefill-request state (prefill-phase occupants) for the prefill-pool ttft_p estimators; nil unless admission detail enabled
+	// Scheduler-rollout state used by the paper's TTFT estimator. Running and
+	// Waiting preserve scheduler order. CurrentScheduled is the in-flight step
+	// whose elapsed portion is subtracted at the routing instant.
+	SchedulerStateObserved    bool
+	SchedulerRunning          []SchedulerReqState
+	SchedulerWaiting          []SchedulerReqState
+	CurrentScheduled          []SchedulerReqState
+	CurrentStepStartUs        int64
+	MaxScheduledTokens        int64
+	LongPrefillTokenThreshold int64
+	BlockSizeTokens           int64
 }
 
 // EffectiveLoad returns the total effective load on this instance:

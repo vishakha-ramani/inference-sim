@@ -18,6 +18,7 @@ type edppAffineModel struct {
 	kp    int64 // prefill marginal per chunk token
 	c0    int64 // decode per-request overhead
 	c1    int64 // decode marginal per context token
+	post  int64 // output-token post-processing cost
 }
 
 func (m *edppAffineModel) StepTime(batch []*Request) int64 {
@@ -36,7 +37,7 @@ func (m *edppAffineModel) StepTime(batch []*Request) int64 {
 }
 
 func (m *edppAffineModel) QueueingTime(*Request) int64      { return 0 }
-func (m *edppAffineModel) OutputTokenProcessingTime() int64 { return 0 }
+func (m *edppAffineModel) OutputTokenProcessingTime() int64 { return m.post }
 func (m *edppAffineModel) PostDecodeFixedOverhead() int64   { return 0 }
 
 func newTestAffineModel() *edppAffineModel {
@@ -222,6 +223,18 @@ func (s admissionSpy) EstimateTAdm(ctx AdmissionContext) float64 {
 		s.onCall(ctx)
 	}
 	return 0
+}
+
+type sequenceAdmissionEstimator struct {
+	values []float64
+	calls  int
+}
+
+func (*sequenceAdmissionEstimator) Name() string { return "sequence" }
+func (s *sequenceAdmissionEstimator) EstimateTAdm(AdmissionContext) float64 {
+	value := s.values[s.calls]
+	s.calls++
+	return value
 }
 
 // newTestEDPPDeciderWithEstimator constructs an EDPPDecider with the default
@@ -753,8 +766,9 @@ func TestEDPP_PredictorsAndITLCollapse(t *testing.T) {
 	//   muPf  = 1 − α_p/T_iter_pf  = 1 − 1000/(1000 + 10·0) = clamped to 0.001 (sPf=0 ⇒ T_iter_pf = α_p = 1000)
 	//   δ_pf_chunk = c_pf·chunk = 10·400 = 4000
 	//   tBminus1 = T_iter_dec(1, 2048, 0) = 1000 + 100 + 2048 = 3148
-	//   ttftP = 0/muPf + 1·(1000 + 4000) + 5000 = 10000  (qP=0)
-	//   ttftD = 0/muDec + 1·(3148 + 4000) = 7148        (qD=0)
+	//   firstDecode = T_iter_dec(B+1, KV+input) = 1000 + 100·2 + (2048+400) = 3648
+	//   ttftP = 0/muPf + 1·(1000 + 4000) + 5000 + 0/muDec + 3648 = 13648
+	//   ttftD = 0/muDec + 1·(3148 + 4000) = 7148
 	//
 	// ITL collapsed form: itlTerm = −z_itl·(c_pf·chunk)/τ_itl = −z_itl·4000/50000.
 	// With z_itl raised via 20 completions each with realized ITL = 200_000 µs:
@@ -783,7 +797,7 @@ func TestEDPP_PredictorsAndITLCollapse(t *testing.T) {
 	}
 
 	// TTFT predictor anchors.
-	wantTTFTP := 10000.0
+	wantTTFTP := 13648.0
 	if math.Abs(tr.TTFTP-wantTTFTP) > 1e-6 {
 		t.Errorf("TTFTP = %v, want %v", tr.TTFTP, wantTTFTP)
 	}
@@ -802,6 +816,76 @@ func TestEDPP_PredictorsAndITLCollapse(t *testing.T) {
 	if math.Abs(tr.RHS-(tr.TransferTerm+tr.TTFTTerm+tr.ITLTerm)) > 1e-9 {
 		t.Errorf("RHS composition violated: %v != %v + %v + %v",
 			tr.RHS, tr.TransferTerm, tr.TTFTTerm, tr.ITLTerm)
+	}
+}
+
+// The TTFT predictor must end at the same client-visible event as the metric:
+// local ends after output-token post-processing; disaggregated additionally waits
+// for decode admission and executes the first B+1 decode iteration.
+func TestEDPP_PredictorsEndAtClientVisibleFirstToken(t *testing.T) {
+	cfg := defaultTestEDPPConfig()
+	cfg.TraceEnabled = true
+	model := newTestAffineModel()
+	model.post = 250
+	d := NewEDPPDecider(cfg, model, nil, func() []RoutingSnapshot { return nil })
+
+	req := &Request{ID: "t", InputTokens: make([]int, 400)}
+	state := &RouterState{
+		SelectedInstance: "d0",
+		Snapshots:        []RoutingSnapshot{{ID: "d0", BatchSize: 1, KvTokensInUse: 2048}},
+	}
+	tr := d.Decide(req, state).EDPPTrace
+	if tr == nil {
+		t.Fatal("expected non-nil trace")
+	}
+
+	// Local base = T_iter(B)*1 + Wp = 3148 + 4000. The first token then
+	// incurs 250µs post-processing.
+	if want := 7_398.0; math.Abs(tr.TTFTD-want) > 1e-9 {
+		t.Fatalf("local TTFT = %v, want %v (must include token post-processing)", tr.TTFTD, want)
+	}
+
+	// Disagg prefill+transfer base = 1000 + 4000 + 5000 = 10000.
+	// Decode admission is zero in this fixture. The first decode iteration
+	// includes the arriving request: T_iter(B+1, KV+input)=3648, then 250 post.
+	if want := 13_898.0; math.Abs(tr.TTFTP-want) > 1e-9 {
+		t.Fatalf("disagg TTFT = %v, want %v (must include decode admission, first decode iteration, and post-processing)", tr.TTFTP, want)
+	}
+}
+
+func TestEDPP_TTFTOverlapAware_OverlapsRemoteLeadAndDecodeAdmission(t *testing.T) {
+	cfg := defaultTestEDPPConfig()
+	cfg.TraceEnabled = true
+	cfg.TTFTOverlapAware = true
+	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, func() []RoutingSnapshot {
+		return []RoutingSnapshot{{ID: "p0"}}
+	})
+	// Decide asks for prefill admission first, then decode admission.
+	d.tadmEstimator = &sequenceAdmissionEstimator{values: []float64{4_000, 20_000}}
+
+	req := &Request{ID: "t", InputTokens: make([]int, 400)}
+	state := &RouterState{
+		SelectedInstance: "d0",
+		Snapshots:        []RoutingSnapshot{{ID: "d0", BatchSize: 1, KvTokensInUse: 2048}},
+	}
+	tr := d.Decide(req, state).EDPPTrace
+	if tr == nil {
+		t.Fatal("expected non-nil trace")
+	}
+
+	// remoteLead = tAdmP(4000) + prefill iteration(1000) + Wp(4000)
+	//              + transfer(5000) = 14000.
+	// The old serial formula would join decode at 14000+20000=34000.
+	// Overlap-aware joins at max(14000,20000)=20000, then pays the first
+	// decode iteration (3648): TTFT_P=23648.
+	if tr.RemoteLead != 14_000 || tr.TAdmD != 20_000 {
+		t.Fatalf("unexpected components: remoteLead=%v tAdmD=%v", tr.RemoteLead, tr.TAdmD)
+	}
+	if want := 23_648.0; math.Abs(tr.TTFTP-want) > 1e-9 {
+		t.Fatalf("overlap-aware TTFT_P = %v, want %v", tr.TTFTP, want)
+	}
+	if serial := tr.RemoteLead + tr.TAdmD + tr.DisaggFirst; tr.TTFTP == serial {
+		t.Fatalf("TTFT_P still serializes overlap: got %v", tr.TTFTP)
 	}
 }
 
@@ -1173,9 +1257,10 @@ func TestEDPP_TTFTP_UsesPrefillCoResidency(t *testing.T) {
 	// μ_pf = 1 − α_p/(α_p + c_pf·S_pf) = 1 − 1000/(1000+10·400) = 1 − 1000/5000 = 0.8
 	// qP = 0 (no OnRoute). nChunks=1, deltaPfChunk = c_pf·chunk = 10·300 = 3000.
 	// T_pf(B−1) = α_p + c_pf·S_pf = 1000 + 10·400 = 5000.
-	// ttftP = 0/0.8 + 1·(5000 + 3000) + c_xfer(5000) = 8000 + 5000 = 13000.
-	if math.Abs(tr.TTFTP-13000) > 1e-6 {
-		t.Errorf("ttftP = %v, want 13000 (uses T_pf(B−1)=5000, not α_p=1000)", tr.TTFTP)
+	// Decode admission is zero. The first decode step is T_iter(B+1,KV+input)
+	// = 1000 + 100·2 + 300 = 1500. Client-visible ttftP = 13000 + 1500 = 14500.
+	if math.Abs(tr.TTFTP-14500) > 1e-6 {
+		t.Errorf("ttftP = %v, want 14500 (uses T_pf(B−1)=5000 and the first B+1 decode step)", tr.TTFTP)
 	}
 }
 
@@ -1346,6 +1431,7 @@ func TestDecideReduced_LeastTTFT_DecidesOnPredictedTTFT(t *testing.T) {
 	// Prefill pool EMPTY/idle -> ttftP low; decode instance heavily loaded -> ttftD high => disaggregate.
 	cfg := defaultTestEDPPConfig()
 	cfg.Rule = "least-ttft"
+	cfg.ChunkTokens = 256 // multiple local iterations make remote prefill win on a busy decode batch
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, func() []RoutingSnapshot {
 		return []RoutingSnapshot{{ID: "p0", BatchSize: 0, ResidentPrefillTokens: 0}}
 	})
@@ -1395,7 +1481,7 @@ func TestDecideReduced_LeastTTFT_IgnoresVirtualQueues(t *testing.T) {
 	cfgDPP := defaultTestEDPPConfig() // Rule "" == dpp
 	dppNoZ := NewEDPPDecider(cfgDPP, newTestAffineModel(), nil, prefill)
 	dppZ := NewEDPPDecider(cfgDPP, newTestAffineModel(), nil, prefill)
-	dppZ.zByClass[req.SLOClass] = &edppClassState{zTTFT: 1e12, zITL: 1e12}
+	dppZ.zByClass[req.SLOClass] = &edppClassState{zITL: 1e12}
 	if dppNoZ.Decide(req, state).Disaggregate == dppZ.Decide(req, state).Disaggregate {
 		t.Fatal("dpp decision did NOT change under huge z — the contrast guard is vacuous; retune the state")
 	}

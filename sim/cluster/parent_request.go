@@ -26,6 +26,11 @@ type ParentRequest struct {
 	// Used to compute realized admission delay T_adm = schedule − enqueue (§3.8).
 	PrefillScheduleTime int64
 	DecodeScheduleTime  int64
+	// FirstDecodeTokenTime is the absolute simulation tick at which the decode
+	// pod completes the first decode step and produces the first user-visible
+	// output token. It is captured directly from the execution loop and is not
+	// gated by outcome/admission tracing. Zero = not yet produced.
+	FirstDecodeTokenTime int64
 	// CompletionTime has four meanings depending on outcome:
 	//   - Successful decode: set by detectDecodeCompletions to
 	//     clusterClock + decodeInstance.PostDecodeFixedOverhead() when the decode

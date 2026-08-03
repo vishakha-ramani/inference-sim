@@ -1,6 +1,9 @@
 package sim
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // newJointTestDecider builds a decider in joint mode with the known test coeffs and a
 // default-cold cacheQuery (every instance returns 0 cached blocks ⇒ a_p = full prompt).
@@ -387,6 +390,53 @@ func TestJoint_LeastTTFT_ReducesToScorerSlice(t *testing.T) {
 	}
 }
 
+// Joint candidate TTFT uses the same client-visible endpoint as the reduced
+// predictor. This pins both local post-processing and the disaggregated
+// decode-admission/B+1-first-step boundary independently of the final argmin.
+func TestJointCandidateTTFT_EndsAtClientVisibleFirstToken(t *testing.T) {
+	cfg := defaultTestEDPPConfig()
+	cfg.Joint = true
+	model := newTestAffineModel()
+	model.post = 250
+	d := NewEDPPDecider(cfg, model, coldCacheQuery("d0", "p0"), nil)
+
+	req := reqBatch("r", 400)
+	ec := jointEvalCtxFor(d, req, 1)
+	ds := RoutingSnapshot{ID: "d0", BatchSize: 1, KvTokensInUse: 2048}
+	ps := RoutingSnapshot{ID: "p0"}
+
+	if got, want := d.jointCandidateTTFT(ec, ds, nil), 7_398.0; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("local candidate TTFT = %v, want %v", got, want)
+	}
+	if got, want := d.jointCandidateTTFT(ec, ds, &ps), 13_898.0; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("disagg candidate TTFT = %v, want %v", got, want)
+	}
+}
+
+func TestJointCandidateTTFT_OverlapAwareRemoteDecodeAdmission(t *testing.T) {
+	cfg := defaultTestEDPPConfig()
+	cfg.Joint = true
+	cfg.TTFTOverlapAware = true
+	model := newTestAffineModel()
+	model.post = 250
+	d := NewEDPPDecider(cfg, model, coldCacheQuery("d0", "p0"), nil)
+	// jointCandidateTTFT estimates decode admission before prefill admission.
+	d.tadmEstimator = &sequenceAdmissionEstimator{values: []float64{20_000, 4_000}}
+
+	req := reqBatch("r", 400)
+	ec := jointEvalCtxFor(d, req, 1)
+	ds := RoutingSnapshot{ID: "d0", BatchSize: 1, KvTokensInUse: 2048}
+	ps := RoutingSnapshot{ID: "p0"}
+
+	// remoteLead = 4,000 admission + 1,000 iteration + 4,000 own work
+	//              + 5,000 transfer = 14,000 us. It overlaps the decoder's
+	// 20,000-us admission delay, after which the 3,648-us first decode step
+	// and 250-us post-processing produce a client-visible TTFT of 23,898 us.
+	if got, want := d.jointCandidateTTFT(ec, ds, &ps), 23_898.0; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("overlap-aware disagg candidate TTFT = %v, want %v", got, want)
+	}
+}
+
 // TestJoint_LeastTTFT_IgnoresVirtualQueues proves the machinery stays bypassed under the joint
 // path: inflating z_ttft/z_itl must not change the decision. Mirrors the reduced-path guard
 // TestDecideReduced_LeastTTFT_IgnoresVirtualQueues.
@@ -473,5 +523,68 @@ func TestJoint_LeastTTFT_DeterministicTieBreak(t *testing.T) {
 	b := d.Decide(reqBatch("r", 100), state).DecodePodOverride
 	if a != b || a != "M0" {
 		t.Fatalf("least-ttft-joint tie-break not deterministic/lowest-index: %q then %q", a, b)
+	}
+}
+
+func TestJointCausalVar_CompleteCandidatesAndScorerTieBreak(t *testing.T) {
+	cfg := defaultTestEDPPConfig()
+	cfg.Joint = true
+	cfg.JointCausalVar = true
+	cfg.VarExactPrefillOverlap = true
+	cfg.JointCandidateTraceEnabled = true
+	prefill := func() []RoutingSnapshot {
+		return []RoutingSnapshot{{ID: "P0"}, {ID: "P1"}}
+	}
+	d := NewEDPPDecider(cfg, newTestAffineModel(), coldCacheQuery("M0", "M1", "P0", "P1"), prefill)
+	d.SetPrefillScorer(func(_ *Request, _ []RoutingSnapshot) string { return "P1" })
+	state := &RouterState{
+		SelectedInstance: "M1",
+		Snapshots:        []RoutingSnapshot{{ID: "M0"}, {ID: "M1"}},
+	}
+	dec := d.Decide(reqBatch("causal", 100), state)
+	if dec.DecodePodOverride != "M1" || dec.Disaggregate {
+		t.Fatalf("all-zero VaR tie = (%q, disagg=%v), want scorer decode M1 local", dec.DecodePodOverride, dec.Disaggregate)
+	}
+	if dec.EDPPJointCandidates == nil || len(dec.EDPPJointCandidates.Candidates) != 6 {
+		n := 0
+		if dec.EDPPJointCandidates != nil {
+			n = len(dec.EDPPJointCandidates.Candidates)
+		}
+		t.Fatalf("candidate count = %d, want D(P+1)=6", n)
+	}
+	chosen := 0
+	for _, c := range dec.EDPPJointCandidates.Candidates {
+		if math.Abs(c.VarTotal-(c.VarDecode+c.VarCollocPrefill+c.VarPrefillPool)) > 1e-12 {
+			t.Fatalf("candidate %+v decomposition does not sum", c)
+		}
+		if c.Chosen {
+			chosen++
+		}
+	}
+	if chosen != 1 {
+		t.Fatalf("chosen candidate rows = %d, want 1", chosen)
+	}
+}
+
+func TestDecomposedCausalVar_KeepsScorerDecode(t *testing.T) {
+	cfg := defaultTestEDPPConfig()
+	cfg.Joint = true
+	cfg.DecomposedCausalVar = true
+	cfg.VarDeployable = true
+	cfg.VarExactPrefillOverlap = true
+	prefill := func() []RoutingSnapshot { return []RoutingSnapshot{{ID: "P0"}} }
+	d := NewEDPPDecider(cfg, newTestAffineModel(), coldCacheQuery("M0", "M1", "P0"), prefill)
+	state := &RouterState{
+		Clock: 10_000, SelectedInstance: "M1",
+		Snapshots: []RoutingSnapshot{
+			{ID: "M0"},
+			{ID: "M1", BatchSize: 1, KvTokensInUse: 2048, RunningDecode: []RunningReqState{{
+				StepsDone: 0, ArrivalUs: 0, FirstTokenUs: 1_000, TTFTSet: true,
+			}}},
+		},
+	}
+	dec := d.Decide(reqBatch("decomposed", 400), state)
+	if dec.DecodePodOverride != "M1" {
+		t.Fatalf("decomposed causal VaR changed scorer decode to %q, want M1", dec.DecodePodOverride)
 	}
 }
