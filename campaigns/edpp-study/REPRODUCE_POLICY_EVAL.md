@@ -1,4 +1,15 @@
-# Policy evaluation — how to reproduce the numbers (protocol v2.1, 2026-07-28)
+# Historical policy evaluation protocol v2.1 (superseded)
+
+**Do not use the commands or policy set below to reproduce the current paper.**
+They describe the rejected congestion-based controller and the historical
+Kairos adaptation. The current primary comparison is the frozen 432-run unified
+campaign in `run_public_llmd_prefix_threshold_extension.py --stage unified`.
+Its report is
+`out/public_llmd_prefix_threshold_extension_v1/PUBLIC-LLMD-PREFIX-THRESHOLD-UNIFIED-CONFIRMATION.md`.
+The frozen current protocol is
+`PUBLIC-LLMD-PREFIX-THRESHOLD-EXTENSION-PROTOCOL.md`.
+
+The remainder is retained only for provenance.
 
 Everything the paper's policy-evaluation section needs is produced by five scripts in
 this directory. Read this file before running anything: the previous protocol
@@ -43,10 +54,16 @@ The others overwrite.
 |---|---|---|
 | `never` | never disaggregate (prefill where you decode) | load-balancing scorer (`queue-depth:1`) |
 | `always` | always disaggregate through the prefill pool | load-balancing scorer |
-| `kairos` | reproduction of Kairos prefill deflection; per-seed best over beta in {0.25,0.5,1.0} | its own deflection search |
+| `kairos` | historical Kairos-inspired adaptation; per-seed best over beta in {0.25,0.5,1.0} | its own continuous, admission-aware deflection search |
 | `lt-joint` | minimize the deciding request's predicted TTFT over the **full joint action set** | joint (hardware-aware) |
 | `dpvar` | **the paper's rule**: congestion + SLO deficits + goodput penalty R(a) = VaR(a) - good_r(a) | joint |
 | `never@3M` | *reference row*, curves only: 3 mixed engines, no PD machinery at all | load-balancing scorer |
+
+The historical `kairos` rows are not published-Kairos results. They predate the
+paper-oriented implementation and omit the published α=1.3 margin and request TTFT-SLO
+gate while adding several evaluation adaptations. New comparisons must use
+`--edpp-rule kairos-paper --kairos-alpha 1.3`; `kairos-adapted` is the explicit name for
+the historical arm, and `kairos` remains its compatibility alias.
 
 Deliberately **not** in the set, and why:
 

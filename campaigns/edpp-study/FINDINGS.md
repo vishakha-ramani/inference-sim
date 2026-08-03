@@ -1543,24 +1543,20 @@ variance-axis figure is the natural follow-up); 3 seeds; util kernel; one hetero
 supersedes F18's "unifies both regimes" framing (true only on constant output) with the deployable,
 variable-output minimax-regret result.
 
-**F20 — the minimax-regret result survives against a real SOTA baseline (Kairos), and the regime that
-breaks every published rule is hardware heterogeneity.** F19's grid compared only against simple rules.
-We implemented **Kairos** ("Towards Load-Aware Prefill Deflection for Disaggregated LLM Serving",
-arXiv:2607.02043 — published ~3 weeks before this run) as a first-class baseline in BLIS
-(`sim/edpp_kairos.go`, `--edpp-rule kairos`), plus llm-d's shipped `prefix-threshold(16)` decider.
+**F20 — historical comparison against a Kairos-inspired adaptation.** F19's grid compared only against
+simple rules. We added a physics-normalized adaptation inspired by **Kairos** ("Towards Load-Aware
+Prefill Deflection for Disaggregated LLM Serving", arXiv:2607.02043) as `--edpp-rule kairos`, plus
+llm-d's shipped `prefix-threshold(16)` decider.
 
-*Fidelity of the baseline (stated because it decides whether the comparison is honest).* Kairos is
-reproduced faithfully: prefill-node TTFT = their FIFO queue wait + own chunked execution + KV transfer;
-per decode node, the greedy **largest TBT-safe chunk schedule** (their hard constraint
-`T_step ≤ β·τ_itl`, solved here in closed form rather than swept); one deflected prefill per node;
-deflection avoids the KV transfer. It is evaluated on the SAME trained-physics coefficients AND the SAME
-occupancy-aware admission estimator our rule consumes, so the comparison isolates the POLICY. Two
-fairness bugs in our first implementation were found and fixed: (i) the deflect path initially omitted
-admission delay while the prefill path carried queue wait, making deflection look free on saturated
-decode nodes; (ii) their queue-wait `T_step(χ, Σℓ/2)`, read literally, charges a chunk attention over
-half the *entire queue*, which over-prices the prefill path — we cap the context at one request's prompt
-length, the reading most generous to Kairos. Finally, β is swept ∈{0.25,0.5,1.0} and Kairos is reported
-at its **best** β per seed. The fixes moved Kairos from 0.164→0.736 (decode) and 0.437→0.883 (mixed).
+*Fidelity correction (2026-07-31).* These frozen results are not a reproduction of the published
+algorithm. The historical arm omitted the paper's α=1.3 margin and request TTFT-SLO gate, used the
+arriving request's TBT class rather than the strictest resident class, solved chunk size continuously,
+added an occupancy-aware decode-admission estimate, approximated queued prompt lengths, and added KV
+transfer to the regular-path estimate. These differences have mixed directional bias. The historical
+numbers therefore compare against a **Kairos-inspired, physics-normalized adaptation**, not published
+Kairos. The corrected implementation now exposes `--edpp-rule kairos-paper`; only fresh arms from that
+mode may be used for a published-Kairos comparison. The old arm remains available as
+`--edpp-rule kairos-adapted` (with `kairos` retained as its compatibility alias).
 
 **Grid (deployable arms, variable output σ=0.4, mean over 3 seeds):**
 
@@ -1572,16 +1568,13 @@ at its **best** β per seed. The fixes moved Kairos from 0.164→0.736 (decode) 
 | prefill_bound r8 | 0.399 | 0.046 | 0.046 | 0.890 | 0.954 | **0.968** | 0.964 |
 | heterogeneous    | –     | 0.332 | 0.332 | 0.332 | 0.328 | **0.942** | 0.900 |
 
-**Worst-case regret (deploy blind):** dpVaR **0.054** | dpp 0.38 | kairos* 0.61 | least-ttft 0.61 |
+**Worst-case regret within this historical arm set:** dpVaR **0.054** | dpp 0.38 |
+kairos-adapted* 0.61 | least-ttft 0.61 |
 never 0.65 | always = prefix16 0.92.
 
-Two claims, layered by defensibility. **(a) Inside Kairos's own design envelope** (homogeneous
-archetypes only), dpVaR's worst-case regret is **0.054 vs Kairos 0.117** — a 2× edge on their home turf.
-**(b) Including heterogeneity**, 0.054 vs 0.610 (11×) — but Kairos *assumes homogeneous hardware*, so
-that cell is outside its stated envelope. The honest framing is therefore NOT "we beat Kairos" but:
-**every published rule has a regime where it collapses, and the regime that breaks Kairos and least-ttft
-is hardware heterogeneity — which no published P/D routing rule addresses** (confirmed by survey: Kairos
-uses uniform A100s; TaiChi's "differentiated capability" is chunk-size configuration on identical GPUs).
+The earlier interpretation that these rows establish an advantage over published Kairos is withdrawn.
+They establish an advantage over the evaluated adapted arm only. Homogeneous and heterogeneous
+comparisons against published Kairos require rerunning `kairos-paper` on the frozen workloads and seeds.
 
 **Secondary finding: llm-d's shipped PD decider degenerates to `always`.** `prefix-threshold(16)` is
 byte-identical to `always` in all five cells — every prompt exceeds the 16-token uncached threshold — so
@@ -1589,7 +1582,8 @@ it inherits `always`'s collapses (0.046 prefill_bound, 0.332 heterogeneous). A p
 production config, independent of our rule.
 
 Scope unchanged from F19: σ=0.4, 3 seeds, one heterogeneous topology, simulation with coefficients fit to
-the simulator's own latency model. Harness: `repro_var_dominance.sh` (KBETAS sweeps Kairos's β).
+the simulator's own latency model. Harness: `repro_var_dominance.sh` (its historical rows sweep the
+adapted arm's β and must not be reused as `kairos-paper` results).
 
 ## Structural / topology ablations (2026-07-23) — dpVaR's edge survives the heterogeneity ratio AND the fleet shape
 

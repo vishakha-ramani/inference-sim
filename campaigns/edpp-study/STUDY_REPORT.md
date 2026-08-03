@@ -42,8 +42,8 @@ cost is **size-based** (mirrors the KV-transfer executor). No artificial cap.
    knowledge of workload mix or hardware — that is **within ~5% of the best rule in every regime and
    never catastrophic**, on realistic *variable*-output workloads, using only a **deployable**
    (INV-9-safe) co-resident estimate. Its worst-case regret across the regime space is **~0.05 vs
-   0.29–0.92** for every alternative — including a faithful reproduction of the **state of the art**
-   (Kairos, arXiv:2607.02043, reported at its best β: worst-case regret 0.61) and llm-d's shipped
+   0.29–0.92** for every alternative — including a Kairos-inspired, physics-normalized adaptation of the
+   **state of the art** (arXiv:2607.02043, reported at its best β: worst-case regret 0.61) and llm-d's shipped
    `prefix-threshold`. Each alternative collapses somewhere: `always`/llm-d on prefill-heavy and
    heterogeneous, `dpp` on decode/mixed, Kairos and `least-ttft` on **hardware heterogeneity** — the
    regime no published P/D routing rule addresses. The claim is minimax-regret, not domination. See E13.
@@ -708,8 +708,10 @@ vs dpp 0.93 on heterogeneous) shrinks under realistic output-length variance; it
 
 **The headline is minimax regret, measured against the state of the art.** On realistic variable-output
 workloads (lognormal σ=0.4, CV≈0.42), across the workload/hardware regime space (mean over 3 seeds, all
-DEPLOYABLE). Baselines include **Kairos** (arXiv:2607.02043, load-aware prefill deflection — reproduced
-in BLIS as `--edpp-rule kairos`, reported at its **best** β) and llm-d's shipped `prefix-threshold(16)`:
+DEPLOYABLE). Historical baselines include a **Kairos-inspired adaptation** (arXiv:2607.02043,
+load-aware prefill deflection, implemented as `--edpp-rule kairos` and reported at its **best** β) and
+llm-d's shipped `prefix-threshold(16)`. These rows predate the separate paper-oriented
+`--edpp-rule kairos-paper` implementation and must not be presented as published-Kairos results:
 
 | archetype | never | always | prefix16 | kairos* | least-ttft | dpp | **dpVaR** |
 |---|---|---|---|---|---|---|---|
@@ -733,13 +735,12 @@ best rule in every regime and never craters. Worst-case regret across the grid:
 | **dpVaR (deploy)** | **0.042** | — never |
 
 (Worst-case regret updated 0.054→0.042 on 2026-07-25 when the collocated-prefill externality became the
-default rule; see F23.) Two claims, layered by defensibility. **(a) Inside Kairos's own design envelope**
-(homogeneous archetypes only): dpVaR worst-case regret **0.042 vs Kairos 0.117**, a ~2.8× edge on their
-home turf. **(b) Including heterogeneity**: 0.042 vs 0.610 (~14.5×) — but Kairos *assumes homogeneous hardware*, so
-that cell is outside its envelope. The honest framing is therefore **not** "we beat Kairos" but: *every
-published rule has a regime where it collapses, and the one that breaks Kairos and least-ttft is
-hardware heterogeneity — which no published P/D routing rule addresses.* That is the operational value:
-**the rule you deploy when you cannot predict the workload or the hardware.**
+default rule; see F23.) The numerical comparison in this frozen grid is against the historical
+Kairos-inspired adaptation, not the published algorithm. It therefore cannot support either a
+"we beat Kairos" claim or a claim about where published Kairos collapses. The corrected
+`kairos-paper` arms must be run before making those comparisons. The result that remains established by
+this table is narrower: the candidate policy has low regret relative to the evaluated adapted and
+static baselines across these workload and hardware cells.
 
 **Secondary finding:** llm-d's shipped `prefix-threshold(16)` is byte-identical to `always` in all five
 cells (every prompt exceeds the 16-token uncached threshold), inheriting its 0.046/0.332 collapses.
@@ -761,15 +762,16 @@ replays byte-identical (INV-13).
 E13's minimax-regret result held the heterogeneity at one accelerator ratio and one topology (1P2D).
 Reviewers ask two things of that. At what ratio do the TTFT-currency rules actually break, and does the
 §2.3 cancel/bind normalization survive a change of fleet shape? E14 answers both, reusing E13's deployable
-arm set (σ=0.4, 3 seeds, best-β Kairos). It leaves the E13 headline grid frozen and adds the two sweeps.
+arm set (σ=0.4, 3 seeds, best-β Kairos adaptation). It leaves the E13 headline grid frozen and adds the two sweeps.
 
 **Ratio sweep.** The slow decode node is a uniform Nx slowdown — scale BOTH `tflops_peak` and
 `bw_peak_tbs` by 1/N, then fit its coefficients from the same trained-physics engine that executes it
 (the design §3 no-confound recipe, generalized by `repro_theta_by_gpu.sh`). Because the workload is
 decode-bound, the fitted per-token decode coefficient scales as N exactly, so the ratio the rule sees
 equals the knob. N=5 reproduces the crippled-A100 cell (fitted `c1` 0.238 vs 0.228), and at N=5 seed 42
-lands on the tab:grid worst-seed column (dpVaR 0.777). Across N∈[1,5], the TTFT-currency rules (least-ttft,
-Kairos) fall below half their homogeneous goodput by N=1.5 and reach worst-case regret **0.61** against the
+lands on the tab:grid worst-seed column (dpVaR 0.777). Across N∈[1,5], the evaluated TTFT-currency rules
+(least-ttft and the Kairos adaptation) fall below half their homogeneous goodput by N=1.5 and reach
+worst-case regret **0.61** against the
 per-N best static split, while dpp holds **0.00** and dpVaR **0.05**. dpVaR's margin over least-ttft grows
 with N and reaches **0.57 at N=5**. (See F21 for the table.)
 
@@ -777,7 +779,8 @@ with N and reaches **0.57 at N=5**. (See F21 for the table.)
 archetypes, **ten seeds** (re-run 2026-07-25 to average out the seed-42 3P1D pathology; see F23). Worst-case
 regret per topology: dpVaR **0.033 / 0.015 / 0.006** — it holds its 1P2D headline (0.042) on every shape,
 because the congestion term still cancels on matched instances and binds on mismatched ones under the one
-shared weight. Kairos, near-optimal on decode-heavy 1P3D (0.004), collapses on prefill-heavy 3P1D (0.58),
+shared weight. The Kairos adaptation, near-optimal on decode-heavy 1P3D (0.004), collapses on
+prefill-heavy 3P1D (0.58),
 so its exposure follows provisioning as well as workload. The collocated-prefill externality does its work
 on the collocation-heavy 3P1D shape, where it cuts dpVaR's worst-case regret from 0.072 (ablation) to 0.006.
 Fixing the rule and reading goodput across the three provisionings, dpVaR tracks the per-provisioning best
@@ -789,8 +792,8 @@ collocation); the paper calls them "mixed (M)" and the published tab:grid uses t
 paper subsection uses M-notation. True mixed pods would be `--prefill-decode-instances`.
 
 **What to look for when reproducing (E14).** Ratio sweep: `c1` ratio ≈ N for each generated coeff file;
-least-ttft/Kairos monotonically decaying and dpVaR/dpp on the best-static-split line; dpVaR worst-case
-regret ≈0.05. Topology: dpVaR worst-case regret ≤0.033 on all three shapes (ten seeds); Kairos worst-case
+least-ttft/Kairos-adapted monotonically decaying and dpVaR/dpp on the best-static-split line; dpVaR worst-case
+regret ≈0.05. Topology: dpVaR worst-case regret ≤0.033 on all three shapes (ten seeds); Kairos-adapted worst-case
 regret rising sharply from 1P3D to 3P1D. Refute: dpVaR craters on any (topology, archetype, seed) a fixed rule owns, or
 its ratio-sweep regret exceeds dpp's at any N below the overload band.
 

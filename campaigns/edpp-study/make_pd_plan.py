@@ -27,6 +27,11 @@ Decode instances alternate within each class separately, so both mixed instances
 receive an even share of the decode-only work AND an even share of the
 whole-request work. Splitting one shared counter would correlate the two.
 
+For a static-share yardstick that must differ from a live policy only in its P/D
+choice, pass --preserve-routing. The generated plan then leaves decode_instance
+empty and uses prefill_instance=auto for remote prefill, preserving the normal
+decode and prefill routing policies.
+
 Plans must be total: sim/fixed_plan_decider.go panics on a request that is
 absent, by design (R1, no silent fallback). So --num-requests must not exceed the
 row count. The harness passes the same N it puts in the workload spec.
@@ -46,8 +51,10 @@ def main():
                     help="number of requests; must be >= the run's --num-requests")
     ap.add_argument("--phi", type=float, required=True,
                     help="share of requests disaggregated (prefill on the prefill instance)")
-    ap.add_argument("--prefill-instance", default="instance_0",
-                    help="the prefill-only instance (default instance_0)")
+    ap.add_argument("--prefill-instance", default=None,
+                    help="force every remote prefill to one instance; default round-robins the prefill pool")
+    ap.add_argument("--prefill-instances", type=int, default=1,
+                    help="size of the dedicated prefill pool (default 1)")
     ap.add_argument("--decode-instances", type=int, default=2,
                     help="size of the mixed/decode pool; ids follow the prefill instance")
     ap.add_argument("--psi", type=float, default=None,
@@ -56,6 +63,14 @@ def main():
                          "the slow one, so psi=0 quarantines it out of decode entirely.")
     ap.add_argument("--id-prefix", default="request_",
                     help="request id prefix (sim/workload/generator.go uses request_<i>)")
+    ap.add_argument(
+        "--preserve-routing",
+        action="store_true",
+        help=(
+            "control only the P/D fraction: leave decode_instance empty and "
+            "use normal prefill-pool routing for disaggregated requests"
+        ),
+    )
     args = ap.parse_args()
 
     if not 0.0 <= args.phi <= 1.0:
@@ -64,12 +79,20 @@ def main():
         raise SystemExit(f"--psi must be in [0, 1], got {args.psi}")
     if args.decode_instances < 1:
         raise SystemExit("--decode-instances must be at least 1")
+    if args.prefill_instances < 1:
+        raise SystemExit("--prefill-instances must be at least 1")
     if args.psi is not None and args.decode_instances < 2:
         raise SystemExit("--psi needs at least two mixed instances to divide between")
 
-    # Mixed pool ids sit immediately after the prefill instance: 1P2D gives
-    # instance_0 the prefill role and instance_1, instance_2 the mixed roles.
-    mixed = [f"instance_{i}" for i in range(1, 1 + args.decode_instances)]
+    # Decode pool ids sit immediately after the dedicated prefill pool.
+    prefill_pool = [f"instance_{i}" for i in range(args.prefill_instances)]
+    mixed = [
+        f"instance_{i}"
+        for i in range(
+            args.prefill_instances,
+            args.prefill_instances + args.decode_instances,
+        )
+    ]
 
     print("request_id,decode_instance,prefill_instance")
 
@@ -94,11 +117,18 @@ def main():
         disagg = err >= 1.0 - 1e-12
         if disagg:
             err -= 1.0
-            prefill = args.prefill_instance
+            if args.preserve_routing:
+                prefill = "auto"
+            elif args.prefill_instance is not None:
+                prefill = args.prefill_instance
+            else:
+                prefill = prefill_pool[n_disagg % len(prefill_pool)]
         else:
             prefill = "local"
 
-        if args.psi is None:
+        if args.preserve_routing:
+            decode = ""
+        elif args.psi is None:
             # Independent round-robin per class, the original even division.
             if disagg:
                 decode = mixed[n_disagg % len(mixed)]
