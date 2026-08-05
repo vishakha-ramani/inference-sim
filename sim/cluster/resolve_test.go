@@ -16,7 +16,7 @@ func TestResolvePoolConfig_NoOverrides_ReturnsGlobalUnchanged(t *testing.T) {
 		KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 		BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 		LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 8192),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 8192),
 	}
 	overrides := PoolOverrides{} // all nil/zero
 
@@ -54,7 +54,7 @@ func TestResolvePoolConfig_AllOverrides_Applied(t *testing.T) {
 		KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 		BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 		LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 8192),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 8192),
 	}
 
 	tp := 2
@@ -99,7 +99,7 @@ func TestResolvePoolConfig_PartialOverrides_OnlySpecifiedFieldsChange(t *testing
 		KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 		BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 		LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 8192),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 8192),
 	}
 
 	tp := 8
@@ -130,7 +130,7 @@ func TestResolvePoolConfig_DoesNotMutateGlobal(t *testing.T) {
 		KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 		BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 		LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", 0),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "", 0),
 	}
 	origTP := global.TP
 
@@ -150,7 +150,7 @@ func TestResolveConfigForRole_Prefill(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "", 0),
 		},
 		PrefillOverrides: PoolOverrides{TP: &tp},
 	}
@@ -168,7 +168,7 @@ func TestResolveConfigForRole_Decode(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "", 0),
 		},
 		DecodeOverrides: PoolOverrides{TP: &tp},
 	}
@@ -192,7 +192,7 @@ func TestResolveConfigForRole_Shared(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 16, 1, false, "", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 16, 1, false, "", "", 0),
 		},
 		PrefillOverrides: PoolOverrides{TP: &prefillTP},
 		DecodeOverrides:  PoolOverrides{TP: &decodeTP},
@@ -211,7 +211,7 @@ func TestResolveConfigForRole_NoRole_ReturnsGlobal(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "", 0),
 		},
 		PrefillOverrides: PoolOverrides{TP: &tp},
 	}
@@ -237,7 +237,7 @@ func TestNewClusterSimulator_PerPoolConfig_HeterogeneousTP(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 0),
 		},
 		NumInstances:            4,
 		PrefillInstances:        2,
@@ -250,7 +250,7 @@ func TestNewClusterSimulator_PerPoolConfig_HeterogeneousTP(t *testing.T) {
 		DecodeOverrides:         PoolOverrides{TP: &decodeTP},
 	}
 
-	cs := NewClusterSimulator(config, nil, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(nil), nil)
 
 	if len(cs.Instances()) != 4 {
 		t.Errorf("instance count = %d, want 4", len(cs.Instances()))
@@ -289,7 +289,7 @@ func TestNewClusterSimulator_NoOverrides_BackwardCompat(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 0),
 		},
 		NumInstances:            4,
 		PrefillInstances:        2,
@@ -301,7 +301,7 @@ func TestNewClusterSimulator_NoOverrides_BackwardCompat(t *testing.T) {
 		// No PrefillOverrides or DecodeOverrides — zero valued
 	}
 
-	cs := NewClusterSimulator(config, nil, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(nil), nil)
 	if len(cs.Instances()) != 4 {
 		t.Errorf("instance count = %d, want 4", len(cs.Instances()))
 	}
@@ -331,7 +331,7 @@ func TestINV_P2_1_PoolConfigConsistency(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 0),
 		},
 		NumInstances:            4,
 		PrefillInstances:        2,
@@ -345,7 +345,7 @@ func TestINV_P2_1_PoolConfigConsistency(t *testing.T) {
 	}
 
 	requests := newTestRequests(5)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// INV-P2-1 pre-check: verify per-pool KV capacity via observable FreeKVBlocks().
 	// Before simulation, FreeKVBlocks() == TotalCapacity (no requests allocated yet).
@@ -390,7 +390,7 @@ func TestResolvePoolConfig_Idempotent(t *testing.T) {
 		KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 		BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 		LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 8192),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 8192),
 	}
 
 	tp := 8
@@ -557,7 +557,7 @@ func newHeterogeneousDeploymentConfig(numInstances, prefill, decode int, prefill
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 0),
 		},
 		NumInstances:            numInstances,
 		PrefillInstances:        prefill,
@@ -606,7 +606,7 @@ func TestResolvePoolConfig_MaxModelLen_CappedToPoolKVCapacity(t *testing.T) {
 		Horizon:             1000000,
 		Seed:                42,
 		KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0), // 10000 blocks × 16 = 160000 tokens
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test", "H100", 1, 1, false, "", 131072),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test", "H100", 1, 1, false, "", "", 131072),
 	}
 
 	// AND per-pool override with smaller TotalKVBlocks (smaller GPU) and auto-capped MaxModelLen
@@ -690,7 +690,7 @@ func TestResolveConfigForRole_CrossPoolIsolation(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "", 0),
 		},
 		PrefillOverrides: PoolOverrides{TP: &prefillTP},
 		DecodeOverrides:  PoolOverrides{TP: &decodeTP},
@@ -717,7 +717,7 @@ func TestResolveConfigForRole_SLOPriorityOverrides_Propagates(t *testing.T) {
 			KVCacheConfig:        sim.NewKVCacheConfig(5000, 16, 0, 0, 0, 0),
 			BatchConfig:          sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:        sim.NewLatencyCoeffs([]float64{1, 2, 3}, []float64{4, 5, 6}),
-			ModelHardwareConfig:  sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", 0),
+			ModelHardwareConfig:  sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "", 0),
 			SLOPriorityOverrides: overrides,
 		},
 	}
@@ -757,7 +757,7 @@ func TestNewClusterSimulator_PanicsOnInvalidPrefillOverrides(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 0),
 		},
 		NumInstances:     4,
 		PrefillInstances: 2,
@@ -781,7 +781,7 @@ func TestNewClusterSimulator_PanicsOnInvalidPrefillOverrides(t *testing.T) {
 		}
 	}()
 
-	NewClusterSimulator(config, nil, nil)
+	NewClusterSimulator(config, NewSliceRequestSource(nil), nil)
 }
 
 // TestNewClusterSimulator_PureSharedCluster verifies issue #1276: a pure-shared
@@ -796,7 +796,7 @@ func TestNewClusterSimulator_PureSharedCluster(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 0),
 		},
 		NumInstances:    3,
 		SharedInstances: 3, // all instances are prefill-decode shared-role
@@ -805,7 +805,7 @@ func TestNewClusterSimulator_PureSharedCluster(t *testing.T) {
 	}
 
 	// Must construct without panicking — the extended guard accepts pure-shared.
-	cs := NewClusterSimulator(config, nil, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(nil), nil)
 	if cs == nil {
 		t.Fatal("NewClusterSimulator returned nil for a valid pure-shared cluster")
 	}
@@ -832,7 +832,7 @@ func TestNewClusterSimulator_PureSharedWithTransferContention(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 0),
 		},
 		NumInstances:         2,
 		SharedInstances:      2,
@@ -841,7 +841,7 @@ func TestNewClusterSimulator_PureSharedWithTransferContention(t *testing.T) {
 		RoutingPolicy:        "round-robin",
 	}
 
-	cs := NewClusterSimulator(config, nil, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(nil), nil)
 	if cs == nil {
 		t.Fatal("NewClusterSimulator returned nil for pure-shared + PDTransferContention")
 	}
@@ -858,7 +858,7 @@ func TestNewClusterSimulator_PanicsOnInvalidDecodeOverrides(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 0),
 		},
 		NumInstances:     4,
 		PrefillInstances: 2,
@@ -882,7 +882,7 @@ func TestNewClusterSimulator_PanicsOnInvalidDecodeOverrides(t *testing.T) {
 		}
 	}()
 
-	NewClusterSimulator(config, nil, nil)
+	NewClusterSimulator(config, NewSliceRequestSource(nil), nil)
 }
 
 // TestINV_P2_1_RequestConservation verifies INV-1 holds for a heterogeneous PD cluster:
@@ -906,7 +906,7 @@ func TestINV_P2_1_RequestConservation(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(mc, testRooflineHWCalib(), "test-model", "H100", 4, 1, false, "", "roofline", 0),
 		},
 		NumInstances:            4,
 		PrefillInstances:        2,
@@ -919,7 +919,7 @@ func TestINV_P2_1_RequestConservation(t *testing.T) {
 		DecodeOverrides:         PoolOverrides{TotalKVBlocks: &decodeKV},
 	}
 
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 	if err := cs.Run(); err != nil {
 		t.Fatalf("Run() failed: %v", err)
 	}

@@ -312,7 +312,7 @@ func TestParseTraceRecord_InvalidInteger_ReturnsError(t *testing.T) {
 	}
 
 	// WHEN parsing
-	_, err := parseTraceRecord(row, false, false, -1)
+	_, err := parseTraceRecord(row, false, false, -1, -1)
 
 	// THEN error about invalid value
 	if err == nil {
@@ -331,7 +331,7 @@ func TestParseTraceRecord_InvalidDeadlineUs_ReturnsError(t *testing.T) {
 	}
 	row[17] = "not_a_number" // deadline_us column (shifted +1 by prefix_length)
 
-	_, err := parseTraceRecord(row, false, false, -1)
+	_, err := parseTraceRecord(row, false, false, -1, -1)
 
 	if err == nil {
 		t.Fatal("expected error for non-numeric deadline_us, got nil")
@@ -349,7 +349,7 @@ func TestParseTraceRecord_InvalidServerInputTokens_ReturnsError(t *testing.T) {
 	}
 	row[18] = "not_a_number" // server_input_tokens column (shifted +1)
 
-	_, err := parseTraceRecord(row, false, false, -1)
+	_, err := parseTraceRecord(row, false, false, -1, -1)
 
 	if err == nil {
 		t.Fatal("expected error for non-numeric server_input_tokens, got nil")
@@ -369,7 +369,7 @@ func TestParseTraceRecord_InvalidVLLMPriority_ReturnsError(t *testing.T) {
 	row[4] = "not_a_number" // vllm_priority column (index 4)
 
 	// WHEN parsing with hasVLLMPriority=true
-	_, err := parseTraceRecord(row, true, false, -1)
+	_, err := parseTraceRecord(row, true, false, -1, -1)
 
 	// THEN error about invalid value
 	if err == nil {
@@ -390,7 +390,7 @@ func TestParseTraceRecord_NegativeVLLMPriority_ReturnsError(t *testing.T) {
 	row[4] = "-1" // negative vllm_priority
 
 	// WHEN parsing with hasVLLMPriority=true
-	_, err := parseTraceRecord(row, true, false, -1)
+	_, err := parseTraceRecord(row, true, false, -1, -1)
 
 	// THEN error about negative value
 	if err == nil {
@@ -412,7 +412,7 @@ func TestParseTraceRecord_NegativeDeadlineUs_ReturnsError(t *testing.T) {
 	}
 	row[17] = "-1" // negative deadline_us (shifted +1)
 
-	_, err := parseTraceRecord(row, false, false, -1)
+	_, err := parseTraceRecord(row, false, false, -1, -1)
 
 	if err == nil {
 		t.Fatal("expected error for negative deadline_us, got nil")
@@ -423,7 +423,7 @@ func TestParseTraceRecord_NegativeDeadlineUs_ReturnsError(t *testing.T) {
 }
 
 // TestParseTraceRecord_NegativeInputTokens_ReturnsError verifies R3 for
-// input_tokens (prevents make([]int, negative) panic in replay).
+// input_tokens (prevents make([]sim.TokenID, negative) panic in replay).
 func TestParseTraceRecord_NegativeInputTokens_ReturnsError(t *testing.T) {
 	row := make([]string, 27)
 	for i := range row {
@@ -431,7 +431,7 @@ func TestParseTraceRecord_NegativeInputTokens_ReturnsError(t *testing.T) {
 	}
 	row[9] = "-1" // input_tokens column (shifted +1)
 
-	_, err := parseTraceRecord(row, false, false, -1)
+	_, err := parseTraceRecord(row, false, false, -1, -1)
 
 	if err == nil {
 		t.Fatal("expected error for negative input_tokens, got nil")
@@ -442,7 +442,7 @@ func TestParseTraceRecord_NegativeInputTokens_ReturnsError(t *testing.T) {
 }
 
 // TestParseTraceRecord_NegativeOutputTokens_ReturnsError verifies R3 for
-// output_tokens (prevents make([]int, negative) panic in replay).
+// output_tokens (prevents make([]sim.TokenID, negative) panic in replay).
 func TestParseTraceRecord_NegativeOutputTokens_ReturnsError(t *testing.T) {
 	row := make([]string, 27)
 	for i := range row {
@@ -450,7 +450,7 @@ func TestParseTraceRecord_NegativeOutputTokens_ReturnsError(t *testing.T) {
 	}
 	row[10] = "-1" // output_tokens column (shifted +1)
 
-	_, err := parseTraceRecord(row, false, false, -1)
+	_, err := parseTraceRecord(row, false, false, -1, -1)
 
 	if err == nil {
 		t.Fatal("expected error for negative output_tokens, got nil")
@@ -469,7 +469,7 @@ func TestParseTraceRecord_NegativeServerInputTokens_ReturnsError(t *testing.T) {
 	}
 	row[18] = "-1" // server_input_tokens column (shifted +1)
 
-	_, err := parseTraceRecord(row, false, false, -1)
+	_, err := parseTraceRecord(row, false, false, -1, -1)
 
 	if err == nil {
 		t.Fatal("expected error for negative server_input_tokens, got nil")
@@ -489,7 +489,7 @@ func TestParseTraceRecord_DeadlineBeforeArrival_ReturnsError(t *testing.T) {
 	row[17] = "1000" // deadline_us = 1000 (shifted +1)
 	row[19] = "5000" // arrival_time_us = 5000 (shifted +1)
 
-	_, err := parseTraceRecord(row, false, false, -1)
+	_, err := parseTraceRecord(row, false, false, -1, -1)
 
 	if err == nil {
 		t.Fatal("expected error for deadline before arrival, got nil")
@@ -518,7 +518,7 @@ func TestParseTraceRecord_InvalidReasonRatio_ReturnsError(t *testing.T) {
 		}
 		row[15] = tc.value // reason_ratio column (shifted +1)
 
-		_, err := parseTraceRecord(row, false, false, -1)
+		_, err := parseTraceRecord(row, false, false, -1, -1)
 
 		if err == nil {
 			t.Errorf("reason_ratio=%q: expected error, got nil", tc.value)
@@ -618,8 +618,8 @@ func TestRequestMetadataFields(t *testing.T) {
 	req := &sim.Request{
 		ID:             "request_0",
 		State:          sim.StateCompleted,
-		InputTokens:    []int{1, 2, 3},
-		OutputTokens:   []int{4, 5},
+		InputTokens:    []sim.TokenID{1, 2, 3},
+		OutputTokens:   []sim.TokenID{4, 5},
 		ArrivalTime:    1000,
 		TTFTSet:        true,
 		FirstTokenTime: 500,
@@ -669,8 +669,8 @@ func TestRequestsToTraceRecords_FieldMapping(t *testing.T) {
 	req := &sim.Request{
 		ID:              "request_0",
 		State:           sim.StateCompleted,
-		InputTokens:     make([]int, 512),
-		OutputTokens:    make([]int, 256),
+		InputTokens:     make([]sim.TokenID, 512),
+		OutputTokens:    make([]sim.TokenID, 256),
 		ProgressIndex:   512 + 256,
 		ArrivalTime:     10000,
 		TTFTSet:         true,
@@ -760,8 +760,8 @@ func TestRequestsToTraceRecords_StatusMapping(t *testing.T) {
 		req := &sim.Request{
 			ID:           "request_0",
 			State:        tc.state,
-			InputTokens:  []int{1},
-			OutputTokens: []int{2},
+			InputTokens:  []sim.TokenID{1},
+			OutputTokens: []sim.TokenID{2},
 		}
 		records := RequestsToTraceRecords([]*sim.Request{req})
 		if records[0].Status != tc.want {
@@ -774,8 +774,8 @@ func TestRequestsToTraceRecords_TimingCausality(t *testing.T) {
 	req := &sim.Request{
 		ID:             "request_0",
 		State:          sim.StateCompleted,
-		InputTokens:    make([]int, 100),
-		OutputTokens:   make([]int, 50),
+		InputTokens:    make([]sim.TokenID, 100),
+		OutputTokens:   make([]sim.TokenID, 50),
 		ArrivalTime:    5000,
 		TTFTSet:        true,
 		FirstTokenTime: 3000,
@@ -800,8 +800,8 @@ func TestRequestsToTraceRecords_PrefillTimeout(t *testing.T) {
 	req := &sim.Request{
 		ID:           "request_0",
 		State:        sim.StateTimedOut,
-		InputTokens:  make([]int, 100),
-		OutputTokens: make([]int, 50),
+		InputTokens:  make([]sim.TokenID, 100),
+		OutputTokens: make([]sim.TokenID, 50),
 		ArrivalTime:  5000,
 		TTFTSet:      false,
 	}
@@ -825,8 +825,8 @@ func TestRequestsToTraceRecords_RecordCount(t *testing.T) {
 		reqs[i] = &sim.Request{
 			ID:           "request_0",
 			State:        sim.StateCompleted,
-			InputTokens:  []int{1},
-			OutputTokens: []int{2},
+			InputTokens:  []sim.TokenID{1},
+			OutputTokens: []sim.TokenID{2},
 		}
 	}
 	records := RequestsToTraceRecords(reqs)
@@ -840,8 +840,8 @@ func TestRequestsToTraceRecords_RoundTrip(t *testing.T) {
 		{
 			ID:             "request_0",
 			State:          sim.StateCompleted,
-			InputTokens:    make([]int, 512),
-			OutputTokens:   make([]int, 128),
+			InputTokens:    make([]sim.TokenID, 512),
+			OutputTokens:   make([]sim.TokenID, 128),
 			ArrivalTime:    1000,
 			TTFTSet:        true,
 			FirstTokenTime: 500,
@@ -855,8 +855,8 @@ func TestRequestsToTraceRecords_RoundTrip(t *testing.T) {
 		{
 			ID:           "request_1",
 			State:        sim.StateTimedOut,
-			InputTokens:  make([]int, 256),
-			OutputTokens: make([]int, 64),
+			InputTokens:  make([]sim.TokenID, 256),
+			OutputTokens: make([]sim.TokenID, 64),
 			ArrivalTime:  2000,
 			TTFTSet:      false,
 			TenantID:     "t2",
@@ -937,24 +937,24 @@ func TestRequestsToTraceRecords_VLLMPriority_AlwaysZero(t *testing.T) {
 			ID:            "req1",
 			State:         sim.StateCompleted,
 			SLOClass:      "critical",
-			InputTokens:   make([]int, 10),
-			OutputTokens:  make([]int, 5),
+			InputTokens:   make([]sim.TokenID, 10),
+			OutputTokens:  make([]sim.TokenID, 5),
 			ProgressIndex: 15,
 		},
 		{
 			ID:            "req2",
 			State:         sim.StateCompleted,
 			SLOClass:      "batch",
-			InputTokens:   make([]int, 20),
-			OutputTokens:  make([]int, 10),
+			InputTokens:   make([]sim.TokenID, 20),
+			OutputTokens:  make([]sim.TokenID, 10),
 			ProgressIndex: 30,
 		},
 		{
 			ID:            "req3",
 			State:         sim.StateCompleted,
 			SLOClass:      "", // no SLO class
-			InputTokens:   make([]int, 5),
-			OutputTokens:  make([]int, 2),
+			InputTokens:   make([]sim.TokenID, 5),
+			OutputTokens:  make([]sim.TokenID, 2),
 			ProgressIndex: 7,
 		},
 	}
@@ -969,6 +969,138 @@ func TestRequestsToTraceRecords_VLLMPriority_AlwaysZero(t *testing.T) {
 				i, rec.VLLMPriority)
 		}
 	}
+}
+
+// TestTraceV2_Adapter_RoundTrip verifies that LoRA adapter identity survives the
+// full run→trace→replay round-trip (#1464 F1). A request carrying a non-empty
+// Adapter must be reconstructed by LoadTraceV2Requests with the same Adapter, and
+// the trace must omit the adapter column entirely for adapter-blind workloads so
+// the no-op default adds no columns (INV-6).
+func TestTraceV2_Adapter_RoundTrip(t *testing.T) {
+	t.Run("adapter preserved through export and replay reconstruction", func(t *testing.T) {
+		reqs := []*sim.Request{
+			{
+				ID:           "request_0",
+				State:        sim.StateCompleted,
+				InputTokens:  make([]sim.TokenID, 64),
+				OutputTokens: make([]sim.TokenID, 32),
+				ArrivalTime:  1000,
+				Adapter:      "sql-lora",
+			},
+			{
+				ID:           "request_1",
+				State:        sim.StateCompleted,
+				InputTokens:  make([]sim.TokenID, 48),
+				OutputTokens: make([]sim.TokenID, 16),
+				ArrivalTime:  2000,
+				Adapter:      "", // base-model-only
+			},
+		}
+
+		records := RequestsToTraceRecords(reqs)
+		if records[0].Adapter != "sql-lora" {
+			t.Fatalf("RequestsToTraceRecords dropped adapter: got %q, want %q", records[0].Adapter, "sql-lora")
+		}
+
+		dir := t.TempDir()
+		headerPath := filepath.Join(dir, "header.yaml")
+		dataPath := filepath.Join(dir, "data.csv")
+		header := &TraceHeader{Version: 2, TimeUnit: "us", Mode: "generated"}
+		if err := ExportTraceV2(header, records, headerPath, dataPath); err != nil {
+			t.Fatalf("ExportTraceV2: %v", err)
+		}
+
+		loaded, err := LoadTraceV2(headerPath, dataPath)
+		if err != nil {
+			t.Fatalf("LoadTraceV2: %v", err)
+		}
+		if loaded.Records[0].Adapter != "sql-lora" {
+			t.Errorf("TraceRecord round-trip: got adapter %q, want %q", loaded.Records[0].Adapter, "sql-lora")
+		}
+		if loaded.Records[1].Adapter != "" {
+			t.Errorf("base-model record: got adapter %q, want empty", loaded.Records[1].Adapter)
+		}
+
+		// The replay reconstruction path must restore Adapter onto the request.
+		replayed, err := LoadTraceV2Requests(loaded, 42)
+		if err != nil {
+			t.Fatalf("LoadTraceV2Requests: %v", err)
+		}
+		if len(replayed) != len(reqs) {
+			t.Fatalf("replayed request count: got %d, want %d", len(replayed), len(reqs))
+		}
+		if replayed[0].Adapter != "sql-lora" {
+			t.Errorf("replayed request adapter: got %q, want %q (INV-13 identity lost)", replayed[0].Adapter, "sql-lora")
+		}
+		if replayed[1].Adapter != "" {
+			t.Errorf("replayed base-model request adapter: got %q, want empty", replayed[1].Adapter)
+		}
+	})
+
+	t.Run("adapter threads through session round-0 request and blueprint", func(t *testing.T) {
+		// Two-round session; both rounds carry the same adapter. The blueprint
+		// drives follow-up rounds, so it must also carry the adapter (session.go
+		// applies bp.Adapter to each follow-up round request).
+		records := []TraceRecord{
+			{RequestID: 0, SessionID: "s1", RoundIndex: 0, InputTokens: 32, OutputTokens: 16, ArrivalTimeUs: 1000, Adapter: "sql-lora", Status: "ok"},
+			{RequestID: 1, SessionID: "s1", RoundIndex: 1, InputTokens: 24, OutputTokens: 8, ArrivalTimeUs: 5000, Adapter: "sql-lora", Status: "ok"},
+		}
+		dir := t.TempDir()
+		headerPath := filepath.Join(dir, "header.yaml")
+		dataPath := filepath.Join(dir, "data.csv")
+		header := &TraceHeader{Version: 2, TimeUnit: "us", Mode: "generated"}
+		if err := ExportTraceV2(header, records, headerPath, dataPath); err != nil {
+			t.Fatalf("ExportTraceV2: %v", err)
+		}
+		loaded, err := LoadTraceV2(headerPath, dataPath)
+		if err != nil {
+			t.Fatalf("LoadTraceV2: %v", err)
+		}
+
+		round0, blueprints, err := LoadTraceV2SessionBlueprints(loaded, 42, nil, 0)
+		if err != nil {
+			t.Fatalf("LoadTraceV2SessionBlueprints: %v", err)
+		}
+		if len(round0) != 1 || len(blueprints) != 1 {
+			t.Fatalf("got %d round-0 requests and %d blueprints, want 1 and 1", len(round0), len(blueprints))
+		}
+		if round0[0].Adapter != "sql-lora" {
+			t.Errorf("session round-0 request adapter: got %q, want %q", round0[0].Adapter, "sql-lora")
+		}
+		if blueprints[0].Adapter != "sql-lora" {
+			t.Errorf("session blueprint adapter: got %q, want %q (follow-up rounds would lose adapter)", blueprints[0].Adapter, "sql-lora")
+		}
+	})
+
+	t.Run("adapter-blind workload omits the adapter column (INV-6 no-op)", func(t *testing.T) {
+		reqs := []*sim.Request{
+			{
+				ID:           "request_0",
+				State:        sim.StateCompleted,
+				InputTokens:  make([]sim.TokenID, 64),
+				OutputTokens: make([]sim.TokenID, 32),
+				ArrivalTime:  1000,
+			},
+		}
+		records := RequestsToTraceRecords(reqs)
+
+		dir := t.TempDir()
+		headerPath := filepath.Join(dir, "header.yaml")
+		dataPath := filepath.Join(dir, "data.csv")
+		header := &TraceHeader{Version: 2, TimeUnit: "us", Mode: "generated"}
+		if err := ExportTraceV2(header, records, headerPath, dataPath); err != nil {
+			t.Fatalf("ExportTraceV2: %v", err)
+		}
+
+		data, err := os.ReadFile(dataPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		headerRow := strings.Split(string(data), "\n")[0]
+		if strings.Contains(headerRow, "adapter") {
+			t.Errorf("adapter column must be absent for adapter-blind workloads; header: %q", headerRow)
+		}
+	})
 }
 
 func TestTraceRecord_VLLMPriority_FieldExists(t *testing.T) {
@@ -1411,46 +1543,46 @@ func TestTraceV2_SLOTargetUs_WithVLLMPriority_DoubleOffset(t *testing.T) {
 func TestTraceRecordsToRequestMetrics_UnitsAndFiltering(t *testing.T) {
 	records := []TraceRecord{
 		{
-			RequestID:        1,
-			Status:           "ok",
-			ArrivalTimeUs:    1000000, // 1 second in microseconds
-			SendTimeUs:       1000000,
-			LastChunkTimeUs:  1150000, // E2E = 150ms
+			RequestID:       1,
+			Status:          "ok",
+			ArrivalTimeUs:   1000000, // 1 second in microseconds
+			SendTimeUs:      1000000,
+			LastChunkTimeUs: 1150000, // E2E = 150ms
 		},
 		{
-			RequestID:        2,
-			Status:           "timeout",
-			ArrivalTimeUs:    2000000,
-			SendTimeUs:       2000000,
-			LastChunkTimeUs:  2100000,
+			RequestID:       2,
+			Status:          "timeout",
+			ArrivalTimeUs:   2000000,
+			SendTimeUs:      2000000,
+			LastChunkTimeUs: 2100000,
 		},
 		{
-			RequestID:        3,
-			Status:           "ok",
-			ArrivalTimeUs:    3000000, // 3 seconds in microseconds
-			SendTimeUs:       3000000,
-			LastChunkTimeUs:  3200000, // E2E = 200ms
+			RequestID:       3,
+			Status:          "ok",
+			ArrivalTimeUs:   3000000, // 3 seconds in microseconds
+			SendTimeUs:      3000000,
+			LastChunkTimeUs: 3200000, // E2E = 200ms
 		},
 		{
-			RequestID:        4,
-			Status:           "error",
-			ArrivalTimeUs:    4000000,
-			SendTimeUs:       4000000,
-			LastChunkTimeUs:  4050000,
+			RequestID:       4,
+			Status:          "error",
+			ArrivalTimeUs:   4000000,
+			SendTimeUs:      4000000,
+			LastChunkTimeUs: 4050000,
 		},
 		{
-			RequestID:        5,
-			Status:           "ok",
-			ArrivalTimeUs:    5000000,
-			SendTimeUs:       5000000,
-			LastChunkTimeUs:  5000000, // E2E = 0 (clock skew or malformed)
+			RequestID:       5,
+			Status:          "ok",
+			ArrivalTimeUs:   5000000,
+			SendTimeUs:      5000000,
+			LastChunkTimeUs: 5000000, // E2E = 0 (clock skew or malformed)
 		},
 		{
-			RequestID:        6,
-			Status:           "ok",
-			ArrivalTimeUs:    6000000,
-			SendTimeUs:       6100000,
-			LastChunkTimeUs:  6050000, // E2E < 0 (clock skew)
+			RequestID:       6,
+			Status:          "ok",
+			ArrivalTimeUs:   6000000,
+			SendTimeUs:      6100000,
+			LastChunkTimeUs: 6050000, // E2E < 0 (clock skew)
 		},
 	}
 
@@ -1525,12 +1657,12 @@ func TestTraceRecordsToRequestMetrics_RateDeficitSemantics(t *testing.T) {
 	// The rate_deficit formula depends on this distinction:
 	// rate_deficit = 1 - (completions / totalArrivals)
 	// If caller passes len(metrics) instead of len(records), the deficit is understated.
-	completions := len(metrics)             // 2
-	totalArrivalsCorrect := len(records)    // 4
-	totalArrivalsWrong := len(metrics)      // 2
+	completions := len(metrics)          // 2
+	totalArrivalsCorrect := len(records) // 4
+	totalArrivalsWrong := len(metrics)   // 2
 
-	rateDeficitCorrect := 1.0 - float64(completions)/float64(totalArrivalsCorrect)   // 1 - 2/4 = 0.5
-	rateDeficitWrong := 1.0 - float64(completions)/float64(totalArrivalsWrong)       // 1 - 2/2 = 0.0
+	rateDeficitCorrect := 1.0 - float64(completions)/float64(totalArrivalsCorrect) // 1 - 2/4 = 0.5
+	rateDeficitWrong := 1.0 - float64(completions)/float64(totalArrivalsWrong)     // 1 - 2/2 = 0.0
 
 	if rateDeficitCorrect != 0.5 {
 		t.Errorf("With totalArrivals=4: rate_deficit = %f, want 0.5", rateDeficitCorrect)

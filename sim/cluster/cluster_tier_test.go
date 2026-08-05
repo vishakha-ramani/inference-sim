@@ -16,12 +16,12 @@ func newTierTestRequests(n int, sloClass string) []*sim.Request {
 	reqs := make([]*sim.Request, n)
 	for i := range reqs {
 		reqs[i] = &sim.Request{
-			ID:          fmt.Sprintf("req_%s_%d", sloClass, i),
-			ArrivalTime: int64(i) * 100,
-			SLOClass:    sloClass,
-			InputTokens: make([]int, 50),
-			OutputTokens: make([]int, 20),
-			State:       sim.StateQueued,
+			ID:           fmt.Sprintf("req_%s_%d", sloClass, i),
+			ArrivalTime:  int64(i) * 100,
+			SLOClass:     sloClass,
+			InputTokens:  make([]sim.TokenID, 50),
+			OutputTokens: make([]sim.TokenID, 20),
+			State:        sim.StateQueued,
 		}
 	}
 	return reqs
@@ -50,8 +50,8 @@ func TestTierShed_MonotonicSheddingOrder(t *testing.T) {
 				ID:           fmt.Sprintf("req_%s_%d", class, j),
 				ArrivalTime:  int64(i*nPerTier+j) * 10, // dense arrivals to force overload
 				SLOClass:     class,
-				InputTokens:  make([]int, 50),
-				OutputTokens: make([]int, 20),
+				InputTokens:  make([]sim.TokenID, 50),
+				OutputTokens: make([]sim.TokenID, 20),
 				State:        sim.StateQueued,
 			})
 		}
@@ -59,7 +59,7 @@ func TestTierShed_MonotonicSheddingOrder(t *testing.T) {
 
 	// tier-shed: MinAdmitPriority=3 → Standard and above pass, Sheddable shed.
 	cfg := newTierShedConfig(0, 3)
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 	mustRun(t, cs)
 
 	shedCounts := cs.ShedByTier()
@@ -97,12 +97,12 @@ func TestTierShed_NoRegressionWithDefaultPolicy(t *testing.T) {
 
 	// Run 1: default admission (always-admit)
 	cfg1 := newTestDeploymentConfig(2)
-	cs1 := NewClusterSimulator(cfg1, requests1, nil)
+	cs1 := NewClusterSimulator(cfg1, NewSliceRequestSource(requests1), nil)
 	mustRun(t, cs1)
 
 	// Run 2: same config, same seed, same requests — must be byte-identical
 	cfg2 := newTestDeploymentConfig(2)
-	cs2 := NewClusterSimulator(cfg2, requests2, nil)
+	cs2 := NewClusterSimulator(cfg2, NewSliceRequestSource(requests2), nil)
 	mustRun(t, cs2)
 
 	m1, err1 := json.Marshal(cs1.AggregatedMetrics())
@@ -125,15 +125,15 @@ func TestTierShed_BatchBackgroundShedUnderOverload(t *testing.T) {
 				ID:           fmt.Sprintf("req_%s_%d", class, i),
 				ArrivalTime:  int64(i) * 5, // very dense
 				SLOClass:     class,
-				InputTokens:  make([]int, 100),
-				OutputTokens: make([]int, 50),
+				InputTokens:  make([]sim.TokenID, 100),
+				OutputTokens: make([]sim.TokenID, 50),
 				State:        sim.StateQueued,
 			})
 		}
 	}
 
 	cfg := newTierShedConfig(0, 3) // MinAdmitPriority=3 rejects batch(-1) and background(-3)
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 	mustRun(t, cs)
 
 	// With MinAdmitPriority=3, batch(priority=-1) and background(priority=-3) should be rejected
@@ -146,7 +146,7 @@ func TestTierShed_BatchBackgroundShedUnderOverload(t *testing.T) {
 func TestTierShed_HighThresholdNeverSheds(t *testing.T) {
 	requests := newTierTestRequests(20, "sheddable")
 	cfg := newTierShedConfig(math.MaxInt32, 3)
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 	mustRun(t, cs)
 
 	if shed := cs.ShedByTier()["sheddable"]; shed > 0 {
@@ -177,8 +177,8 @@ func TestGAIELegacy_INV1_Conservation(t *testing.T) {
 				ID:           fmt.Sprintf("req_%s_%d", class, i),
 				ArrivalTime:  int64(i) * 10, // dense arrivals
 				SLOClass:     class,
-				InputTokens:  make([]int, 100),
-				OutputTokens: make([]int, 50),
+				InputTokens:  make([]sim.TokenID, 100),
+				OutputTokens: make([]sim.TokenID, 50),
 				State:        sim.StateQueued,
 			})
 		}
@@ -186,7 +186,7 @@ func TestGAIELegacy_INV1_Conservation(t *testing.T) {
 
 	// Use low QD threshold (1) so saturation triggers easily under queue buildup.
 	cfg := newGAIELegacyConfig(2, 1)
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 	mustRun(t, cs)
 
 	// Full-pipeline INV-1 conservation: num_requests == injected_requests + rejected_requests,
@@ -233,7 +233,7 @@ func TestGAIELegacy_INV1_Conservation(t *testing.T) {
 func TestGAIELegacy_LightLoadAdmitsAll(t *testing.T) {
 	requests := newTierTestRequests(5, "sheddable")
 	cfg := newGAIELegacyConfig(2, 5)
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 	mustRun(t, cs)
 
 	if rejected := cs.RejectedRequests(); rejected > 0 {
@@ -245,13 +245,13 @@ func TestGAIELegacy_LightLoadAdmitsAll(t *testing.T) {
 // so every request's SLO class should appear in the per-tier counter).
 func TestShedByTier_RejectAll_PopulatesTierCounts(t *testing.T) {
 	requests := []*sim.Request{
-		{ID: "r1", ArrivalTime: 0, SLOClass: "critical", InputTokens: make([]int, 10), OutputTokens: make([]int, 5), State: sim.StateQueued},
-		{ID: "r2", ArrivalTime: 10, SLOClass: "standard", InputTokens: make([]int, 10), OutputTokens: make([]int, 5), State: sim.StateQueued},
-		{ID: "r3", ArrivalTime: 20, SLOClass: "batch", InputTokens: make([]int, 10), OutputTokens: make([]int, 5), State: sim.StateQueued},
+		{ID: "r1", ArrivalTime: 0, SLOClass: "critical", InputTokens: make([]sim.TokenID, 10), OutputTokens: make([]sim.TokenID, 5), State: sim.StateQueued},
+		{ID: "r2", ArrivalTime: 10, SLOClass: "standard", InputTokens: make([]sim.TokenID, 10), OutputTokens: make([]sim.TokenID, 5), State: sim.StateQueued},
+		{ID: "r3", ArrivalTime: 20, SLOClass: "batch", InputTokens: make([]sim.TokenID, 10), OutputTokens: make([]sim.TokenID, 5), State: sim.StateQueued},
 	}
 	cfg := newTestDeploymentConfig(2)
 	cfg.AdmissionPolicy = "reject-all"
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 	mustRun(t, cs)
 
 	if cs.RejectedRequests() != 3 {

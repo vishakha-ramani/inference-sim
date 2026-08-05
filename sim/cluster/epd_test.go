@@ -10,10 +10,11 @@ import (
 // newTestEPDDeploymentConfig is an E/P/D test harness layered on top of
 // newTestDisaggDeploymentConfig. It adds an encode pool of `encode` instances
 // and an encode decider. Pool layout (via BuildPoolMembershipFromIndices):
-//   [0, prefill)                       — prefill-only
-//   [prefill, prefill+decode)          — decode-only
-//   [prefill+decode, +shared)          — shared-role (zero here)
-//   [+shared, +encode)                 — encode-only
+//
+//	[0, prefill)                       — prefill-only
+//	[prefill, prefill+decode)          — decode-only
+//	[prefill+decode, +shared)          — shared-role (zero here)
+//	[+shared, +encode)                 — encode-only
 //
 // Tracing is enabled so tests can inspect EncodeRoutingRecord emission.
 func newTestEPDDeploymentConfig(prefill, decode, encode int, encodeDecider string) DeploymentConfig {
@@ -58,7 +59,7 @@ func allTextRequests(n int) []*sim.Request {
 // no EncodeRoutingRecords are emitted regardless of request modality.
 func TestEPD_EncodeNever_IsPDUnchanged(t *testing.T) {
 	cfg := newTestEPDDeploymentConfig(2, 2, 1, "never")
-	cs := NewClusterSimulator(cfg, multimodalRequests(6), nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(multimodalRequests(6)), nil)
 	mustRun(t, cs)
 
 	if cs.trace == nil {
@@ -80,7 +81,7 @@ func TestEPD_EncodeFires_WithDisagg(t *testing.T) {
 	cfg := newTestEPDDeploymentConfig(2, 2, 1, "always")
 	cfg.PDDecider = "always" // force disaggregation
 	reqs := newTestRequests(3)
-	cs := NewClusterSimulator(cfg, reqs, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(reqs), nil)
 	mustRun(t, cs)
 
 	if cs.trace == nil {
@@ -132,7 +133,7 @@ func TestEPD_EncodeFires_WithoutDisagg(t *testing.T) {
 	cfg := newTestEPDDeploymentConfig(2, 2, 1, "always")
 	cfg.PDDecider = "never" // disagg decider says "don't disaggregate"
 	reqs := newTestRequests(3)
-	cs := NewClusterSimulator(cfg, reqs, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(reqs), nil)
 	mustRun(t, cs)
 
 	if cs.trace == nil {
@@ -165,7 +166,7 @@ func TestEPD_EmptyEncodePool_RoutingRejection(t *testing.T) {
 	cfg := newTestEPDDeploymentConfig(1, 1, 1, "always")
 	cfg.PDDecider = "never"
 	reqs := newTestRequests(3)
-	cs := NewClusterSimulator(cfg, reqs, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(reqs), nil)
 
 	// Take the only encode instance offline before Run so the encode pool is empty.
 	// Draining state makes IsRoutable() return false.
@@ -204,7 +205,7 @@ func TestEPD_DeciderReadsDecodeInstanceID(t *testing.T) {
 	spy := &spyEncodeDecider{}
 	cfg := newTestEPDDeploymentConfig(2, 2, 1, "always")
 	cfg.PDDecider = "always"
-	cs := NewClusterSimulator(cfg, newTestRequests(4), nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(newTestRequests(4)), nil)
 	// Inject the spy after construction (the factory can't return the spy).
 	cs.encodeDecider = spy
 
@@ -233,7 +234,7 @@ func TestEPD_TextOnly_MultimodalDecider_Skips(t *testing.T) {
 	cfg := newTestEPDDeploymentConfig(2, 2, 1, "multimodal")
 	cfg.PDDecider = "always"
 	reqs := allTextRequests(4)
-	cs := NewClusterSimulator(cfg, reqs, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(reqs), nil)
 	mustRun(t, cs)
 
 	if got := len(cs.trace.EncodeRoutings); got != 0 {
@@ -254,7 +255,7 @@ func TestEPD_MultimodalSubsetEncoded(t *testing.T) {
 			wantMM++
 		}
 	}
-	cs := NewClusterSimulator(cfg, reqs, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(reqs), nil)
 	mustRun(t, cs)
 
 	if got := len(cs.trace.EncodeRoutings); got != wantMM {
@@ -270,7 +271,7 @@ func TestEPD_Determinism(t *testing.T) {
 		cfg.PDDecider = "always"
 		// Build a stable request list from the same seed (multimodalRequests
 		// is deterministic given newTestRequests' seed=42).
-		cs := NewClusterSimulator(cfg, multimodalRequests(5), nil)
+		cs := NewClusterSimulator(cfg, NewSliceRequestSource(multimodalRequests(5)), nil)
 		mustRun(t, cs)
 		return cs.trace.EncodeRoutings
 	}
@@ -312,7 +313,7 @@ func TestEPDDisabled_ZeroInstances_NoEncodeActivity(t *testing.T) {
 	cfg.TraceLevel = "decisions"
 	// EncodeInstances defaulted to 0 by newTestDisaggDeploymentConfig.
 	reqs := multimodalRequests(6) // half multimodal, half text — worst case
-	cs := NewClusterSimulator(cfg, reqs, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(reqs), nil)
 	mustRun(t, cs)
 
 	if cs.encodeDecider != nil {

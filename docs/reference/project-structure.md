@@ -49,6 +49,7 @@ inference-sim/
 │   └── internal/              # Shared internal packages
 │       ├── hash/              # Block-level hashing for prefix cache
 │       ├── testutil/          # Shared test infrastructure (golden dataset loading)
+│       ├── tokenid/           # TokenID (int32) type — defined-type compact token ID shared with sim/internal/hash
 │       └── util/              # General utility functions
 ├── sim/kv/                    # KV cache implementations (PKG-1)
 │   ├── cache.go               # KVCacheState (single-tier GPU)
@@ -60,6 +61,7 @@ inference-sim/
 │   ├── roofline.go            # rooflineStepTime(), calculateTransformerFlops(), calculateMemoryAccessBytes(), StepConfig/PrefillRequestConfig/DecodeRequestConfig types
 │   ├── kv_capacity.go         # CalculateKVBlocks: auto-derive total KV cache blocks from model architecture + GPU memory; KVCapacityParams, ExtractKVCapacityParams, computeModelWeightBytes
 │   ├── config.go              # HFConfig, GetHWConfig(), GetModelConfig(), ValidateRooflineConfig(), parseHWConfig(), ParseHFConfig()
+│   ├── moe_comm_backend.go    # MoE all-to-all comm-volume families (#1419): moeCommFamily (all-gather vs all2all), ValidMoECommBackends (7 vLLM names), DefaultMoECommBackend, IsValidMoECommBackend, moeCommFamilyFor. Maps --moe-comm-backend → the dispatch-volume model TrainedPhysicsModel.StepTime charges (β_EP).
 │   └── register.go            # init()-based registration of NewLatencyModelFunc into sim/
 ├── sim/cluster/               # Multi-replica cluster simulation
 │   ├── instance.go            # InstanceSimulator wraps sim.Simulator via NewInstanceSimulator(id, SimConfig) with run-once guard; delegates to Simulator observation methods (QueueDepth(), BatchSize(), etc.)

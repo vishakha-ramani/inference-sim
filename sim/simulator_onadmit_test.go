@@ -16,8 +16,8 @@ func TestSimulator_OnAdmit_FiresOnFirstAdmission(t *testing.T) {
 	req := &Request{
 		ID:           "r1",
 		ArrivalTime:  0,
-		InputTokens:  make([]int, 3),
-		OutputTokens: make([]int, 4),
+		InputTokens:  make([]TokenID, 3),
+		OutputTokens: make([]TokenID, 4),
 		State:        StateQueued,
 	}
 	sim.InjectArrival(req)
@@ -57,8 +57,8 @@ func TestSimulator_OnAdmit_NilIsNoop(t *testing.T) {
 	req := &Request{
 		ID:           "r1",
 		ArrivalTime:  0,
-		InputTokens:  make([]int, 3),
-		OutputTokens: make([]int, 4),
+		InputTokens:  make([]TokenID, 3),
+		OutputTokens: make([]TokenID, 4),
 		State:        StateQueued,
 	}
 	sim.InjectArrival(req)

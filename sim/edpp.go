@@ -41,7 +41,7 @@ import (
 //
 // # Oracle safety (INV-9)
 //
-// Decide reads only input-side quantities: len(req.InputTokens) and the prefix-cache
+// Decide reads only input-side quantities: int(req.InputLen()) and the prefix-cache
 // hit (via cacheQuery), never req.OutputTokens. Per-class N̂_out is updated only at
 // completion from realized output length — not used for servability decisions, so
 // INV-9 is not violated.
@@ -442,8 +442,8 @@ type edppNorm struct {
 type EDPPDecider struct {
 	cfg              EDPPConfig
 	model            LatencyModel
-	cacheQuery       map[string]func([]int) int // shared with precise-prefix-cache scorer; may be nil
-	prefillSnapshots func() []RoutingSnapshot   // prefill-pool backlogs; may be nil (⇒ Q_p = 0)
+	cacheQuery       map[string]func([]TokenID) int // shared with precise-prefix-cache scorer; may be nil
+	prefillSnapshots func() []RoutingSnapshot       // prefill-pool backlogs; may be nil (⇒ Q_p = 0)
 
 	// Physics constants precomputed once at construction (class-independent).
 	// μ_p^nom is fixed: a moving normalizer would break the Lyapunov drift telescoping
@@ -575,7 +575,7 @@ func (d *EDPPDecider) SetCaptureAdmissionContext(v bool) { d.captureAdmissionCtx
 // model is retained for the deferred recalibration-drift watchdog (§4).
 // cacheQuery and prefillSnapshots may be nil (e.g. unit tests, or no prefill pool).
 // The per-class target maps are copied defensively.
-func NewEDPPDecider(cfg EDPPConfig, model LatencyModel, cacheQuery map[string]func([]int) int, prefillSnapshots func() []RoutingSnapshot) *EDPPDecider {
+func NewEDPPDecider(cfg EDPPConfig, model LatencyModel, cacheQuery map[string]func([]TokenID) int, prefillSnapshots func() []RoutingSnapshot) *EDPPDecider {
 	cfg.validate()
 	for gpu, c := range cfg.CoeffsByGPU {
 		if err := c.validate(); err != nil {
@@ -765,7 +765,7 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 	}
 
 	keepD := DisaggregationDecision{Disaggregate: false}
-	if len(req.InputTokens) == 0 {
+	if int(req.InputLen()) == 0 {
 		if d.cfg.TraceEnabled {
 			keepD.EDPPTrace = &EDPPDecisionTrace{Class: req.SLOClass, SkipReason: "empty-prompt"}
 		}
@@ -793,7 +793,7 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 	thetaD := d.coeffsFor(decSnap.GPUType)
 
 	// W_p = full prefill demand of this request (E6), charged against the decode node's balance.
-	wp := thetaD.Wp(ap, len(req.InputTokens))
+	wp := thetaD.Wp(ap, int(req.InputLen()))
 
 	// Live decode-server state from the pre-selected decode snapshot (the pod this
 	// request would land on); fall back to the first snapshot, else nominal.
@@ -822,7 +822,7 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 	if d.cfg.PathSpecificPrefillWork && len(prefillSnaps) == 1 {
 		apP = d.apForInstance(req, prefillSnaps[0].ID)
 	}
-	wpP := d.coeffs.Wp(maxInt(apP, 0), len(req.InputTokens))
+	wpP := d.coeffs.Wp(maxInt(apP, 0), int(req.InputLen()))
 
 	n := d.normFor(req.SLOClass)
 
@@ -852,7 +852,7 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 	// ReqKVNeed: KV blocks this request needs ≈ ⌈a_r / blockSize⌉ (a_r = full input length; oracle-safe).
 	reqKVNeed := int64(0)
 	if d.cfg.BlockSize > 0 {
-		reqKVNeed = int64((len(req.InputTokens) + d.cfg.BlockSize - 1) / d.cfg.BlockSize)
+		reqKVNeed = int64((int(req.InputLen()) + d.cfg.BlockSize - 1) / d.cfg.BlockSize)
 	}
 	// RemainingStepsEst (deployable): per-running-request censored estimate, NOT a mean that
 	// can go negative. A request that has produced StepsDone tokens has o_r ≥ StepsDone
@@ -896,7 +896,7 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 	tAdmP := d.tadmEstimator.EstimateTAdm(prefillCtx)
 	tAdmD := d.tadmEstimator.EstimateTAdm(decodeCtx)
 	cXferUs := d.cXferUsFor(req) // flat CXferUs, or the size-aware transfer cost
-	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(req.InputTokens)), sPf)
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+req.InputLen(), sPf)
 	// Prefill time = admission delay + the batch-iteration overhead the request waits through
 	// (nChunks iterations at the path's per-iteration time: the decode batch's load for the local
 	// path, the prefill pool's for the disagg path) + the request's OWN prefill work Wp. Wp carries
@@ -914,7 +914,7 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 		decodeJoinP = math.Max(remoteLead, tAdmD)
 	}
 	ttftP := decodeJoinP + tIterFirstDecode + d.outputTokenProcessingUs()
-	ttftD := d.projectedLocalTTFT(tAdmD, nChunks, tBminus1, thetaD.Wp(ap, len(req.InputTokens)))
+	ttftD := d.projectedLocalTTFT(tAdmD, nChunks, tBminus1, thetaD.Wp(ap, int(req.InputLen())))
 	localService := ttftD - tAdmD
 	disaggFirst := tIterFirstDecode + d.outputTokenProcessingUs()
 
@@ -1053,10 +1053,10 @@ func (d *EDPPDecider) Decide(req *Request, state *RouterState) DisaggregationDec
 // or an absent/nil cacheQuery entry yields the full prompt length (cold). Shared by the
 // reduced path (with instID = state.SelectedInstance) and the per-candidate joint path.
 func (d *EDPPDecider) apForInstance(req *Request, instID string) int {
-	ap := len(req.InputTokens)
+	ap := int(req.InputLen())
 	if instID != "" && d.cacheQuery != nil {
 		if fn, ok := d.cacheQuery[instID]; ok && fn != nil {
-			ap = len(req.InputTokens) - fn(req.InputTokens)*d.cfg.BlockSize
+			ap = int(req.InputLen()) - fn(req.FullInputTokens())*d.cfg.BlockSize
 		}
 	}
 	return ap
@@ -1258,7 +1258,7 @@ func (d *EDPPDecider) reqKVNeed(req *Request) int64 {
 	if d.cfg.BlockSize <= 0 {
 		return 0
 	}
-	return int64((len(req.InputTokens) + d.cfg.BlockSize - 1) / d.cfg.BlockSize)
+	return int64((int(req.InputLen()) + d.cfg.BlockSize - 1) / d.cfg.BlockSize)
 }
 
 // decideJoint implements the joint P/D routing rule (--edpp-joint): it enumerates every
@@ -1689,15 +1689,15 @@ func (d *EDPPDecider) jointSLOExternalityCandidateScore(ec *jointEvalCtx, ds Rou
 	thetaD := d.coeffsFor(ds.GPUType)
 	bDec, kv, sPfD := ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens
 	tIterD := thetaD.tIterDecode(bDec, kv, sPfD)
-	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(ec.req.InputTokens)), sPfD)
-	wd := thetaD.Wd(len(ec.req.InputTokens), ec.nHatOut)
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+ec.req.InputLen(), sPfD)
+	wd := thetaD.Wd(int(ec.req.InputLen()), ec.nHatOut)
 	tAdmD := d.tadmEstimator.EstimateTAdm(d.jointDecodeAdmissionCtx(ec, ds))
 
 	score := sloJointCandidateScore{}
 	if ps == nil {
 		apLoc := d.apForInstance(ec.req, ds.ID)
 		nChunksLoc, _ := d.chunkTerms(thetaD, apLoc)
-		wpLoc := thetaD.Wp(maxInt(apLoc, 0), len(ec.req.InputTokens))
+		wpLoc := thetaD.Wp(maxInt(apLoc, 0), int(ec.req.InputLen()))
 		tHatLocal := d.projectedLocalTTFT(tAdmD, nChunksLoc, tIterD, wpLoc)
 		if rolloutAdm, rolloutTTFT, ok := d.rolloutLocalTTFT(ec, ds, thetaD); ok {
 			tAdmD, tHatLocal = rolloutAdm, rolloutTTFT
@@ -1716,7 +1716,7 @@ func (d *EDPPDecider) jointSLOExternalityCandidateScore(ec *jointEvalCtx, ds Rou
 		if !d.cfg.SLOExternalityNoCapacity {
 			demand := wpLoc + wd
 			if d.cfg.SLOExternalityOccupancyCapacity {
-				demand = d.sloLocalOccupancy(thetaD, apLoc, len(ec.req.InputTokens), ec.nHatOut)
+				demand = d.sloLocalOccupancy(thetaD, apLoc, int(ec.req.InputLen()), ec.nHatOut)
 			}
 			score.capacityQueueDecode = d.sloCapacityQueue(ds.ID)
 			score.capacityDemandDecode = demand
@@ -1729,7 +1729,7 @@ func (d *EDPPDecider) jointSLOExternalityCandidateScore(ec *jointEvalCtx, ds Rou
 		thetaP := d.coeffsFor(ps.GPUType)
 		apP := d.apForInstance(ec.req, ps.ID)
 		nChunksP, _ := d.chunkTerms(thetaP, apP)
-		wpP := thetaP.Wp(maxInt(apP, 0), len(ec.req.InputTokens))
+		wpP := thetaP.Wp(maxInt(apP, 0), int(ec.req.InputLen()))
 		tIterP := thetaP.tIterPrefill(ps.ResidentPrefillTokens)
 		tAdmP := d.tadmEstimator.EstimateTAdm(d.jointPrefillAdmissionCtx(ec, *ps))
 		prefillCompletionUs := tAdmP + nChunksP*tIterP + wpP
@@ -1757,8 +1757,8 @@ func (d *EDPPDecider) jointSLOExternalityCandidateScore(ec *jointEvalCtx, ds Rou
 		if !d.cfg.SLOExternalityNoCapacity {
 			decodeDemand, prefillDemand := wd, wpP
 			if d.cfg.SLOExternalityOccupancyCapacity {
-				decodeDemand = d.sloDecodeOccupancy(thetaD, len(ec.req.InputTokens), ec.nHatOut)
-				prefillDemand = d.sloPrefillOccupancy(thetaP, apP, len(ec.req.InputTokens))
+				decodeDemand = d.sloDecodeOccupancy(thetaD, int(ec.req.InputLen()), ec.nHatOut)
+				prefillDemand = d.sloPrefillOccupancy(thetaP, apP, int(ec.req.InputLen()))
 			}
 			score.capacityQueueDecode = d.sloCapacityQueue(ds.ID)
 			score.capacityQueuePrefill = d.sloCapacityQueue(ps.ID)
@@ -1784,12 +1784,12 @@ func (d *EDPPDecider) jointCandidateCost(ec *jointEvalCtx, ds RoutingSnapshot, p
 	thetaD := d.coeffsFor(ds.GPUType)
 	bDec, kv, sPfD := ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens
 	tIterD := thetaD.tIterDecode(bDec, kv, sPfD)
-	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(ec.req.InputTokens)), sPfD)
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+ec.req.InputLen(), sPfD)
 	// Per-candidate decode work W_d and base decode-step ITL marginal m_dec = δ̄_dec at mean
 	// context (design §3 z_itl term), both under this candidate's θ_i. Decode happens on d in
 	// both local and disagg, so jDecodeITL is added to both.
-	wd := thetaD.Wd(len(ec.req.InputTokens), ec.nHatOut)
-	mDec := thetaD.deltaBarDecode(float64(len(ec.req.InputTokens)) + ec.nHatOut/2)
+	wd := thetaD.Wd(int(ec.req.InputLen()), ec.nHatOut)
+	mDec := thetaD.deltaBarDecode(float64(int(ec.req.InputLen())) + ec.nHatOut/2)
 	jDecodeITL := ec.zITL * (mDec / n.tauITL)
 	_, qdRaw := d.instWorkRaw(ds.ID)
 	// W*_i is PER-INSTANCE (paper: W*_i = mu_nom,i * tau_ttft). The placed work wd is already
@@ -1810,7 +1810,7 @@ func (d *EDPPDecider) jointCandidateCost(ec *jointEvalCtx, ds RoutingSnapshot, p
 		// --- local: prefill+decode co-resident on d ⇒ prefill uses the decode θ_i ---
 		apLoc := d.apForInstance(ec.req, ds.ID)
 		nChunksLoc, deltaPfLoc := d.chunkTerms(thetaD, apLoc)
-		wpLoc := thetaD.Wp(maxInt(apLoc, 0), len(ec.req.InputTokens))
+		wpLoc := thetaD.Wp(maxInt(apLoc, 0), int(ec.req.InputLen()))
 		// T̂_local: admission + batch-iteration overhead (nChunks·tIter) + the request's OWN
 		// prefill work Wp (projection AND attention over context). Wp replaces the projection-only
 		// nChunks·deltaPf so the estimate keeps the quadratic attention cost (matches the executor).
@@ -1839,7 +1839,7 @@ func (d *EDPPDecider) jointCandidateCost(ec *jointEvalCtx, ds RoutingSnapshot, p
 	thetaP := d.coeffsFor(ps.GPUType)
 	apP := d.apForInstance(ec.req, ps.ID)
 	nChunksP, _ := d.chunkTerms(thetaP, apP)
-	wpP := thetaP.Wp(maxInt(apP, 0), len(ec.req.InputTokens))
+	wpP := thetaP.Wp(maxInt(apP, 0), int(ec.req.InputLen()))
 	qpRaw, _ := d.instWorkRaw(ps.ID)
 	wStarP := thetaP.muPNom(d.cfg.NomPrefillTokens) * n.tauTTFT // per-instance W*_i, prefill side
 	qp := qpRaw / wStarP
@@ -1892,14 +1892,14 @@ func (d *EDPPDecider) jointCandidateTTFT(ec *jointEvalCtx, ds RoutingSnapshot, p
 	thetaD := d.coeffsFor(ds.GPUType)
 	bDec, kv, sPfD := ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens
 	tIterD := thetaD.tIterDecode(bDec, kv, sPfD)
-	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(ec.req.InputTokens)), sPfD)
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+ec.req.InputLen(), sPfD)
 	tAdmD := d.tadmEstimator.EstimateTAdm(d.jointDecodeAdmissionCtx(ec, ds))
 
 	if ps == nil {
 		// --- local: prefill+decode co-resident on d ⇒ prefill uses the decode θ_i ---
 		apLoc := d.apForInstance(ec.req, ds.ID)
 		nChunksLoc, _ := d.chunkTerms(thetaD, apLoc)
-		wpLoc := thetaD.Wp(maxInt(apLoc, 0), len(ec.req.InputTokens))
+		wpLoc := thetaD.Wp(maxInt(apLoc, 0), int(ec.req.InputLen()))
 		tHat := d.projectedLocalTTFT(tAdmD, nChunksLoc, tIterD, wpLoc)
 		if _, rolloutTTFT, ok := d.rolloutLocalTTFT(ec, ds, thetaD); ok {
 			tHat = rolloutTTFT
@@ -1911,7 +1911,7 @@ func (d *EDPPDecider) jointCandidateTTFT(ec *jointEvalCtx, ds RoutingSnapshot, p
 	thetaP := d.coeffsFor(ps.GPUType)
 	apP := d.apForInstance(ec.req, ps.ID)
 	nChunksP, _ := d.chunkTerms(thetaP, apP)
-	wpP := thetaP.Wp(maxInt(apP, 0), len(ec.req.InputTokens))
+	wpP := thetaP.Wp(maxInt(apP, 0), int(ec.req.InputLen()))
 	tIterP := thetaP.tIterPrefill(ps.ResidentPrefillTokens)
 	if rolloutAdm, ok := d.rolloutDecodeAdmission(ec, ds, thetaD); ok {
 		tAdmD = rolloutAdm
@@ -1944,9 +1944,9 @@ func (d *EDPPDecider) jointVaRComponents(ec *jointEvalCtx, ds RoutingSnapshot, p
 	thetaD := d.coeffsFor(ds.GPUType)
 	bDec, kv, sPfD := ds.BatchSize, ds.KvTokensInUse, ds.ResidentPrefillTokens
 	tIterD := thetaD.tIterDecode(bDec, kv, sPfD)
-	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+int64(len(ec.req.InputTokens)), sPfD)
-	wd := thetaD.Wd(len(ec.req.InputTokens), ec.nHatOut)
-	mDec := thetaD.deltaBarDecode(float64(len(ec.req.InputTokens)) + ec.nHatOut/2)
+	tIterFirstDecode := thetaD.tIterDecode(bDec+1, kv+ec.req.InputLen(), sPfD)
+	wd := thetaD.Wd(int(ec.req.InputLen()), ec.nHatOut)
+	mDec := thetaD.deltaBarDecode(float64(int(ec.req.InputLen())) + ec.nHatOut/2)
 	jDecodeITL := ec.zITL * (mDec / n.tauITL)
 	_, qdRaw := d.instWorkRaw(ds.ID)
 	// W*_i is PER-INSTANCE (paper: W*_i = mu_nom,i * tau_ttft). The placed work wd is already
@@ -1962,7 +1962,7 @@ func (d *EDPPDecider) jointVaRComponents(ec *jointEvalCtx, ds RoutingSnapshot, p
 	if ps == nil {
 		apLoc := d.apForInstance(ec.req, ds.ID)
 		nChunksLoc, deltaPfLoc := d.chunkTerms(thetaD, apLoc)
-		wpLoc := thetaD.Wp(maxInt(apLoc, 0), len(ec.req.InputTokens))
+		wpLoc := thetaD.Wp(maxInt(apLoc, 0), int(ec.req.InputLen()))
 		tHatLocal := d.projectedLocalTTFT(tAdmD, nChunksLoc, tIterD, wpLoc)
 		cong = jDecodeBacklog + qd*(wpLoc/wStarD)
 		vv = d.varJointCandidateExternality(ec.req, ec.nowUs, ds, nil, tAdmD, 0)
@@ -1976,7 +1976,7 @@ func (d *EDPPDecider) jointVaRComponents(ec *jointEvalCtx, ds RoutingSnapshot, p
 	thetaP := d.coeffsFor(ps.GPUType)
 	apP := d.apForInstance(ec.req, ps.ID)
 	nChunksP, _ := d.chunkTerms(thetaP, apP)
-	wpP := thetaP.Wp(maxInt(apP, 0), len(ec.req.InputTokens))
+	wpP := thetaP.Wp(maxInt(apP, 0), int(ec.req.InputLen()))
 	qpRaw, _ := d.instWorkRaw(ps.ID)
 	wStarP := thetaP.muPNom(d.cfg.NomPrefillTokens) * n.tauTTFT // per-instance W*_i, prefill side
 	qp := qpRaw / wStarP
@@ -2011,9 +2011,9 @@ func (d *EDPPDecider) varNormFloor(ec *jointEvalCtx, decodeSnaps []RoutingSnapsh
 	}
 	nom := decodeSnaps[0]
 	theta := d.coeffsFor(nom.GPUType)
-	wd := theta.Wd(len(ec.req.InputTokens), ec.nHatOut)
+	wd := theta.Wd(int(ec.req.InputLen()), ec.nHatOut)
 	ap := d.apForInstance(ec.req, nom.ID)
-	wp := theta.Wp(maxInt(ap, 0), len(ec.req.InputTokens))
+	wp := theta.Wp(maxInt(ap, 0), int(ec.req.InputLen()))
 	eps0 := d.varNormalizeFloorScale * (wd + wp) / ec.n.wStarD
 	if eps0 < tiny {
 		return tiny
@@ -2396,15 +2396,15 @@ func (d *EDPPDecider) bookSLOCapacityWork(req *Request, toPrefill bool, decodeIn
 		return
 	}
 	thetaD := d.sloCoeffsForInstance(decodeInst)
-	wd := thetaD.Wd(len(req.InputTokens), d.reqNHatOut(req))
+	wd := thetaD.Wd(int(req.InputLen()), d.reqNHatOut(req))
 	if toPrefill {
 		thetaP := d.sloCoeffsForInstance(prefillInst)
 		apP := d.apForInstance(req, prefillInst)
-		wpP := thetaP.Wp(maxInt(apP, 0), len(req.InputTokens))
+		wpP := thetaP.Wp(maxInt(apP, 0), int(req.InputLen()))
 		decodeDemand, prefillDemand := wd, wpP
 		if d.cfg.SLOExternalityOccupancyCapacity {
-			decodeDemand = d.sloDecodeOccupancy(thetaD, len(req.InputTokens), d.reqNHatOut(req))
-			prefillDemand = d.sloPrefillOccupancy(thetaP, apP, len(req.InputTokens))
+			decodeDemand = d.sloDecodeOccupancy(thetaD, int(req.InputLen()), d.reqNHatOut(req))
+			prefillDemand = d.sloPrefillOccupancy(thetaP, apP, int(req.InputLen()))
 		}
 		if state := d.sloCapacity[prefillInst]; state != nil {
 			state.q += prefillDemand
@@ -2415,10 +2415,10 @@ func (d *EDPPDecider) bookSLOCapacityWork(req *Request, toPrefill bool, decodeIn
 		return
 	}
 	apD := d.apForInstance(req, decodeInst)
-	wpD := thetaD.Wp(maxInt(apD, 0), len(req.InputTokens))
+	wpD := thetaD.Wp(maxInt(apD, 0), int(req.InputLen()))
 	demand := wpD + wd
 	if d.cfg.SLOExternalityOccupancyCapacity {
-		demand = d.sloLocalOccupancy(thetaD, apD, len(req.InputTokens), d.reqNHatOut(req))
+		demand = d.sloLocalOccupancy(thetaD, apD, int(req.InputLen()), d.reqNHatOut(req))
 	}
 	if state := d.sloCapacity[decodeInst]; state != nil {
 		state.q += demand
@@ -2434,12 +2434,12 @@ func (d *EDPPDecider) bookSLOAdmissionWork(req *Request, key string, toPrefill b
 		return
 	}
 	thetaD := d.sloCoeffsForInstance(decodeInst)
-	wd := thetaD.Wd(len(req.InputTokens), d.reqNHatOut(req))
+	wd := thetaD.Wd(int(req.InputLen()), d.reqNHatOut(req))
 	pw := edppPendingWork{toPrefill: toPrefill, decodeInst: decodeInst, prefillInst: prefillInst}
 	if toPrefill {
 		thetaP := d.sloCoeffsForInstance(prefillInst)
 		apP := d.apForInstance(req, prefillInst)
-		wpP := thetaP.Wp(maxInt(apP, 0), len(req.InputTokens))
+		wpP := thetaP.Wp(maxInt(apP, 0), int(req.InputLen()))
 		pw.wp = wpP
 		pw.wd = wd
 		d.qpWork += wpP
@@ -2448,7 +2448,7 @@ func (d *EDPPDecider) bookSLOAdmissionWork(req *Request, key string, toPrefill b
 		d.instWork(decodeInst).wd += wd
 	} else {
 		apD := d.apForInstance(req, decodeInst)
-		wpD := thetaD.Wp(maxInt(apD, 0), len(req.InputTokens))
+		wpD := thetaD.Wp(maxInt(apD, 0), int(req.InputLen()))
 		pw.wd = wpD + wd
 		d.qdWork += pw.wd
 		d.instWork(decodeInst).wd += pw.wd
@@ -2488,10 +2488,10 @@ func (d *EDPPDecider) OnRoute(req *Request, key string, toPrefill bool, apTokens
 	if apTokens <= 0 {
 		return
 	}
-	wp := d.coeffs.Wp(apTokens, len(req.InputTokens))
+	wp := d.coeffs.Wp(apTokens, int(req.InputLen()))
 	// W_d now uses the exact discrete decode sum Wd(a_r, N̂_out); it no longer uses NomDecodeCtx.
 	// reqNHatOut yields the deployable N̂_out, or the TRUE o_r under the diagnostic oracle flag.
-	wd := d.coeffs.Wd(len(req.InputTokens), d.reqNHatOut(req))
+	wd := d.coeffs.Wd(int(req.InputLen()), d.reqNHatOut(req))
 	pw := edppPendingWork{toPrefill: toPrefill, decodeInst: decodeInst, prefillInst: prefillInst}
 	if toPrefill {
 		pw.wp = wp // prefill work lands on the prefill pool

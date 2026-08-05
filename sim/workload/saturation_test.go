@@ -133,10 +133,10 @@ func TestRequestsToIntervals_Conservation_QueuedAndRunningBothCounted(t *testing
 	simEndUs := int64(1_000_000)
 	requests := []*sim.Request{
 		{ArrivalTime: 100, FirstTokenTime: 200, ITL: []int64{50}, TTFTSet: true, State: sim.StateCompleted},
-		{ArrivalTime: 200, TTFTSet: false, State: sim.StateTimedOut},  // excluded
+		{ArrivalTime: 200, TTFTSet: false, State: sim.StateTimedOut}, // excluded
 		{ArrivalTime: 300, TTFTSet: false, State: sim.StateRunning},
 		{ArrivalTime: 400, TTFTSet: false, State: sim.StateQueued},
-		{ArrivalTime: 500, TTFTSet: false, State: sim.StateTimedOut},  // excluded
+		{ArrivalTime: 500, TTFTSet: false, State: sim.StateTimedOut}, // excluded
 		{ArrivalTime: 600, TTFTSet: false, State: sim.StateQueued},
 	}
 	const totalRequests = 6
@@ -635,9 +635,9 @@ func TestWriteBacklogDriftReportJSON_SanitizesNaN(t *testing.T) {
 // behavior under different load conditions.
 //
 // Note: Achieving PERSISTENTLY_SATURATED classification requires:
-//   1. Arrival rate significantly exceeds system capacity
-//   2. Observation window ends DURING the load phase (not after drain)
-//   3. Backlog growth sustained across multiple measurement windows
+//  1. Arrival rate significantly exceeds system capacity
+//  2. Observation window ends DURING the load phase (not after drain)
+//  3. Backlog growth sustained across multiple measurement windows
 //
 // In practice, real-world workloads often show TRANSIENT_BACKLOG for finite closed
 // workloads that eventually drain, even at high arrival rates.
@@ -663,7 +663,7 @@ func TestSaturationProgression_Demonstration(t *testing.T) {
 
 	// Three scenarios: low, medium, high rate
 	// Expectations are informational only (not strict assertions)
-	rates := []struct{
+	rates := []struct {
 		name string
 		rate float64
 	}{
@@ -778,8 +778,8 @@ func generateSyntheticRequestsWithHorizon(arrivalRate float64, numRequests int) 
 			TTFTSet:        state == sim.StateCompleted,
 			ITL:            itl,
 			State:          state,
-			InputTokens:    make([]int, 100),
-			OutputTokens:   make([]int, 50),
+			InputTokens:    make([]sim.TokenID, 100),
+			OutputTokens:   make([]sim.TokenID, 50),
 		}
 		requests[i] = req
 	}
@@ -845,7 +845,7 @@ func TestSaturationClassification_ManualScenarios(t *testing.T) {
 
 		// Burst: 80 requests arrive in 0-0.4s, all complete by 15s
 		for i := 0; i < 80; i++ {
-			arrivalUs := int64(i * 5_000) // Arrivals: 0-0.4s (very tight burst!)
+			arrivalUs := int64(i * 5_000)                // Arrivals: 0-0.4s (very tight burst!)
 			completionUs := int64(10_000_000 + i*60_000) // Completions: 10-14.8s (all in window 2)
 			requests = append(requests, &sim.Request{
 				ID:             fmt.Sprintf("burst_%d", i),
@@ -854,8 +854,8 @@ func TestSaturationClassification_ManualScenarios(t *testing.T) {
 				TTFTSet:        true,
 				ITL:            []int64{(completionUs - arrivalUs) / 2},
 				State:          sim.StateCompleted,
-				InputTokens:    []int{0},
-				OutputTokens:   []int{0},
+				InputTokens:    []sim.TokenID{0},
+				OutputTokens:   []sim.TokenID{0},
 			})
 		}
 
@@ -913,8 +913,8 @@ func TestSaturationClassification_ManualScenarios(t *testing.T) {
 				TTFTSet:        ttftSet,
 				ITL:            itl,
 				State:          state,
-				InputTokens:    []int{0},
-				OutputTokens:   []int{0},
+				InputTokens:    []sim.TokenID{0},
+				OutputTokens:   []sim.TokenID{0},
 			})
 		}
 
@@ -944,8 +944,8 @@ func createManualRequests(timings []requestTiming) []*sim.Request {
 			TTFTSet:        true,
 			ITL:            []int64{ttft / 2},
 			State:          sim.StateCompleted,
-			InputTokens:    []int{0},
-			OutputTokens:   []int{0},
+			InputTokens:    []sim.TokenID{0},
+			OutputTokens:   []sim.TokenID{0},
 		}
 	}
 	return requests
@@ -1110,8 +1110,8 @@ func generateTestWorkload(rate float64, numRequests int, horizonUs int64) []*sim
 			TTFTSet:        ttftSet,
 			ITL:            itl,
 			State:          state,
-			InputTokens:    make([]int, 100),
-			OutputTokens:   make([]int, 50),
+			InputTokens:    make([]sim.TokenID, 100),
+			OutputTokens:   make([]sim.TokenID, 50),
 		})
 	}
 
@@ -1253,7 +1253,7 @@ func TestAnalyzeBacklogDrift_AbsoluteTimestamps(t *testing.T) {
 		requests = append(requests, &sim.Request{
 			ArrivalTime:    baseTimeUs + i*2_400_000, // Every 2.4 seconds over 120s
 			FirstTokenTime: 50_000,                   // 50ms TTFT
-			ITL:            []int64{10_000},           // 10ms per token
+			ITL:            []int64{10_000},          // 10ms per token
 			TTFTSet:        true,
 			State:          sim.StateCompleted,
 		})

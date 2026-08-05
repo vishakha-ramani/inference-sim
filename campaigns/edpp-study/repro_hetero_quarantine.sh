@@ -82,7 +82,7 @@ cd /Users/vishakha/git-repos/llm-git-repos/edpp-fresh/inference-sim
 
 MODEL="${MODEL:-meta-llama/llama-3.3-70b-instruct}"
 COEF="${COEFFS:-scripts/calibration/coeffs-llama70b-h100-tp4.json}"
-BUNDLE="${BUNDLE:-campaigns/edpp-study/out/hetero_real_cmp/bundle.yaml}"
+BUNDLE="${BUNDLE:-campaigns/edpp-study/inputs/hetero-realistic-1p2d.yaml}"
 D=campaigns/edpp-study/out/${RUN:-hetero_quarantine}; OUT="$D/out"; mkdir -p "$OUT"
 
 IN=256; O=64                       # the hetero cell of specs/grid_v3/cells.txt

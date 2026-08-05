@@ -332,11 +332,11 @@ func TestValidateDistributionParams(t *testing.T) {
 	)
 
 	tests := []struct {
-		name      string
-		promptMin int
-		promptMax int
-		outputMin int
-		outputMax int
+		name        string
+		promptMin   int
+		promptMax   int
+		outputMin   int
+		outputMax   int
 		promptStdev int
 		outputStdev int
 		promptMean  int
@@ -344,7 +344,7 @@ func TestValidateDistributionParams(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name:        "valid defaults produce no error",
+			name:      "valid defaults produce no error",
 			promptMin: validMin, promptMax: validMax,
 			outputMin: validOMin, outputMax: validOMax,
 			promptStdev: validStdev, outputStdev: validOStdev,
@@ -352,7 +352,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "prompt-tokens-min zero is rejected",
+			name:      "prompt-tokens-min zero is rejected",
 			promptMin: 0, promptMax: validMax,
 			outputMin: validOMin, outputMax: validOMax,
 			promptStdev: validStdev, outputStdev: validOStdev,
@@ -360,7 +360,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "prompt-tokens-min negative is rejected",
+			name:      "prompt-tokens-min negative is rejected",
 			promptMin: -5, promptMax: validMax,
 			outputMin: validOMin, outputMax: validOMax,
 			promptStdev: validStdev, outputStdev: validOStdev,
@@ -368,7 +368,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "prompt-tokens-max zero is rejected",
+			name:      "prompt-tokens-max zero is rejected",
 			promptMin: validMin, promptMax: 0,
 			outputMin: validOMin, outputMax: validOMax,
 			promptStdev: validStdev, outputStdev: validOStdev,
@@ -376,7 +376,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "output-tokens-min zero is rejected",
+			name:      "output-tokens-min zero is rejected",
 			promptMin: validMin, promptMax: validMax,
 			outputMin: 0, outputMax: validOMax,
 			promptStdev: validStdev, outputStdev: validOStdev,
@@ -384,7 +384,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "output-tokens-max zero is rejected",
+			name:      "output-tokens-max zero is rejected",
 			promptMin: validMin, promptMax: validMax,
 			outputMin: validOMin, outputMax: 0,
 			promptStdev: validStdev, outputStdev: validOStdev,
@@ -392,7 +392,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "negative prompt stdev is rejected",
+			name:      "negative prompt stdev is rejected",
 			promptMin: validMin, promptMax: validMax,
 			outputMin: validOMin, outputMax: validOMax,
 			promptStdev: -1, outputStdev: validOStdev,
@@ -400,7 +400,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "negative output stdev is rejected",
+			name:      "negative output stdev is rejected",
 			promptMin: validMin, promptMax: validMax,
 			outputMin: validOMin, outputMax: validOMax,
 			promptStdev: validStdev, outputStdev: -1,
@@ -408,7 +408,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "prompt min greater than max is rejected",
+			name:      "prompt min greater than max is rejected",
 			promptMin: 500, promptMax: 100,
 			outputMin: validOMin, outputMax: validOMax,
 			promptStdev: 50, outputStdev: validOStdev,
@@ -416,7 +416,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "output min greater than max is rejected",
+			name:      "output min greater than max is rejected",
 			promptMin: validMin, promptMax: validMax,
 			outputMin: 500, outputMax: 100,
 			promptStdev: validStdev, outputStdev: 50,
@@ -424,7 +424,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "prompt mean above max is rejected",
+			name:      "prompt mean above max is rejected",
 			promptMin: 10, promptMax: 100,
 			outputMin: validOMin, outputMax: validOMax,
 			promptStdev: 10, outputStdev: validOStdev,
@@ -432,7 +432,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:        "output mean below min is rejected",
+			name:      "output mean below min is rejected",
 			promptMin: validMin, promptMax: validMax,
 			outputMin: 100, outputMax: 500,
 			promptStdev: validStdev, outputStdev: 50,
@@ -441,7 +441,7 @@ func TestValidateDistributionParams(t *testing.T) {
 		},
 		// stdev=0 is a valid deterministic distribution; lower-bound check must be skipped
 		{
-			name:        "prompt stdev 0 with min 1 is accepted",
+			name:      "prompt stdev 0 with min 1 is accepted",
 			promptMin: 1, promptMax: validMax,
 			outputMin: validOMin, outputMax: validOMax,
 			promptStdev: 0, outputStdev: validOStdev,
@@ -449,7 +449,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "output stdev 0 with min 1 is accepted",
+			name:      "output stdev 0 with min 1 is accepted",
 			promptMin: validMin, promptMax: validMax,
 			outputMin: 1, outputMax: validOMax,
 			promptStdev: validStdev, outputStdev: 0,
@@ -457,7 +457,7 @@ func TestValidateDistributionParams(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "both stddevs 0 with large mins are accepted",
+			name:      "both stddevs 0 with large mins are accepted",
 			promptMin: 100, promptMax: 1024,
 			outputMin: 50, outputMax: 512,
 			promptStdev: 0, outputStdev: 0,
@@ -579,7 +579,7 @@ func TestAutoCalcKVBlocks_RespectsBlockSizeAndGPUMemUtil(t *testing.T) {
 	mc := sim.ModelConfig{
 		NumLayers:       32,
 		NumHeads:        32,
-		NumKVHeads:      8,  // GQA
+		NumKVHeads:      8, // GQA
 		HiddenDim:       4096,
 		IntermediateDim: 14336,
 		VocabSize:       128256,
@@ -595,23 +595,23 @@ func TestAutoCalcKVBlocks_RespectsBlockSizeAndGPUMemUtil(t *testing.T) {
 
 	// KV capacity params for dense SwiGLU model
 	params := latency.NewKVCapacityParams(
-		false, // isMoE
-		0,     // numLocalExperts
-		false, // tieWordEmbeddings
+		false,  // isMoE
+		0,      // numLocalExperts
+		false,  // tieWordEmbeddings
 		"silu", // hiddenAct
-		0,     // moeExpertFFNDim
-		0,     // sharedExpertFFNDim
+		0,      // moeExpertFFNDim
+		0,      // sharedExpertFFNDim
 	)
 
 	const tp = 1
 
 	// Test BC-1: Different block-size values produce different block counts
-	blocks64, err := latency.CalculateKVBlocks(mc, hc, tp, 64, 0.9, params)
+	blocks64, err := latency.CalculateKVBlocks(mc, hc, tp, 1, 64, 0.9, params)
 	if err != nil {
 		t.Fatalf("CalculateKVBlocks with block-size=64: %v", err)
 	}
 
-	blocks128, err := latency.CalculateKVBlocks(mc, hc, tp, 128, 0.9, params)
+	blocks128, err := latency.CalculateKVBlocks(mc, hc, tp, 1, 128, 0.9, params)
 	if err != nil {
 		t.Fatalf("CalculateKVBlocks with block-size=128: %v", err)
 	}
@@ -623,12 +623,12 @@ func TestAutoCalcKVBlocks_RespectsBlockSizeAndGPUMemUtil(t *testing.T) {
 	}
 
 	// Test BC-2: Different gpu-memory-utilization values produce different block counts
-	blocks85pct, err := latency.CalculateKVBlocks(mc, hc, tp, 64, 0.85, params)
+	blocks85pct, err := latency.CalculateKVBlocks(mc, hc, tp, 1, 64, 0.85, params)
 	if err != nil {
 		t.Fatalf("CalculateKVBlocks with gpu-util=0.85: %v", err)
 	}
 
-	blocks95pct, err := latency.CalculateKVBlocks(mc, hc, tp, 64, 0.95, params)
+	blocks95pct, err := latency.CalculateKVBlocks(mc, hc, tp, 1, 64, 0.95, params)
 	if err != nil {
 		t.Fatalf("CalculateKVBlocks with gpu-util=0.95: %v", err)
 	}
@@ -786,7 +786,9 @@ func TestApplyTimeoutToSpec_NegativeMeansDisabled(t *testing.T) {
 //
 // GIVEN the package-level workloadSpecPath is non-empty and --timeout was not explicitly set
 // WHEN the real guard condition (workloadSpecPath == "" || cmd.Flags().Changed("timeout"))
-//      is evaluated
+//
+//	is evaluated
+//
 // THEN the client Timeout is unchanged (applyTimeoutToSpec was not called)
 func TestApplyTimeoutToSpec_NotCalledForSpecFile(t *testing.T) {
 	origPath := workloadSpecPath
@@ -1144,6 +1146,188 @@ func TestRunCmd_MetricsPath_WritesMetricsOutput(t *testing.T) {
 	}
 }
 
+// TestRunCmd_TraceOutput_RecordCountMatchesRequests verifies the issue
+// #1440 end-to-end contract: when `blis run --trace-output X` is used,
+// the exported `X.csv` contains exactly one TraceV2 record per request
+// produced by the workload generator. The hook installed in cmd/root.go
+// replaced the eager `preGeneratedRequests + followUpRequests + sort +
+// RequestsToTraceRecords` path; this test guards the substitution against
+// silent record-count drift (would corrupt INV-13 replay parity).
+// NOTE: Do NOT use t.Parallel() — mutates package-level vars.
+func TestRunCmd_TraceOutput_RecordCountMatchesRequests(t *testing.T) {
+	tmpDir := t.TempDir()
+	tracePrefix := filepath.Join(tmpDir, "trace")
+
+	mcFolder, hwPath, defaultsPath := setupTrainedPhysicsTestFixturesWithDefaults(t)
+
+	// Save and restore the package-level flag vars runCmd.Run mutates.
+	// Same list as TestRunCmd_MetricsPath_WritesMetricsOutput, with
+	// traceOutput added.
+	origMetrics := metricsPath
+	origModel := model
+	origBackend := latencyModelBackend
+	origBeta := betaCoeffs
+	origAlpha := alphaCoeffs
+	origTotalKV := totalKVBlocks
+	origBlockSize := blockSizeTokens
+	origMaxRunning := maxRunningReqs
+	origMaxSched := maxScheduledTokens
+	origInstances := numInstances
+	origSeed := seed
+	origResults := resultsPath
+	origThreshold := longPrefillTokenThreshold
+	origKVCPU := kvCPUBlocks
+	origOffload := kvOffloadThreshold
+	origBandwidth := kvTransferBandwidth
+	origBaseLatency := kvTransferBaseLatency
+	origSnapRefresh := snapshotRefreshInterval
+	origAdmission := admissionPolicy
+	origRouting := routingPolicy
+	origScheduler := scheduler
+	origPolicyConfig := policyConfigPath
+	origMaxModelLen := maxModelLen
+	origTraceLevel := traceLevel
+	origCounterfactualK := counterfactualK
+	origSimHorizon := simulationHorizon
+	origWorkloadType := workloadType
+	origRate := rate
+	origNumReqs := numRequests
+	origConcurrency := concurrency
+	origThinkTime := thinkTimeMs
+	origPrefix := prefixTokens
+	origPromptMean := promptTokensMean
+	origPromptStdev := promptTokensStdev
+	origPromptMin := promptTokensMin
+	origPromptMax := promptTokensMax
+	origOutputMean := outputTokensMean
+	origOutputStdev := outputTokensStdev
+	origOutputMin := outputTokensMin
+	origOutputMax := outputTokensMax
+	origWorkloadSpec := workloadSpecPath
+	origRequestTimeout := requestTimeoutSecs
+	origTraceOut := traceOutput
+	origLogLevel := logLevel
+	origModelConfigFolder := modelConfigFolder
+	origHwConfigPath := hwConfigPath
+	origGPU := gpu
+	origTP := tensorParallelism
+	defer func() {
+		metricsPath = origMetrics
+		model = origModel
+		latencyModelBackend = origBackend
+		betaCoeffs = origBeta
+		alphaCoeffs = origAlpha
+		totalKVBlocks = origTotalKV
+		blockSizeTokens = origBlockSize
+		maxRunningReqs = origMaxRunning
+		maxScheduledTokens = origMaxSched
+		numInstances = origInstances
+		seed = origSeed
+		resultsPath = origResults
+		longPrefillTokenThreshold = origThreshold
+		kvCPUBlocks = origKVCPU
+		kvOffloadThreshold = origOffload
+		kvTransferBandwidth = origBandwidth
+		kvTransferBaseLatency = origBaseLatency
+		snapshotRefreshInterval = origSnapRefresh
+		admissionPolicy = origAdmission
+		routingPolicy = origRouting
+		scheduler = origScheduler
+		policyConfigPath = origPolicyConfig
+		maxModelLen = origMaxModelLen
+		traceLevel = origTraceLevel
+		counterfactualK = origCounterfactualK
+		simulationHorizon = origSimHorizon
+		workloadType = origWorkloadType
+		rate = origRate
+		numRequests = origNumReqs
+		concurrency = origConcurrency
+		thinkTimeMs = origThinkTime
+		prefixTokens = origPrefix
+		promptTokensMean = origPromptMean
+		promptTokensStdev = origPromptStdev
+		promptTokensMin = origPromptMin
+		promptTokensMax = origPromptMax
+		outputTokensMean = origOutputMean
+		outputTokensStdev = origOutputStdev
+		outputTokensMin = origOutputMin
+		outputTokensMax = origOutputMax
+		workloadSpecPath = origWorkloadSpec
+		requestTimeoutSecs = origRequestTimeout
+		traceOutput = origTraceOut
+		logLevel = origLogLevel
+		modelConfigFolder = origModelConfigFolder
+		hwConfigPath = origHwConfigPath
+		gpu = origGPU
+		tensorParallelism = origTP
+	}()
+
+	// 5 distribution-mode requests — non-session workload, so each
+	// initial request emits exactly one trace record.
+	const wantRecords = 5
+	traceOutput = tracePrefix
+	workloadType = "distribution"
+	rate = 1.0
+	numRequests = wantRecords
+	promptTokensMean = 512
+	promptTokensStdev = 256
+	promptTokensMin = 2
+	promptTokensMax = 7000
+	outputTokensMean = 512
+	outputTokensStdev = 256
+	outputTokensMin = 2
+	outputTokensMax = 7000
+
+	testCmd := &cobra.Command{}
+	registerSimConfigFlags(testCmd)
+	testCmd.Flags().IntVar(&numRequests, "num-requests", 0, "")
+	testCmd.Flags().Float64Var(&rate, "rate", 0, "")
+	testCmd.Flags().StringVar(&workloadType, "workload", "", "")
+	testCmd.Flags().StringVar(&traceOutput, "trace-output", "", "")
+	if err := testCmd.ParseFlags([]string{
+		"--model", "qwen/qwen3-14b",
+		"--latency-model", "trained-physics",
+		"--defaults-filepath", defaultsPath,
+		"--model-config-folder", mcFolder,
+		"--hardware-config", hwPath,
+		"--hardware", "H100",
+		"--tp", "1",
+		"--total-kv-blocks", "1000",
+		"--num-requests", strconv.Itoa(wantRecords),
+		"--seed", "42",
+		"--rate", "1.0",
+		"--workload", "distribution",
+		"--trace-output", tracePrefix,
+	}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+
+	runCmd.Run(testCmd, nil)
+
+	// Read back the exported trace and assert exactly one record per
+	// generated request — the key INV-13 contract guarded by the hook
+	// substitution.
+	trace, err := workload.LoadTraceV2(tracePrefix+".yaml", tracePrefix+".csv")
+	if err != nil {
+		t.Fatalf("LoadTraceV2: %v", err)
+	}
+	if got := len(trace.Records); got != wantRecords {
+		t.Fatalf("trace contains %d records, want %d (one per generated request); hook may have dropped or duplicated arrivals", got, wantRecords)
+	}
+
+	// Records are written in arrival-hook fire order, which is
+	// clock-monotonic per INV-3. Assert ArrivalTimeUs is non-decreasing
+	// (a defensive check that the hook stream did not get reordered).
+	var prev int64
+	for i, rec := range trace.Records {
+		if rec.ArrivalTimeUs < prev {
+			t.Fatalf("trace record[%d] ArrivalTimeUs=%d regressed from %d — INV-3/INV-13 violation",
+				i, rec.ArrivalTimeUs, prev)
+		}
+		prev = rec.ArrivalTimeUs
+	}
+}
+
 func TestRunCmd_ModelAutoscalerIntervalUs_FlagRegistered(t *testing.T) {
 	flag := runCmd.Flags().Lookup("model-autoscaler-interval-us")
 	assert.NotNil(t, flag, "model-autoscaler-interval-us flag must be registered")
@@ -1169,3 +1353,308 @@ func buildTestCohort() workload.CohortSpec {
 	return workload.CohortSpec{ID: "cohort-0"}
 }
 
+// runRunCmdAndCaptureTraces invokes runCmd.Run with a distribution-mode
+// workload at the given seed and lazyGeneration flag, capturing both the
+// exported TraceV2 header bytes and data bytes. It restores every package-
+// level CLI variable it touches on return — using the existing helper
+// captured by TestRunCmd_TraceOutput_RecordCountMatchesRequests's pattern.
+//
+// Used by the byte-identity tests below (BC-2 / BC-4 / #1441) to compare
+// eager vs lazy mode output without running the binary subprocess.
+func runRunCmdAndCaptureTraces(t *testing.T, seedVal int64, numReq int, lazyFlag bool) (headerBytes, dataBytes []byte) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	tracePrefix := filepath.Join(tmpDir, "trace")
+	mcFolder, hwPath, defaultsPath := setupTrainedPhysicsTestFixturesWithDefaults(t)
+
+	// Save and restore package-level flag vars touched by runCmd.Run.
+	orig := captureCmdLevelVars()
+	defer orig.restore()
+
+	// Set inputs for this run.
+	traceOutput = tracePrefix
+	workloadType = "distribution"
+	rate = 1.0
+	numRequests = numReq
+	seed = seedVal
+	lazyGeneration = lazyFlag
+	promptTokensMean = 64
+	promptTokensStdev = 8
+	promptTokensMin = 2
+	promptTokensMax = 256
+	outputTokensMean = 32
+	outputTokensStdev = 8
+	outputTokensMin = 2
+	outputTokensMax = 256
+
+	testCmd := &cobra.Command{}
+	registerSimConfigFlags(testCmd)
+	testCmd.Flags().IntVar(&numRequests, "num-requests", 0, "")
+	testCmd.Flags().Float64Var(&rate, "rate", 0, "")
+	testCmd.Flags().StringVar(&workloadType, "workload", "", "")
+	testCmd.Flags().StringVar(&traceOutput, "trace-output", "", "")
+	testCmd.Flags().BoolVar(&lazyGeneration, "lazy-generation", false, "")
+	args := []string{
+		"--model", "qwen/qwen3-14b",
+		"--latency-model", "trained-physics",
+		"--defaults-filepath", defaultsPath,
+		"--model-config-folder", mcFolder,
+		"--hardware-config", hwPath,
+		"--hardware", "H100",
+		"--tp", "1",
+		"--total-kv-blocks", "1000",
+		"--num-requests", strconv.Itoa(numReq),
+		"--seed", strconv.FormatInt(seedVal, 10),
+		"--rate", "1.0",
+		"--workload", "distribution",
+		"--trace-output", tracePrefix,
+	}
+	if lazyFlag {
+		args = append(args, "--lazy-generation=true")
+	}
+	if err := testCmd.ParseFlags(args); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	runCmd.Run(testCmd, nil)
+
+	hdr, err := os.ReadFile(tracePrefix + ".yaml")
+	if err != nil {
+		t.Fatalf("read header: %v", err)
+	}
+	data, err := os.ReadFile(tracePrefix + ".csv")
+	if err != nil {
+		t.Fatalf("read data: %v", err)
+	}
+	return hdr, data
+}
+
+// origCmdLevelVars captures the subset of package-level CLI variables
+// runRunCmdAndCaptureTraces mutates. It mirrors the explicit save/restore
+// dance in TestRunCmd_TraceOutput_RecordCountMatchesRequests but as a
+// helper to keep the lazy-generation tests short.
+type origCmdLevelVars struct {
+	metrics, model, backend, results, policyConfig, traceOut, logLvl, mcFolder, hwCfg, gpuVal string
+	defaultsFile                                                                              string
+	beta, alpha                                                                               []float64
+	totalKV, blockSize, maxRunning, maxSched, simHorizon, snapRefresh, kvCPU, baseLatency     int64
+	threshold, maxModelLen                                                                    int64
+	offload, bandwidth                                                                        float64
+	instances, tp, counterfactualK, numReqs, concurrencyV, thinkTime, prefix                  int
+	rateV                                                                                     float64
+	seedV                                                                                     int64
+	traceLvl, workloadT, admission, routing, sched, workloadSpec                              string
+	promptMean, promptStdev, promptMin, promptMax                                             int
+	outputMean, outputStdev, outputMin, outputMax                                             int
+	requestTimeout                                                                            int
+	lazy                                                                                      bool
+}
+
+func captureCmdLevelVars() origCmdLevelVars {
+	return origCmdLevelVars{
+		metrics: metricsPath, model: model, backend: latencyModelBackend,
+		beta: betaCoeffs, alpha: alphaCoeffs,
+		totalKV: totalKVBlocks, blockSize: blockSizeTokens, maxRunning: maxRunningReqs,
+		maxSched: maxScheduledTokens, instances: numInstances, seedV: seed, results: resultsPath,
+		threshold: longPrefillTokenThreshold, kvCPU: kvCPUBlocks, offload: kvOffloadThreshold,
+		bandwidth: kvTransferBandwidth, baseLatency: kvTransferBaseLatency,
+		snapRefresh: snapshotRefreshInterval, admission: admissionPolicy,
+		routing: routingPolicy, sched: scheduler, policyConfig: policyConfigPath,
+		maxModelLen: maxModelLen, traceLvl: traceLevel, counterfactualK: counterfactualK,
+		simHorizon: simulationHorizon, workloadT: workloadType, rateV: rate,
+		numReqs: numRequests, concurrencyV: concurrency, thinkTime: thinkTimeMs,
+		prefix: prefixTokens, promptMean: promptTokensMean, promptStdev: promptTokensStdev,
+		promptMin: promptTokensMin, promptMax: promptTokensMax,
+		outputMean: outputTokensMean, outputStdev: outputTokensStdev,
+		outputMin: outputTokensMin, outputMax: outputTokensMax,
+		workloadSpec: workloadSpecPath, requestTimeout: requestTimeoutSecs,
+		traceOut: traceOutput, logLvl: logLevel, mcFolder: modelConfigFolder,
+		hwCfg: hwConfigPath, gpuVal: gpu, tp: tensorParallelism,
+		lazy: lazyGeneration, defaultsFile: defaultsFilePath,
+	}
+}
+
+func (o origCmdLevelVars) restore() {
+	metricsPath = o.metrics
+	model = o.model
+	latencyModelBackend = o.backend
+	betaCoeffs = o.beta
+	alphaCoeffs = o.alpha
+	totalKVBlocks = o.totalKV
+	blockSizeTokens = o.blockSize
+	maxRunningReqs = o.maxRunning
+	maxScheduledTokens = o.maxSched
+	numInstances = o.instances
+	seed = o.seedV
+	resultsPath = o.results
+	longPrefillTokenThreshold = o.threshold
+	kvCPUBlocks = o.kvCPU
+	kvOffloadThreshold = o.offload
+	kvTransferBandwidth = o.bandwidth
+	kvTransferBaseLatency = o.baseLatency
+	snapshotRefreshInterval = o.snapRefresh
+	admissionPolicy = o.admission
+	routingPolicy = o.routing
+	scheduler = o.sched
+	policyConfigPath = o.policyConfig
+	maxModelLen = o.maxModelLen
+	traceLevel = o.traceLvl
+	counterfactualK = o.counterfactualK
+	simulationHorizon = o.simHorizon
+	workloadType = o.workloadT
+	rate = o.rateV
+	numRequests = o.numReqs
+	concurrency = o.concurrencyV
+	thinkTimeMs = o.thinkTime
+	prefixTokens = o.prefix
+	promptTokensMean = o.promptMean
+	promptTokensStdev = o.promptStdev
+	promptTokensMin = o.promptMin
+	promptTokensMax = o.promptMax
+	outputTokensMean = o.outputMean
+	outputTokensStdev = o.outputStdev
+	outputTokensMin = o.outputMin
+	outputTokensMax = o.outputMax
+	workloadSpecPath = o.workloadSpec
+	requestTimeoutSecs = o.requestTimeout
+	traceOutput = o.traceOut
+	logLevel = o.logLvl
+	modelConfigFolder = o.mcFolder
+	hwConfigPath = o.hwCfg
+	gpu = o.gpuVal
+	tensorParallelism = o.tp
+	lazyGeneration = o.lazy
+	defaultsFilePath = o.defaultsFile
+}
+
+// TestRunCmd_LazyGeneration_FlagRegistered verifies the --lazy-generation
+// flag is registered on `blis run` and defaults to false. BC-1, #1441.
+func TestRunCmd_LazyGeneration_FlagRegistered(t *testing.T) {
+	flag := runCmd.Flags().Lookup("lazy-generation")
+	if flag == nil {
+		t.Fatal("--lazy-generation flag must be registered on runCmd")
+	}
+	if flag.DefValue != "false" {
+		t.Errorf("--lazy-generation default = %q, want %q", flag.DefValue, "false")
+	}
+}
+
+// TestRunCmd_LazyVsEager_Distribution_ByteIdentical pins BC-4: under the
+// same seed, model, and workload, `blis run --lazy-generation` produces
+// TraceV2 output (YAML header + CSV data) byte-identical to `blis run`
+// without the flag.
+//
+// NOTE: Do NOT use t.Parallel() — mutates package-level vars.
+func TestRunCmd_LazyVsEager_Distribution_ByteIdentical(t *testing.T) {
+	hdrEager, dataEager := runRunCmdAndCaptureTraces(t /*seed=*/, 1234 /*numReq=*/, 8 /*lazy=*/, false)
+	hdrLazy, dataLazy := runRunCmdAndCaptureTraces(t, 1234, 8, true)
+	if !bytes.Equal(hdrEager, hdrLazy) {
+		t.Fatalf("trace header diverged between eager and lazy modes\nEAGER:\n%s\nLAZY:\n%s", hdrEager, hdrLazy)
+	}
+	if !bytes.Equal(dataEager, dataLazy) {
+		t.Fatalf("trace data diverged between eager and lazy modes\nEAGER:\n%s\nLAZY:\n%s", dataEager, dataLazy)
+	}
+	if len(dataEager) == 0 {
+		t.Fatal("trace data is empty; tests must produce non-zero output to be meaningful")
+	}
+}
+
+// TestRunCmd_LazyGeneration_SameSeed_Deterministic pins BC-5 (INV-6):
+// `blis run --lazy-generation --seed S` invoked twice produces
+// byte-identical trace output across the two runs.
+//
+// NOTE: Do NOT use t.Parallel() — mutates package-level vars.
+func TestRunCmd_LazyGeneration_SameSeed_Deterministic(t *testing.T) {
+	hdrA, dataA := runRunCmdAndCaptureTraces(t /*seed=*/, 2026 /*numReq=*/, 6 /*lazy=*/, true)
+	hdrB, dataB := runRunCmdAndCaptureTraces(t, 2026, 6, true)
+	if !bytes.Equal(hdrA, hdrB) {
+		t.Fatalf("lazy trace header non-deterministic across runs with seed 2026")
+	}
+	if !bytes.Equal(dataA, dataB) {
+		t.Fatalf("lazy trace data non-deterministic across runs with seed 2026")
+	}
+}
+
+// TestRunCmd_LazyGeneration_Concurrency_Streams pins the CLI seam for #1459:
+// when --lazy-generation is combined with a workload-spec containing a
+// concurrency client, cmd/root.go MUST build the streaming source (concurrency
+// is now a supported lazy shape) and complete the run normally, producing a
+// trace file. Before #1459 this shape fell back to the eager generator; the run
+// still succeeds either way, so the observable CLI contract (run completes, no
+// Fatalf, trace written) is unchanged — this guards against a regression that
+// would break the run for concurrency specs under --lazy-generation.
+//
+// We use --workload-spec rather than --concurrency for control of the
+// per-flag interactions on the run command; the spec-based path is the
+// closest production path that exercises concurrency under lazy generation.
+//
+// NOTE: Do NOT use t.Parallel() — mutates package-level vars.
+func TestRunCmd_LazyGeneration_Concurrency_Streams(t *testing.T) {
+	tmpDir := t.TempDir()
+	tracePrefix := filepath.Join(tmpDir, "trace")
+	mcFolder, hwPath, defaultsPath := setupTrainedPhysicsTestFixturesWithDefaults(t)
+
+	// Write a minimal concurrency-mode workload spec.
+	specPath := filepath.Join(tmpDir, "concurrency.yaml")
+	specYAML := `version: "2"
+seed: 7
+category: language
+clients:
+  - id: c1
+    tenant_id: t1
+    slo_class: batch
+    concurrency: 3
+    think_time_us: 100000
+    arrival:
+      process: constant
+    input_distribution:
+      type: constant
+      params: { value: 32 }
+    output_distribution:
+      type: constant
+      params: { value: 16 }
+`
+	if err := os.WriteFile(specPath, []byte(specYAML), 0644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	orig := captureCmdLevelVars()
+	defer orig.restore()
+
+	traceOutput = tracePrefix
+	workloadSpecPath = specPath
+	simulationHorizon = 2_000_000
+	seed = 2031
+	lazyGeneration = true
+
+	testCmd := &cobra.Command{}
+	registerSimConfigFlags(testCmd)
+	testCmd.Flags().StringVar(&workloadSpecPath, "workload-spec", "", "")
+	testCmd.Flags().StringVar(&traceOutput, "trace-output", "", "")
+	testCmd.Flags().BoolVar(&lazyGeneration, "lazy-generation", false, "")
+	args := []string{
+		"--model", "qwen/qwen3-14b",
+		"--latency-model", "trained-physics",
+		"--defaults-filepath", defaultsPath,
+		"--model-config-folder", mcFolder,
+		"--hardware-config", hwPath,
+		"--hardware", "H100",
+		"--tp", "1",
+		"--total-kv-blocks", "1000",
+		"--seed", strconv.FormatInt(seed, 10),
+		"--workload-spec", specPath,
+		"--horizon", "2000000",
+		"--trace-output", tracePrefix,
+		"--lazy-generation=true",
+	}
+	if err := testCmd.ParseFlags(args); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	// If concurrency generation under --lazy-generation were broken (e.g. an
+	// accidental Fatalf), the test process would exit here. A normal return =
+	// the lazy streaming path built the source and the run completed.
+	runCmd.Run(testCmd, nil)
+
+	if _, err := os.Stat(tracePrefix + ".csv"); err != nil {
+		t.Fatalf("expected trace CSV to be written by the lazy streaming path, got: %v", err)
+	}
+}

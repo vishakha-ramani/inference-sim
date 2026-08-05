@@ -47,6 +47,8 @@ __pycache__/*
 !testdata/roofline_goldendataset.json
 !model_configs/*/config.json
 !hardware_config.json
+!specs/**/testdata/*.json
+!cmd/testdata/**/*.json
 data/
 *.txt
 

@@ -385,14 +385,14 @@ func TestScoreLoadAware_ScoreRange_MaxIsHalf(t *testing.T) {
 
 func TestAllScorers_ReturnScoreForEveryInstance(t *testing.T) {
 	snapshots := []RoutingSnapshot{
-		{ID: "a", QueueDepth: 1, KVUtilization: 0.3},
+		{ID: "a", QueueDepth: 1, KVUtilization: 0.3, ResidentAdapters: map[string]bool{"x": true}},
 		{ID: "b", QueueDepth: 2, KVUtilization: 0.7},
 		{ID: "c", QueueDepth: 0, KVUtilization: 0.0},
 	}
 	cacheQueryFn := cacheQueryFn{
-		"a": func(tokens []int) int { return 2 },
-		"b": func(tokens []int) int { return 0 },
-		"c": func(tokens []int) int { return 1 },
+		"a": func(tokens []TokenID) int { return 2 },
+		"b": func(tokens []TokenID) int { return 0 },
+		"c": func(tokens []TokenID) int { return 1 },
 	}
 	precisePrefixScorer, _ := newPrecisePrefixCacheScorer(cacheQueryFn)
 	noHitLRUScorer, _ := newNoHitLRUScorer(cacheQueryFn)
@@ -409,8 +409,12 @@ func TestAllScorers_ReturnScoreForEveryInstance(t *testing.T) {
 		{"vllm-dp", scoreVLLMDP},
 		{"precise-prefix-cache", precisePrefixScorer},
 		{"no-hit-lru", noHitLRUScorer},
+		{"lora-affinity", scoreLoRAAffinity},
 	}
-	req := &Request{ID: "r1", InputTokens: []int{1, 2, 3}}
+	// req carries an adapter resident only on "a" so lora-affinity exercises its
+	// min-max normalization branch (warm vs cold), not just the neutral path.
+	// Other scorers ignore Adapter/ResidentAdapters, so the shared fixture is unaffected.
+	req := &Request{ID: "r1", InputTokens: []TokenID{1, 2, 3}, Adapter: "x"}
 	for _, sf := range scorerFns {
 		t.Run(sf.name, func(t *testing.T) {
 			scores := sf.fn(req, snapshots)
@@ -444,14 +448,14 @@ func TestAllScorers_ReturnScoreForEveryInstance(t *testing.T) {
 // correctly wires precise-prefix-cache and no-hit-lru scorers via NewRoutingPolicyWithCache.
 func TestNewScorerFactory_PrecisePrefixAndNoHitLRU(t *testing.T) {
 	cacheQueryFn := cacheQueryFn{
-		"a": func(tokens []int) int { return 5 },
-		"b": func(tokens []int) int { return 0 },
+		"a": func(tokens []TokenID) int { return 5 },
+		"b": func(tokens []TokenID) int { return 0 },
 	}
 	policy := NewRoutingPolicyWithCache("weighted", []ScorerConfig{
 		{Name: "precise-prefix-cache", Weight: 1.0},
 	}, 16, nil, cacheQueryFn)
 
-	req := &Request{ID: "r1", InputTokens: []int{1, 2, 3}}
+	req := &Request{ID: "r1", InputTokens: []TokenID{1, 2, 3}}
 	state := &RouterState{
 		Snapshots: []RoutingSnapshot{{ID: "a"}, {ID: "b"}},
 		Clock:     1000,
@@ -465,9 +469,9 @@ func TestNewScorerFactory_PrecisePrefixAndNoHitLRU(t *testing.T) {
 
 func TestScoreVLLMDP_BasicFormula(t *testing.T) {
 	snapshots := []RoutingSnapshot{
-		{ID: "a", QueueDepth: 10, BatchSize: 5},  // 10×4 + 5 = 45
-		{ID: "b", QueueDepth: 5, BatchSize: 10},  // 5×4 + 10 = 30
-		{ID: "c", QueueDepth: 2, BatchSize: 2},   // 2×4 + 2 = 10 (min)
+		{ID: "a", QueueDepth: 10, BatchSize: 5}, // 10×4 + 5 = 45
+		{ID: "b", QueueDepth: 5, BatchSize: 10}, // 5×4 + 10 = 30
+		{ID: "c", QueueDepth: 2, BatchSize: 2},  // 2×4 + 2 = 10 (min)
 	}
 	scores := scoreVLLMDP(nil, snapshots)
 
@@ -538,8 +542,8 @@ func TestScoreVLLMDP_WeightEquivalence(t *testing.T) {
 
 	// Verify the 4:1 law with different values: QD+1 and BS-4 should preserve score equality
 	snapshots2 := []RoutingSnapshot{
-		{ID: "a", QueueDepth: 10, BatchSize: 8}, // 10×4 + 8 = 48
-		{ID: "b", QueueDepth: 11, BatchSize: 4}, // 11×4 + 4 = 48 (QD+1, BS-4)
+		{ID: "a", QueueDepth: 10, BatchSize: 8},  // 10×4 + 8 = 48
+		{ID: "b", QueueDepth: 11, BatchSize: 4},  // 11×4 + 4 = 48 (QD+1, BS-4)
 		{ID: "c", QueueDepth: 0, BatchSize: 100}, // 0×4 + 100 = 100 (different)
 	}
 	scores2 := scoreVLLMDP(nil, snapshots2)
@@ -559,9 +563,9 @@ func TestScoreVLLMDP_PileOnInPeriodicMode(t *testing.T) {
 
 	// Stale snapshot: instance A looks empty, B and C are loaded.
 	snapshot := []RoutingSnapshot{
-		{ID: "a", QueueDepth: 0, BatchSize: 0},  // raw=0, scores 1.0
-		{ID: "b", QueueDepth: 2, BatchSize: 3},  // raw=11, scores lower
-		{ID: "c", QueueDepth: 5, BatchSize: 1},  // raw=21, scores lowest
+		{ID: "a", QueueDepth: 0, BatchSize: 0}, // raw=0, scores 1.0
+		{ID: "b", QueueDepth: 2, BatchSize: 3}, // raw=11, scores lower
+		{ID: "c", QueueDepth: 5, BatchSize: 1}, // raw=21, scores lowest
 	}
 
 	// All three requests in the same snapshot window see the same stale counts.
@@ -573,4 +577,128 @@ func TestScoreVLLMDP_PileOnInPeriodicMode(t *testing.T) {
 		// In vLLM, only the first request would pick "a"; subsequent ones would
 		// see incremented counts and potentially route to "b" or "c".
 	}
+}
+
+// --- lora-affinity scorer (PR6, #1469) -------------------------------------
+//
+// Contract (contracts/routing-snapshot.md, spec US4):
+//   raw(instance)   = 1.0 if req.Adapter ∈ instance.ResidentAdapters else 0.0
+//   score(instance) = minMaxNormalize(raw over candidate instances)  (llm-d parity)
+
+func residentSetOf(ids ...string) map[string]bool {
+	m := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		m[id] = true
+	}
+	return m
+}
+
+// TestScoreLoRAAffinity_WarmScoresHigherThanCold is US4 scenario 1: an instance
+// that already holds req.Adapter must outscore one that does not, all else equal.
+func TestScoreLoRAAffinity_WarmScoresHigherThanCold(t *testing.T) {
+	req := &Request{Adapter: "sql-lora"}
+	snapshots := []RoutingSnapshot{
+		{ID: "warm", ResidentAdapters: residentSetOf("sql-lora", "other")},
+		{ID: "cold", ResidentAdapters: residentSetOf("other")},
+	}
+	scores := scoreLoRAAffinity(req, snapshots)
+	assert.Greater(t, scores["warm"], scores["cold"], "warm instance must outscore cold")
+	// min-max over {1.0, 0.0}: warm→1.0, cold→0.0.
+	assert.Equal(t, 1.0, scores["warm"])
+	assert.Equal(t, 0.0, scores["cold"])
+}
+
+// TestScoreLoRAAffinity_EmptyAdapterNeutral: base-model requests (no adapter)
+// must not bias routing — every instance scores equally (neutral).
+func TestScoreLoRAAffinity_EmptyAdapterNeutral(t *testing.T) {
+	req := &Request{Adapter: ""}
+	snapshots := []RoutingSnapshot{
+		{ID: "a", ResidentAdapters: residentSetOf("sql-lora")},
+		{ID: "b", ResidentAdapters: residentSetOf("other")},
+		{ID: "c"}, // nil ResidentAdapters
+	}
+	scores := scoreLoRAAffinity(req, snapshots)
+	assert.Equal(t, 1.0, scores["a"])
+	assert.Equal(t, 1.0, scores["b"])
+	assert.Equal(t, 1.0, scores["c"])
+}
+
+// TestScoreLoRAAffinity_NilResidentAdaptersNeutral: the zero value (nil set) on
+// every instance yields all-cold ⇒ min-max of all-equal ⇒ all score 1.0. This is
+// the no-op default that keeps routing unchanged when the LoRA subsystem is inert.
+func TestScoreLoRAAffinity_NilResidentAdaptersNeutral(t *testing.T) {
+	req := &Request{Adapter: "sql-lora"}
+	snapshots := []RoutingSnapshot{{ID: "a"}, {ID: "b"}}
+	scores := scoreLoRAAffinity(req, snapshots)
+	assert.Equal(t, 1.0, scores["a"], "all-cold ⇒ neutral")
+	assert.Equal(t, 1.0, scores["b"], "all-cold ⇒ neutral")
+}
+
+// TestScoreLoRAAffinity_AllWarmNeutral: when every candidate already holds the
+// adapter, min-max of all-equal raw scores ⇒ all 1.0 (no differentiation).
+func TestScoreLoRAAffinity_AllWarmNeutral(t *testing.T) {
+	req := &Request{Adapter: "sql-lora"}
+	snapshots := []RoutingSnapshot{
+		{ID: "a", ResidentAdapters: residentSetOf("sql-lora")},
+		{ID: "b", ResidentAdapters: residentSetOf("sql-lora")},
+	}
+	scores := scoreLoRAAffinity(req, snapshots)
+	assert.Equal(t, 1.0, scores["a"])
+	assert.Equal(t, 1.0, scores["b"])
+}
+
+// TestScoreLoRAAffinity_SingleInstance always scores 1.0 (min == max).
+func TestScoreLoRAAffinity_SingleInstance(t *testing.T) {
+	req := &Request{Adapter: "sql-lora"}
+	scores := scoreLoRAAffinity(req, []RoutingSnapshot{{ID: "a"}})
+	assert.Equal(t, 1.0, scores["a"], "single instance always scores 1.0")
+}
+
+// TestScoreLoRAAffinity_IgnoresOutputTokens enforces INV-9 (oracle knowledge
+// boundary): the scorer reads only Adapter/ResidentAdapters, never OutputTokens.
+// Scores must be identical whether OutputTokens is set or zero.
+func TestScoreLoRAAffinity_IgnoresOutputTokens(t *testing.T) {
+	snapshots := []RoutingSnapshot{
+		{ID: "warm", ResidentAdapters: residentSetOf("sql-lora")},
+		{ID: "cold"},
+	}
+	base := scoreLoRAAffinity(&Request{Adapter: "sql-lora"}, snapshots)
+	withOut := scoreLoRAAffinity(&Request{Adapter: "sql-lora", OutputTokens: make([]TokenID, 4096)}, snapshots)
+	assert.Equal(t, base, withOut, "OutputTokens must not influence routing scores (INV-9)")
+}
+
+// TestLoRAAffinity_Registered verifies the scorer is a recognized name (R8) and
+// resolves to a stateless scorerFunc (nil observer) via newScorerWithObserver.
+func TestLoRAAffinity_Registered(t *testing.T) {
+	assert.True(t, IsValidScorer("lora-affinity"), "lora-affinity must be a valid scorer name")
+	assert.Contains(t, ValidScorerNames(), "lora-affinity")
+	scorer, observer := newScorerWithObserver("lora-affinity", 16, nil)
+	require.NotNil(t, scorer, "lora-affinity must resolve to a scorerFunc")
+	assert.Nil(t, observer, "lora-affinity is stateless (no observer)")
+}
+
+// TestLoRAAffinity_NotInProfile_RoutingUnchanged is US4 scenario 3 / INV-6: with
+// the scorer absent from the weighted profile, an adapter request routes exactly
+// as it would with no LoRA awareness. We assert the composite decision is
+// identical with and without ResidentAdapters populated, because the default
+// profile never consults them.
+func TestLoRAAffinity_NotInProfile_RoutingUnchanged(t *testing.T) {
+	configs := DefaultScorerConfigs() // precise-prefix-cache, queue-depth, kv-utilization
+	policyWithout := NewRoutingPolicy("weighted", configs, 16, nil)
+	req := &Request{Adapter: "sql-lora", InputTokens: make([]TokenID, 32)}
+
+	// Two snapshot sets identical except for ResidentAdapters (which the default
+	// profile ignores). Same routing decision proves the adapter field is inert.
+	bare := []RoutingSnapshot{
+		{ID: "a", QueueDepth: 5, KVUtilization: 0.5},
+		{ID: "b", QueueDepth: 1, KVUtilization: 0.1},
+	}
+	withResident := []RoutingSnapshot{
+		{ID: "a", QueueDepth: 5, KVUtilization: 0.5, ResidentAdapters: residentSetOf("sql-lora")},
+		{ID: "b", QueueDepth: 1, KVUtilization: 0.1},
+	}
+	dBare := policyWithout.Route(req, &RouterState{Snapshots: bare})
+	dResident := policyWithout.Route(req, &RouterState{Snapshots: withResident})
+	assert.Equal(t, dBare.TargetInstance, dResident.TargetInstance,
+		"default profile must ignore ResidentAdapters (INV-6)")
 }

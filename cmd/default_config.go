@@ -29,11 +29,29 @@ type Config struct {
 	Version                string                   `yaml:"version"`
 	Workloads              map[string]Workload      `yaml:"workloads"`
 	TrainedPhysicsDefaults *TrainedPhysicsDefaults  `yaml:"trained_physics_coefficients,omitempty"`
+	LoRADefaults           *LoRADefaults            `yaml:"lora,omitempty"`
+}
+
+// LoRADefaults holds inert defaults for the LoRA control-plane subsystem's cost
+// coefficients. Present in defaults.yaml but only applied to a run when adapters are
+// configured (INV-6 no-op default). These values seed the --lora-* flag defaults;
+// they are NOT the adapter registry (registry is declared per-run via a config file).
+type LoRADefaults struct {
+	LoadBaseLatencyUs     float64                          `yaml:"load_base_latency_us"`
+	LoadBandwidthBytesUs  float64                          `yaml:"load_bandwidth_bytes_us"`
+	FootprintBytesPerRank float64                          `yaml:"footprint_bytes_per_rank"`
+	StepOverheadTiers     map[int]LoRAStepOverheadDefaults `yaml:"step_overhead_tiers,omitempty"`
+}
+
+// LoRAStepOverheadDefaults mirrors sim.StepOverheadTier for defaults.yaml parsing.
+type LoRAStepOverheadDefaults struct {
+	K6 float64 `yaml:"k6"`
+	K7 float64 `yaml:"k7"`
 }
 
 // TrainedPhysicsDefaults holds physics-informed roofline + learned correction coefficients.
 // AlphaCoeffs has 3 elements (α₀-α₂): API/framework overheads in µs.
-// BetaCoeffs has 10 elements (β₁-β₁₀): roofline corrections and per-component overheads.
+// BetaCoeffs has 11 elements (β₁-β₁₀ + β_EP): roofline corrections and per-component overheads.
 // Trained from iter29 (sequential golden section search, β₆ +57%, loss 34.57%).
 type TrainedPhysicsDefaults struct {
 	AlphaCoeffs []float64 `yaml:"alpha_coeffs"`
@@ -104,4 +122,3 @@ func GetHFRepo(modelName string, defaultsFile string) (string, error) {
 	}
 	return "", nil
 }
-

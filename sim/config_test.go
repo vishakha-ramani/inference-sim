@@ -43,7 +43,7 @@ func TestNewLatencyCoeffs_FieldEquivalence(t *testing.T) {
 func TestNewModelHardwareConfig_FieldEquivalence(t *testing.T) {
 	mc := ModelConfig{NumLayers: 32}
 	hw := HardwareCalib{TFlopsPeak: 1000.0, MemoryGiB: 80.0}
-	got := NewModelHardwareConfig(mc, hw, "llama", "H100", 2, 1, false, "roofline", 8192)
+	got := NewModelHardwareConfig(mc, hw, "llama", "H100", 2, 1, false, "", "roofline", 8192)
 	want := ModelHardwareConfig{
 		ModelConfig:          mc,
 		HWConfig:             hw,
@@ -99,7 +99,7 @@ func TestModelHardwareConfig_ParallelismHelpers(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewModelHardwareConfig(tc.mc, HardwareCalib{}, "m", "H100", tc.tp, tc.dp, tc.ep, "trained-physics", 0)
+			c := NewModelHardwareConfig(tc.mc, HardwareCalib{}, "m", "H100", tc.tp, tc.dp, tc.ep, "", "trained-physics", 0)
 			assert.Equal(t, tc.wantDP, c.EffectiveDP(), "EffectiveDP")
 			assert.Equal(t, tc.wantMoEGroup, c.EffectiveMoEGroupSize(), "EffectiveMoEGroupSize")
 			assert.Equal(t, tc.wantEP, c.EffectiveEP(), "EffectiveEP")
@@ -155,7 +155,7 @@ func TestNewModelHardwareConfig_DPValidation(t *testing.T) {
 					t.Errorf("panic message %q should contain constructor name", msg)
 				}
 			}()
-			NewModelHardwareConfig(tc.mc, HardwareCalib{}, "m", "H100", 2, tc.dp, false, "trained-physics", 0)
+			NewModelHardwareConfig(tc.mc, HardwareCalib{}, "m", "H100", 2, tc.dp, false, "", "trained-physics", 0)
 		})
 	}
 }
@@ -165,7 +165,7 @@ func TestNewModelHardwareConfig_DPValidation(t *testing.T) {
 func TestNewModelHardwareConfig_MoE_DPAllowed(t *testing.T) {
 	moe := ModelConfig{NumLayers: 32, NumLocalExperts: 8}
 	for _, ep := range []bool{false, true} {
-		c := NewModelHardwareConfig(moe, HardwareCalib{}, "m", "H100", 2, 4, ep, "trained-physics", 0)
+		c := NewModelHardwareConfig(moe, HardwareCalib{}, "m", "H100", 2, 4, ep, "", "trained-physics", 0)
 		assert.Equal(t, 4, c.DP)
 		assert.Equal(t, ep, c.EnableExpertParallel)
 		assert.Equal(t, 8, c.EffectiveMoEGroupSize()) // TP·DP = 2·4
@@ -181,8 +181,8 @@ func TestNewModelHardwareConfig_MoE_DPAllowed(t *testing.T) {
 func TestEffectiveMoEGroupSize_EPModeIndependent(t *testing.T) {
 	moe := ModelConfig{NumLayers: 32, NumLocalExperts: 8}
 	for _, tc := range []struct{ tp, dp int }{{2, 2}, {4, 2}, {1, 4}, {2, 1}} {
-		off := NewModelHardwareConfig(moe, HardwareCalib{}, "m", "H100", tc.tp, tc.dp, false, "trained-physics", 0)
-		on := NewModelHardwareConfig(moe, HardwareCalib{}, "m", "H100", tc.tp, tc.dp, true, "trained-physics", 0)
+		off := NewModelHardwareConfig(moe, HardwareCalib{}, "m", "H100", tc.tp, tc.dp, false, "", "trained-physics", 0)
+		on := NewModelHardwareConfig(moe, HardwareCalib{}, "m", "H100", tc.tp, tc.dp, true, "", "trained-physics", 0)
 		assert.Equalf(t, off.EffectiveMoEGroupSize(), on.EffectiveMoEGroupSize(),
 			"flattened MoE group must be EP-mode-independent at TP=%d,DP=%d", tc.tp, tc.dp)
 		// And when EP is on, EP equals that same group.
@@ -471,6 +471,171 @@ func TestHardwareCalib_MFUValidation(t *testing.T) {
 				} else if !strings.Contains(err.Error(), tc.wantContains) {
 					t.Errorf("error %q should contain %q", err.Error(), tc.wantContains)
 				}
+			}
+		})
+	}
+}
+
+// loraIntPtr is a local helper for building *int LoRAConfig fields in tests.
+func loraIntPtr(v int) *int { return &v }
+
+// TestLoRAConfig_Validate exercises the LoRAConfig validation contract
+// (contracts/config-schema.md). Behavioral GIVEN/WHEN/THEN scenarios:
+//   - adapters present + adapter_capacity == 0  => error (adapters forbidden)
+//   - any adapter rank <= 0                      => error (R3)
+//   - load_bandwidth_bytes_us <= 0               => error (R11 divisor guard)
+//   - load_base_latency_us < 0                   => error (R3)
+//   - footprint_bytes_per_rank <= 0              => error (R3)
+//   - step_overhead_tiers k7 <= 0 / k6 < 0       => error (R3/R11)
+//   - duplicate adapter id                       => error
+//   - empty config                               => valid / inert (INV-6)
+func TestLoRAConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     LoRAConfig
+		wantErr bool
+	}{
+		{
+			name:    "empty config is valid and inert",
+			cfg:     LoRAConfig{},
+			wantErr: false,
+		},
+		{
+			name: "valid populated config",
+			cfg: LoRAConfig{
+				AdapterCapacity:       loraIntPtr(8),
+				LoadBaseLatencyUs:     float64Ptr(1500.0),
+				LoadBandwidthBytesUs:  float64Ptr(2.0e6),
+				FootprintBytesPerRank: float64Ptr(2.0e6),
+				Adapters: []AdapterSpec{
+					{ID: "adapter_0", Rank: 8},
+					{ID: "adapter_1", Rank: 16},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "adapters and positive capacity but no cost coefficients",
+			cfg: LoRAConfig{
+				AdapterCapacity: loraIntPtr(4),
+				Adapters:        []AdapterSpec{{ID: "adapter_0", Rank: 8}},
+			},
+			wantErr: true, // gate consumes cost coefficients; CLI must catch the gap here (#1466)
+		},
+		{
+			name: "adapters present but zero capacity",
+			cfg: LoRAConfig{
+				AdapterCapacity: loraIntPtr(0),
+				Adapters:        []AdapterSpec{{ID: "adapter_0", Rank: 8}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative capacity",
+			cfg: LoRAConfig{
+				AdapterCapacity: loraIntPtr(-1),
+				Adapters:        []AdapterSpec{{ID: "adapter_0", Rank: 8}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "adapter rank zero",
+			cfg: LoRAConfig{
+				AdapterCapacity: loraIntPtr(4),
+				Adapters:        []AdapterSpec{{ID: "adapter_0", Rank: 0}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "adapter rank negative",
+			cfg: LoRAConfig{
+				AdapterCapacity: loraIntPtr(4),
+				Adapters:        []AdapterSpec{{ID: "adapter_0", Rank: -8}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "load bandwidth zero",
+			cfg: LoRAConfig{
+				AdapterCapacity:      loraIntPtr(4),
+				LoadBandwidthBytesUs: float64Ptr(0),
+				Adapters:             []AdapterSpec{{ID: "adapter_0", Rank: 8}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "load bandwidth negative",
+			cfg: LoRAConfig{
+				AdapterCapacity:      loraIntPtr(4),
+				LoadBandwidthBytesUs: float64Ptr(-1),
+				Adapters:             []AdapterSpec{{ID: "adapter_0", Rank: 8}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "load base latency negative",
+			cfg: LoRAConfig{
+				AdapterCapacity:   loraIntPtr(4),
+				LoadBaseLatencyUs: float64Ptr(-1),
+				Adapters:          []AdapterSpec{{ID: "adapter_0", Rank: 8}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "footprint per rank zero",
+			cfg: LoRAConfig{
+				AdapterCapacity:       loraIntPtr(4),
+				FootprintBytesPerRank: float64Ptr(0),
+				Adapters:              []AdapterSpec{{ID: "adapter_0", Rank: 8}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "step overhead tier k7 zero (divisor guard)",
+			cfg: LoRAConfig{
+				AdapterCapacity:   loraIntPtr(4),
+				StepOverheadTiers: map[int]StepOverheadTier{8: {K6: float64Ptr(0.02), K7: float64Ptr(0)}},
+				Adapters:          []AdapterSpec{{ID: "adapter_0", Rank: 8}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "step overhead tier k6 negative",
+			cfg: LoRAConfig{
+				AdapterCapacity:   loraIntPtr(4),
+				StepOverheadTiers: map[int]StepOverheadTier{8: {K6: float64Ptr(-0.1), K7: float64Ptr(1.0)}},
+				Adapters:          []AdapterSpec{{ID: "adapter_0", Rank: 8}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "duplicate adapter id",
+			cfg: LoRAConfig{
+				AdapterCapacity: loraIntPtr(4),
+				Adapters: []AdapterSpec{
+					{ID: "adapter_0", Rank: 8},
+					{ID: "adapter_0", Rank: 16},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty adapter id",
+			cfg: LoRAConfig{
+				AdapterCapacity: loraIntPtr(4),
+				Adapters:        []AdapterSpec{{ID: "", Rank: 8}},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr {
+				assert.Error(t, err, "expected validation error")
+			} else {
+				assert.NoError(t, err, "expected config to be valid")
 			}
 		})
 	}

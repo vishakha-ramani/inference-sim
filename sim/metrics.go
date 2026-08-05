@@ -16,21 +16,21 @@ import (
 // for final reporting. Useful for evaluating system performance
 // and debugging behavior over time.
 type Metrics struct {
-	CompletedRequests int     // Number of requests completed
-	TotalInputTokens  int     // Total number of input tokens
-	TotalOutputTokens int     // Total number of output tokens
-	SimEndedTime      int64   // Sim clock time in ticks when simulation ends
-	KVBlocksUsed      float64 // Integral of KVBlockUsage over time
-	PeakKVBlocksUsed  int64   // Max number of simultaneously used KV blocks
+	CompletedRequests    int     // Number of requests completed
+	TotalInputTokens     int     // Total number of input tokens
+	TotalOutputTokens    int     // Total number of output tokens
+	SimEndedTime         int64   // Sim clock time in ticks when simulation ends
+	KVBlocksUsed         float64 // Integral of KVBlockUsage over time
+	PeakKVBlocksUsed     int64   // Max number of simultaneously used KV blocks
 	PreemptionCount      int64   // Total preemption events (PR12)
 	KVAllocationFailures int64   // KV allocation failures for the final decode token at completion; non-zero indicates a cache accounting anomaly (#183)
 	CacheHitRate         float64 // Cumulative cache hit rate at finalization (PR12). Intentional observability signal: set by cluster/instance.go Finalize() from KVStore.CacheHitRate(). Read-only statistic — does not feed back into state evolution.
 	KVThrashingRate      float64 // KV thrashing rate at finalization (PR12)
 	StillQueued          int     // Requests still in wait queue at sim end
 	StillRunning         int     // Requests still in running batch at sim end
-	DroppedUnservable    int // Requests dropped at enqueue: negative MaxOutputLen (R3), MaxModelLen violation, or input exceeds KV capacity (R19)
-	LengthCappedRequests int // Requests force-completed at MaxModelLen-1 boundary (proactive cap)
-	TimedOutRequests     int // Requests cancelled by client timeout
+	DroppedUnservable    int     // Requests dropped at enqueue: negative MaxOutputLen (R3), MaxModelLen violation, or input exceeds KV capacity (R19)
+	LengthCappedRequests int     // Requests force-completed at MaxModelLen-1 boundary (proactive cap)
+	TimedOutRequests     int     // Requests cancelled by client timeout
 
 	TTFTSum int64 // Total time-to-first-token sum (in ticks)
 	ITLSum  int64 // Total ITL sum across requests (in ticks)
@@ -46,6 +46,20 @@ type Metrics struct {
 	NumWaitQRequests        []int                     // number of requests in waitQ over different steps
 	NumRunningBatchRequests []int                     // number of request in runningBatch over different steps
 	Requests                map[string]RequestMetrics // request metrics list
+
+	// Per-adapter resident-set event counts (LoRA control-plane subsystem).
+	// AdapterLoadCounts[id] is
+	// incremented each time id is cold-loaded into an instance's resident set;
+	// AdapterEvictionCounts[id] each time id is evicted. These are cumulative EVENT
+	// counts, not distinct-adapter or request counts — a hot adapter loaded/evicted
+	// repeatedly accrues one per transition, so totals scale with adapter churn (and
+	// thus horizon), not just the registry size. Bounded in size by the declared
+	// adapter registry. In cluster mode they are summed per adapter across instances
+	// (cluster.aggregateMetrics). Both are always non-nil (allocated in NewMetrics) but
+	// empty (a missing key reads as 0) unless the LoRA subsystem is active, so an
+	// adapter-blind run produces no adapter output (INV-6). Surfaced via buildAdapterMetrics.
+	AdapterLoadCounts     map[string]int64
+	AdapterEvictionCounts map[string]int64
 }
 
 func NewMetrics() *Metrics {
@@ -60,6 +74,8 @@ func NewMetrics() *Metrics {
 		NumWaitQRequests:        []int{},
 		NumRunningBatchRequests: []int{},
 		Requests:                make(map[string]RequestMetrics),
+		AdapterLoadCounts:       make(map[string]int64),
+		AdapterEvictionCounts:   make(map[string]int64),
 	}
 }
 
@@ -154,8 +170,8 @@ func (m *Metrics) BuildOutput(instanceID string, saturationDetector BatchClassif
 		for _, id := range sortedRequestIDs(m.Requests) {
 			if m.RequestE2Es[id] > 0 { // Only completed requests
 				rm := m.Requests[id]
-				rm.E2E = m.RequestE2Es[id] / 1e3    // ticks → ms
-				rm.TTFT = m.RequestTTFTs[id] / 1e3  // ticks → ms
+				rm.E2E = m.RequestE2Es[id] / 1e3   // ticks → ms
+				rm.TTFT = m.RequestTTFTs[id] / 1e3 // ticks → ms
 				completedReqs = append(completedReqs, rm)
 			}
 		}
@@ -168,7 +184,80 @@ func (m *Metrics) BuildOutput(instanceID string, saturationDetector BatchClassif
 		output.Saturation = saturationDetector.Classify(completedReqs, totalArrivals)
 	}
 
+	// Per-adapter aggregate metrics (#1464, US1). Group COMPLETED requests by their
+	// non-empty adapter id; base-model requests (adapter == "") are attributed to no
+	// adapter and excluded. When no request carries an adapter the map stays nil and
+	// omitempty drops the block entirely, so an adapter-blind run is byte-identical to
+	// the pre-feature build (INV-6).
+	output.Adapters = buildAdapterMetrics(m, vllmRuntime)
+
 	return output
+}
+
+// buildAdapterMetrics computes the per-adapter aggregate block from completed requests.
+// Returns nil when no request is attributed to an adapter (INV-6 no-op). TTFT
+// percentiles are in microseconds; throughput is completed output tokens / runtime.
+func buildAdapterMetrics(m *Metrics, vllmRuntime float64) map[string]AdapterMetrics {
+	ttftsByAdapter := make(map[string][]float64)
+	outTokensByAdapter := make(map[string]int64)
+	// R2/determinism note: this walks m.Requests in Go's non-deterministic map order,
+	// but the result is order-independent — throughput is a commutative token sum and
+	// each adapter's TTFT slice is sort.Float64s'd before percentiles. Any future
+	// order-sensitive accumulation added here (e.g. sequential load events) MUST sort
+	// the request ids first (see sortedRequestIDs).
+	for id, rm := range m.Requests {
+		if rm.Adapter == "" {
+			continue // base-model-only request: attributed to no adapter
+		}
+		if m.RequestE2Es[id] <= 0 {
+			continue // completed requests only (partitions global completed accounting, INV-1)
+		}
+		ttftsByAdapter[rm.Adapter] = append(ttftsByAdapter[rm.Adapter], m.RequestTTFTs[id])
+		outTokensByAdapter[rm.Adapter] += int64(rm.NumDecodeTokens)
+	}
+	// An adapter surfaces if it served a completed request OR saw a resident-set
+	// event (load/eviction), so counts appear even for an adapter loaded then
+	// evicted before any of its requests completed in-window. All three empty =>
+	// adapter-blind run => nil (INV-6 no-op).
+	if len(ttftsByAdapter) == 0 && len(m.AdapterLoadCounts) == 0 && len(m.AdapterEvictionCounts) == 0 {
+		return nil
+	}
+	idSet := make(map[string]struct{}, len(ttftsByAdapter)+len(m.AdapterLoadCounts)+len(m.AdapterEvictionCounts))
+	for id := range ttftsByAdapter {
+		idSet[id] = struct{}{}
+	}
+	for id := range m.AdapterLoadCounts {
+		idSet[id] = struct{}{}
+	}
+	for id := range m.AdapterEvictionCounts {
+		idSet[id] = struct{}{}
+	}
+	// Build in sorted id order (R2). The output is a map (JSON marshals keys sorted),
+	// so this is defensive rather than load-bearing, but it keeps any future
+	// order-sensitive accumulation here deterministic without a second audit.
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	adapters := make(map[string]AdapterMetrics, len(ids))
+	for _, adapter := range ids {
+		am := AdapterMetrics{
+			LoadCount:     m.AdapterLoadCounts[adapter],
+			EvictionCount: m.AdapterEvictionCounts[adapter],
+		}
+		if ttfts, ok := ttftsByAdapter[adapter]; ok {
+			sort.Float64s(ttfts)
+			// CalculatePercentile returns ms (÷1000); ×1000 recovers µs for the _us fields.
+			am.TTFTP50Us = CalculatePercentile(ttfts, 50) * 1000
+			am.TTFTP99Us = CalculatePercentile(ttfts, 99) * 1000
+			if vllmRuntime > 0 {
+				am.ThroughputTokPerS = float64(outTokensByAdapter[adapter]) / vllmRuntime
+			}
+		}
+		adapters[adapter] = am
+	}
+	return adapters
 }
 
 // EmitOutput writes a populated MetricsOutput to stdout (always) and an
@@ -192,9 +281,9 @@ func (m *Metrics) EmitOutput(output MetricsOutput, outputFilePath string) error 
 		// so incomplete requests appear with zero-valued metrics.
 		for _, id := range sortedRequestIDs(m.Requests) {
 			detail := m.Requests[id]
-			detail.TTFT = m.RequestTTFTs[id] / 1e3                               // zero if not in map
-			detail.E2E = m.RequestE2Es[id] / 1e3                                 // zero if not in map
-			detail.ITL = m.RequestITLs[id] / 1e3                                 // ticks → ms (consistent with TTFT, E2E)
+			detail.TTFT = m.RequestTTFTs[id] / 1e3                                // zero if not in map
+			detail.E2E = m.RequestE2Es[id] / 1e3                                  // zero if not in map
+			detail.ITL = m.RequestITLs[id] / 1e3                                  // ticks → ms (consistent with TTFT, E2E)
 			detail.SchedulingDelay = float64(m.RequestSchedulingDelays[id]) / 1e3 // ticks → ms
 			output.Requests = append(output.Requests, detail)
 		}

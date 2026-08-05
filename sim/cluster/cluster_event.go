@@ -144,6 +144,10 @@ func (e *ClusterArrivalEvent) Execute(cs *ClusterSimulator) {
 	cs.pendingArrivals--
 	cs.injectedByClass[e.request.SLOClass]++
 	logrus.Debugf("[cluster] req %s arrived at tick %d", e.request.ID, e.time)
+	// Fire the arrival hook (issue #1440): trace exporters see each fresh
+	// arrival exactly once, in clock-monotonic order (INV-3). REDIRECT
+	// re-injections are filtered inside fireArrivalHook.
+	cs.fireArrivalHook(e.request, e.time)
 	heap.Push(&cs.clusterEvents, clusterEventEntry{
 		event: &AdmissionDecisionEvent{
 			time:    e.time + cs.admissionLatency,
@@ -504,6 +508,9 @@ func (e *DisaggregationDecisionEvent) Execute(cs *ClusterSimulator) {
 
 	// Create prefill sub-request: same input, no output (completes after prefill).
 	// Output is intentionally nil: zero-output request completes at prefill end.
+	// InputTokens is a slice-header alias of e.request.InputTokens (#1445) — the
+	// sub-request views the same underlying token buffer, no flatten. If
+	// Request.InputTokens ever becomes lazy/chained, this site must update.
 	prefillSubReq := &sim.Request{
 		ID:           parent.PrefillSubReqID,
 		InputTokens:  e.request.InputTokens,

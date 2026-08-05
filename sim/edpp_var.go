@@ -673,7 +673,7 @@ func (d *EDPPDecider) varPrefillInputs(running []RunningReqState) []varPrefillCo
 // prefill token budget (for the local overlap term); Δkv_R = R's full input length (its
 // resident context once it joins the decode batch; input-only, oracle-safe).
 func (d *EDPPDecider) varReTimingFor(req *Request, thetaD EDPPCoeffs, bDec int, kv, sPf int64, chunk int) varReTiming {
-	dkv := int64(len(req.InputTokens))
+	dkv := req.InputLen()
 	return varReTiming{
 		tIter0:       thetaD.tIterDecode(bDec, kv, sPf),
 		tIterOverlap: thetaD.tIterDecode(bDec, kv, sPf+int64(chunk)),
@@ -717,7 +717,7 @@ func (d *EDPPDecider) varReducedBreakdown(
 		rt.exactPrefillOverlap = true
 		rt.cPf = thetaD.CPf
 		rt.ap = float64(maxInt(apLocal, 0))
-		rt.ar = float64(len(req.InputTokens))
+		rt.ar = float64(int(req.InputLen()))
 	}
 	decode := d.varDecodeInputs(decSnap.RunningDecode)
 	kernel := d.varMetric
@@ -757,7 +757,7 @@ func (d *EDPPDecider) varReducedBreakdown(
 				nChunksP = math.Ceil(float64(apP) / float64(chunkP))
 			}
 		}
-		rPrefillUs := nChunksP*tIterP + d.coeffs.Wp(maxInt(apP, 0), len(req.InputTokens))
+		rPrefillUs := nChunksP*tIterP + d.coeffs.Wp(maxInt(apP, 0), int(req.InputLen()))
 		chunkPFloat := float64(chunkP)
 		prefillAdmissionSteps := math.Ceil(tAdmP / math.Max(tIterP, 1))
 		var prefill []varPrefillCoResident
@@ -772,7 +772,7 @@ func (d *EDPPDecider) varReducedBreakdown(
 				chunkPFloat,
 				prefillAdmissionSteps,
 				maxInt(apP, 0),
-				len(req.InputTokens),
+				int(req.InputLen()),
 				d.coeffs,
 				kernel,
 			)
@@ -867,7 +867,7 @@ func (d *EDPPDecider) varJointCandidateBreakdownCore(
 			rt.exactPrefillOverlap = true
 			rt.cPf = thetaD.CPf
 			rt.ap = float64(maxInt(apLoc, 0))
-			rt.ar = float64(len(req.InputTokens))
+			rt.ar = float64(int(req.InputLen()))
 		}
 		nChunksLoc, _ := d.chunkTerms(thetaD, apLoc)
 		admissionSteps := math.Ceil(decodeAdmissionUs / math.Max(rt.tIter0, 1))
@@ -893,7 +893,7 @@ func (d *EDPPDecider) varJointCandidateBreakdownCore(
 		rt.exactPrefillOverlap = true
 		rt.cPf = thetaD.CPf
 		rt.ap = float64(maxInt(apP, 0))
-		rt.ar = float64(len(req.InputTokens))
+		rt.ar = float64(int(req.InputLen()))
 	}
 	nChunksP, _ := d.chunkTerms(thetaP, apP)
 	sPfP := ps.ResidentPrefillTokens
@@ -902,7 +902,7 @@ func (d *EDPPDecider) varJointCandidateBreakdownCore(
 	// Decode interference starts when R is admitted, not when its first token
 	// completes. Keep this join-time clock separate from client-visible TTFT.
 	decodeJoinUs := nChunksP*tIterP +
-		thetaP.Wp(maxInt(apP, 0), len(req.InputTokens)) +
+		thetaP.Wp(maxInt(apP, 0), int(req.InputLen())) +
 		prefillAdmissionUs + cXferUs + decodeAdmissionUs
 	if !math.IsNaN(decodeJoinOverrideUs) {
 		decodeJoinUs = decodeJoinOverrideUs
@@ -917,7 +917,7 @@ func (d *EDPPDecider) varJointCandidateBreakdownCore(
 		v.collocPrefill = varCollocPrefillDisagg(nowUs, colloc, rt, float64(chunkP), arrivalSteps, kernel)
 	}
 
-	rPrefillUs := nChunksP*tIterP + thetaP.Wp(maxInt(apP, 0), len(req.InputTokens))
+	rPrefillUs := nChunksP*tIterP + thetaP.Wp(maxInt(apP, 0), int(req.InputLen()))
 	prefill := d.varPrefillInputs(ps.RunningPrefill)
 	prefillAdmissionSteps := math.Ceil(prefillAdmissionUs / math.Max(tIterP, 1))
 	if d.cfg.VarExactPrefillOverlap {
@@ -928,7 +928,7 @@ func (d *EDPPDecider) varJointCandidateBreakdownCore(
 			float64(chunkP),
 			prefillAdmissionSteps,
 			maxInt(apP, 0),
-			len(req.InputTokens),
+			int(req.InputLen()),
 			thetaP,
 			kernel,
 		)

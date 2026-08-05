@@ -4,6 +4,9 @@ A discrete-event simulator for LLM inference serving systems. BLIS models multi-
 
 The simulator is CPU-only, deterministic, and designed for capacity planning, policy optimization research, and performance prediction across model/GPU/TP configurations without requiring real GPUs.
 
+For the INFOCOM 2027 paper implementation, frozen inputs, experiment commands,
+and expected results, see [INFOCOM_REPRODUCIBILITY.md](INFOCOM_REPRODUCIBILITY.md).
+
 ---
 
 ## Features

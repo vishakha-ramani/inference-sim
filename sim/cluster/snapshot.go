@@ -25,21 +25,23 @@ type FieldConfig struct {
 
 // ObservabilityConfig configures refresh behavior for all snapshot fields.
 type ObservabilityConfig struct {
-	QueueDepth      FieldConfig
-	BatchSize       FieldConfig
-	KVUtilization   FieldConfig
-	CacheBlocks     FieldConfig // cache block hash map staleness (precise-prefix-cache, no-hit-lru)
-	PreemptionCount FieldConfig
+	QueueDepth       FieldConfig
+	BatchSize        FieldConfig
+	KVUtilization    FieldConfig
+	CacheBlocks      FieldConfig // cache block hash map staleness (precise-prefix-cache, no-hit-lru)
+	PreemptionCount  FieldConfig
+	ResidentAdapters FieldConfig // resident LoRA adapter set staleness (lora-affinity scorer, #1469)
 }
 
 // DefaultObservabilityConfig returns a config where all fields use Immediate mode.
 func DefaultObservabilityConfig() ObservabilityConfig {
 	return ObservabilityConfig{
-		QueueDepth:      FieldConfig{Mode: Immediate},
-		BatchSize:       FieldConfig{Mode: Immediate},
-		KVUtilization:   FieldConfig{Mode: Immediate},
-		CacheBlocks:     FieldConfig{Mode: Immediate},
-		PreemptionCount: FieldConfig{Mode: Immediate},
+		QueueDepth:       FieldConfig{Mode: Immediate},
+		BatchSize:        FieldConfig{Mode: Immediate},
+		KVUtilization:    FieldConfig{Mode: Immediate},
+		CacheBlocks:      FieldConfig{Mode: Immediate},
+		PreemptionCount:  FieldConfig{Mode: Immediate},
+		ResidentAdapters: FieldConfig{Mode: Immediate},
 	}
 }
 
@@ -54,6 +56,7 @@ func newObservabilityConfig(refreshInterval int64, cacheDelay int64) Observabili
 		config.BatchSize = periodic
 		config.KVUtilization = periodic
 		config.PreemptionCount = periodic
+		config.ResidentAdapters = periodic
 	}
 	if cacheDelay > 0 {
 		config.CacheBlocks = FieldConfig{Mode: Periodic, Interval: cacheDelay}
@@ -72,16 +75,17 @@ type SnapshotProvider interface {
 
 // fieldTimestamps tracks the last refresh time per field per instance.
 type fieldTimestamps struct {
-	QueueDepth      int64
-	BatchSize       int64
-	KVUtilization   int64
-	PreemptionCount int64
+	QueueDepth       int64
+	BatchSize        int64
+	KVUtilization    int64
+	PreemptionCount  int64
+	ResidentAdapters int64
 }
 
 // cacheEntry holds a live instance reference and its current stale snapshot closure.
 type cacheEntry struct {
 	inst    *InstanceSimulator
-	staleFn func([]int) int
+	staleFn func([]sim.TokenID) int
 }
 
 // CachedSnapshotProvider implements SnapshotProvider with configurable caching.
@@ -175,10 +179,31 @@ func (p *CachedSnapshotProvider) Snapshot(id InstanceID, clock int64) sim.Routin
 		snap.KvTokensInUse = inst.KvTokensInUse()
 		lr.KVUtilization = clock
 	}
+	if p.shouldRefresh(p.config.ResidentAdapters, lr.ResidentAdapters, clock) {
+		snap.ResidentAdapters = residentAdapterSet(inst)
+		lr.ResidentAdapters = clock
+	}
 
 	p.cache[id] = snap
 	p.lastRefresh[id] = lr
 	return snap
+}
+
+// residentAdapterSet builds a membership set of the instance's resident LoRA
+// adapter ids for RoutingSnapshot.ResidentAdapters. Returns nil when no adapter is
+// resident (LoRA inert or empty set), keeping the snapshot's ResidentAdapters nil
+// so the lora-affinity scorer is neutral (INV-6). Each refresh builds a fresh map
+// so the cached snapshot holds a frozen view (correct Periodic staleness).
+func residentAdapterSet(inst *InstanceSimulator) map[string]bool {
+	ids := inst.ResidentAdapterIDs()
+	if len(ids) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
 }
 
 // RefreshAll refreshes all fields for all instances regardless of mode.
@@ -202,12 +227,14 @@ func (p *CachedSnapshotProvider) RefreshAll(clock int64) {
 		snap.CacheHitRate = inst.CacheHitRate()
 		snap.TotalKvCapacityTokens = inst.TotalKvCapacityTokens()
 		snap.KvTokensInUse = inst.KvTokensInUse()
+		snap.ResidentAdapters = residentAdapterSet(inst)
 		p.cache[id] = snap
 		p.lastRefresh[id] = fieldTimestamps{
-			PreemptionCount: clock,
-			QueueDepth:      clock,
-			BatchSize:       clock,
-			KVUtilization:   clock,
+			PreemptionCount:  clock,
+			QueueDepth:       clock,
+			BatchSize:        clock,
+			KVUtilization:    clock,
+			ResidentAdapters: clock,
 		}
 	}
 }
@@ -250,7 +277,7 @@ func (p *CachedSnapshotProvider) RefreshCacheIfNeeded(clock int64) {
 // When CacheBlocks.Mode == Periodic, returns stale snapshot data.
 // When CacheBlocks.Mode == Immediate, queries live instance state.
 // Returns 0 if the instance is unknown.
-func (p *CachedSnapshotProvider) CacheQuery(instanceID string, tokens []int) int {
+func (p *CachedSnapshotProvider) CacheQuery(instanceID string, tokens []sim.TokenID) int {
 	id := InstanceID(instanceID)
 	if p.config.CacheBlocks.Mode == Periodic {
 		if e, ok := p.cacheEntries[id]; ok {
@@ -268,7 +295,7 @@ func (p *CachedSnapshotProvider) CacheQuery(instanceID string, tokens []int) int
 
 // BuildCacheQueryFn returns a cacheQueryFn map where each closure delegates to
 // CacheQuery. The returned closures use the latest snapshot after RefreshCacheIfNeeded.
-func (p *CachedSnapshotProvider) BuildCacheQueryFn() map[string]func([]int) int {
+func (p *CachedSnapshotProvider) BuildCacheQueryFn() map[string]func([]sim.TokenID) int {
 	var ids []InstanceID
 	if p.config.CacheBlocks.Mode == Periodic {
 		ids = make([]InstanceID, 0, len(p.cacheEntries))
@@ -281,10 +308,10 @@ func (p *CachedSnapshotProvider) BuildCacheQueryFn() map[string]func([]int) int 
 			ids = append(ids, id)
 		}
 	}
-	result := make(map[string]func([]int) int, len(ids))
+	result := make(map[string]func([]sim.TokenID) int, len(ids))
 	for _, id := range ids {
 		idStr := string(id)
-		result[idStr] = func(tokens []int) int {
+		result[idStr] = func(tokens []sim.TokenID) int {
 			return p.CacheQuery(idStr, tokens)
 		}
 	}

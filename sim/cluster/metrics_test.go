@@ -522,9 +522,9 @@ func TestDetectHOLBlocking_AllTrafficOneInstance_Detected(t *testing.T) {
 	// GIVEN 4 instances where only instance 0 has traffic
 	perInstance := []*sim.Metrics{
 		makeMetricsWithQueueDepth([]int{50, 50, 50, 50}), // instance 0: all traffic
-		makeMetricsWithQueueDepth([]int{}),                // instance 1: no traffic
-		makeMetricsWithQueueDepth([]int{}),                // instance 2: no traffic
-		makeMetricsWithQueueDepth([]int{}),                // instance 3: no traffic
+		makeMetricsWithQueueDepth([]int{}),               // instance 1: no traffic
+		makeMetricsWithQueueDepth([]int{}),               // instance 2: no traffic
+		makeMetricsWithQueueDepth([]int{}),               // instance 3: no traffic
 	}
 
 	// WHEN detecting HOL blocking
@@ -543,8 +543,8 @@ func TestDetectHOLBlocking_PartialConcentration_Detected(t *testing.T) {
 	perInstance := []*sim.Metrics{
 		makeMetricsWithQueueDepth([]int{40, 40, 40}), // instance 0: heavy traffic
 		makeMetricsWithQueueDepth([]int{5, 5, 5}),    // instance 1: light traffic
-		makeMetricsWithQueueDepth([]int{}),            // instance 2: no traffic
-		makeMetricsWithQueueDepth([]int{}),            // instance 3: no traffic
+		makeMetricsWithQueueDepth([]int{}),           // instance 2: no traffic
+		makeMetricsWithQueueDepth([]int{}),           // instance 3: no traffic
 	}
 
 	// WHEN detecting HOL blocking
@@ -568,7 +568,7 @@ func TestPathological_RejectAll_AllRejected(t *testing.T) {
 	config := newTestDeploymentConfig(2)
 	config.AdmissionPolicy = "reject-all"
 
-	cs := NewClusterSimulator(config, newTestRequests(20), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(20)), nil)
 	if err := cs.Run(); err != nil {
 		t.Fatalf("cs.Run: %v", err)
 	}
@@ -590,7 +590,7 @@ func TestPathological_AlwaysBusiest_CausesImbalance(t *testing.T) {
 	config := newTestDeploymentConfig(3)
 	config.RoutingPolicy = "always-busiest"
 
-	cs := NewClusterSimulator(config, newTestRequests(20), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(20)), nil)
 	if err := cs.Run(); err != nil {
 		t.Fatalf("cs.Run: %v", err)
 	}

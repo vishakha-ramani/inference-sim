@@ -26,7 +26,7 @@ func msClusterConfig(numInstances int) DeploymentConfig {
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 100000, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{5000, 10, 3}, []float64{1000, 2, 500}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "test-gpu", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "test-gpu", 1, 1, false, "", "roofline", 0),
 			PolicyConfig:        sim.NewPolicyConfig("fcfs", ""),
 		},
 		NumInstances:    numInstances,
@@ -42,7 +42,7 @@ func msClusterConfig(numInstances int) DeploymentConfig {
 func TestClusterMetrics_E2E_Identity_AcrossInstances(t *testing.T) {
 	cfg := msClusterConfig(4)
 	requests := newTestRequests(20)
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 	if err := cs.Run(); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestClusterMetrics_E2E_Identity_AcrossInstances(t *testing.T) {
 func TestClusterMetrics_AllITLs_Sum_Consistency(t *testing.T) {
 	cfg := msClusterConfig(2)
 	requests := newTestRequests(15)
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 	if err := cs.Run(); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestClusterMetrics_AllITLs_Sum_Consistency(t *testing.T) {
 func TestClusterMetrics_CacheHitRate_Bounded(t *testing.T) {
 	cfg := msClusterConfig(2)
 	requests := newTestRequests(10)
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 	if err := cs.Run(); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -161,22 +161,22 @@ func TestClusterMetrics_ZeroOutput_NoPollution(t *testing.T) {
 	cfg := msClusterConfig(2)
 
 	// Inject a mix of zero-output and normal requests directly
-	makeTokens := func(n int) []int {
-		t := make([]int, n)
+	makeTokens := func(n int) []sim.TokenID {
+		t := make([]sim.TokenID, n)
 		for i := range t {
-			t[i] = i + 1
+			t[i] = sim.TokenID(i + 1)
 		}
 		return t
 	}
 	reqs := []*sim.Request{
-		{ID: "z0", InputTokens: makeTokens(32), OutputTokens: []int{}, ArrivalTime: 0, State: sim.StateQueued},
+		{ID: "z0", InputTokens: makeTokens(32), OutputTokens: []sim.TokenID{}, ArrivalTime: 0, State: sim.StateQueued},
 		{ID: "n1", InputTokens: makeTokens(32), OutputTokens: makeTokens(4), ArrivalTime: 100000, State: sim.StateQueued},
 		{ID: "z2", InputTokens: makeTokens(48), OutputTokens: nil, ArrivalTime: 200000, State: sim.StateQueued},
 		{ID: "n3", InputTokens: makeTokens(16), OutputTokens: makeTokens(3), ArrivalTime: 300000, State: sim.StateQueued},
 		{ID: "n4", InputTokens: makeTokens(32), OutputTokens: makeTokens(5), ArrivalTime: 400000, State: sim.StateQueued},
-		{ID: "z5", InputTokens: makeTokens(16), OutputTokens: []int{}, ArrivalTime: 500000, State: sim.StateQueued},
+		{ID: "z5", InputTokens: makeTokens(16), OutputTokens: []sim.TokenID{}, ArrivalTime: 500000, State: sim.StateQueued},
 	}
-	cs := NewClusterSimulator(cfg, reqs, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(reqs), nil)
 
 	if err := cs.Run(); err != nil {
 		t.Fatalf("Run: %v", err)

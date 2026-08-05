@@ -159,6 +159,14 @@ Example:
 		}
 		logrus.Infof("Simulation horizon: %d ticks", replayHorizon)
 
+		// LoRA control-plane (#1464): resolve ONCE (R4) so the KV auto-capacity path
+		// (resolveLatencyConfig + per-pool calc) subtracts the same static HBM
+		// reservation runCmd does (PR5 / INV-13 parity) and the SimConfig below reuses
+		// it. Reservation is 0 when the subsystem is inert (INV-6). Set before
+		// resolveLatencyConfig.
+		loraCfg := resolveLoRAConfig(cmd)
+		loraReservedBytesForKV = adapterReservedBytesFor(loraCfg)
+
 		// Resolve latency backend configuration (single code path shared with runCmd).
 		lr := resolveLatencyConfig(cmd)
 
@@ -381,13 +389,16 @@ Example:
 						} else if poolHC.MemoryGiB <= 0 {
 							logrus.Warnf("--prefill-hardware: GPU memory capacity not available for %q in hardware config; prefill pool will use global total-kv-blocks=%d", poolPrefillGPU, totalKVBlocks)
 						} else {
-							poolBlocks, calcErr := latency.CalculateKVBlocks(lr.ModelConfig, poolHC, poolPrefillTP, blockSizeTokens, gpuMemoryUtilization, kvParamsPool)
+							// Per-pool TP but GLOBAL dp: per-pool DP is out of scope (#1420);
+							// --dp applies uniformly to all pools. Mirrors run (cmd/root.go).
+							poolBlocks, calcErr := latency.CalculateKVBlocks(lr.ModelConfig, poolHC, poolPrefillTP, dataParallelism, blockSizeTokens, gpuMemoryUtilization, kvParamsPool,
+								latency.WithAdapterReservedBytes(loraReservedBytesForKV))
 							if calcErr != nil {
 								logrus.Fatalf("--prefill-tp/--prefill-hardware: KV capacity auto-calculation failed for prefill pool: %v", calcErr)
 							} else {
 								prefillOverrides.TotalKVBlocks = &poolBlocks
-								logrus.Infof("--prefill-tp/--prefill-hardware: auto-calculated prefill pool total-kv-blocks=%d (GPU=%.0f GiB, TP=%d)",
-									poolBlocks, poolHC.MemoryGiB, poolPrefillTP)
+								logrus.Infof("--prefill-tp/--prefill-hardware: auto-calculated prefill pool total-kv-blocks=%d (GPU=%.0f GiB, TP=%d, DP=%d)",
+									poolBlocks, poolHC.MemoryGiB, poolPrefillTP, dataParallelism)
 								if !cmd.Flags().Changed("prefill-max-model-len") {
 									kvFeasibleMax := poolBlocks * int64(blockSizeTokens)
 									if kvFeasibleMax < maxModelLen {
@@ -415,13 +426,15 @@ Example:
 						} else if poolHC.MemoryGiB <= 0 {
 							logrus.Warnf("--decode-hardware: GPU memory capacity not available for %q in hardware config; decode pool will use global total-kv-blocks=%d", poolDecodeGPU, totalKVBlocks)
 						} else {
-							poolBlocks, calcErr := latency.CalculateKVBlocks(lr.ModelConfig, poolHC, poolDecodeTP, blockSizeTokens, gpuMemoryUtilization, kvParamsPool)
+							// Per-pool TP, global dp (see prefill-pool note above; #1420).
+							poolBlocks, calcErr := latency.CalculateKVBlocks(lr.ModelConfig, poolHC, poolDecodeTP, dataParallelism, blockSizeTokens, gpuMemoryUtilization, kvParamsPool,
+								latency.WithAdapterReservedBytes(loraReservedBytesForKV))
 							if calcErr != nil {
 								logrus.Fatalf("--decode-tp/--decode-hardware: KV capacity auto-calculation failed for decode pool: %v", calcErr)
 							} else {
 								decodeOverrides.TotalKVBlocks = &poolBlocks
-								logrus.Infof("--decode-tp/--decode-hardware: auto-calculated decode pool total-kv-blocks=%d (GPU=%.0f GiB, TP=%d)",
-									poolBlocks, poolHC.MemoryGiB, poolDecodeTP)
+								logrus.Infof("--decode-tp/--decode-hardware: auto-calculated decode pool total-kv-blocks=%d (GPU=%.0f GiB, TP=%d, DP=%d)",
+									poolBlocks, poolHC.MemoryGiB, poolDecodeTP, dataParallelism)
 								if !cmd.Flags().Changed("decode-max-model-len") {
 									kvFeasibleMax := poolBlocks * int64(blockSizeTokens)
 									if kvFeasibleMax < maxModelLen {
@@ -517,8 +530,9 @@ Example:
 					kvOffloadThreshold, kvTransferBandwidth, kvTransferBaseLatency),
 				BatchConfig:          sim.NewBatchConfig(maxRunningReqs, maxScheduledTokens, longPrefillTokenThreshold),
 				LatencyCoeffs:        sim.NewLatencyCoeffs(lr.BetaCoeffs, lr.AlphaCoeffs),
-				ModelHardwareConfig:  sim.NewModelHardwareConfig(lr.ModelConfig, lr.HWConfig, model, gpu, tensorParallelism, dataParallelism, enableExpertParallel, lr.Backend, maxModelLen),
+				ModelHardwareConfig:  sim.NewModelHardwareConfig(lr.ModelConfig, lr.HWConfig, model, gpu, tensorParallelism, dataParallelism, enableExpertParallel, moeCommBackend, lr.Backend, maxModelLen),
 				PolicyConfig:         sim.NewPolicyConfig(scheduler, preemptionPolicy),
+				LoRAConfig:           loraCfg,
 				SLOPriorityOverrides: sloPriorityOverrides,
 			},
 			NumInstances:                        numInstances,
@@ -626,7 +640,7 @@ Example:
 				return followUps
 			}
 		}
-		cs := cluster.NewClusterSimulator(config, requests, onRequestDone)
+		cs := cluster.NewClusterSimulator(config, cluster.NewSliceRequestSource(requests), onRequestDone)
 		if pdOutcomeTracePath != "" {
 			cs.SetRecordPDOutcomes(true)
 		}
@@ -924,6 +938,12 @@ func init() {
 	replayCmd.Flags().StringVar(&goodputSLOTTFT, "slo-ttft", "", "Per-class TTFT goodput thresholds (e.g. \"critical=100ms,standard=500ms\"). Precedence: CLI > trace header > workload spec.")
 	replayCmd.Flags().StringVar(&goodputSLOITL, "slo-itl", "", "Per-class mean ITL goodput thresholds (e.g. \"critical=50ms,standard=150ms\").")
 	replayCmd.Flags().StringVar(&goodputSLOE2E, "slo-e2e", "", "Per-class E2E goodput thresholds (e.g. \"critical=5s,standard=30s\").")
+	// --lazy-generation: accepted for CLI symmetry with `blis run` (#1441),
+	// but ignored — replay reads requests from a captured trace and never
+	// invokes the workload generator. The flag binds to a throwaway local
+	// so no global state is mutated. BC-9.
+	var replayLazyGenerationIgnored bool
+	replayCmd.Flags().BoolVar(&replayLazyGenerationIgnored, "lazy-generation", false, "Accepted for symmetry with `blis run` (#1441); has no effect on replay.")
 	rootCmd.AddCommand(replayCmd)
 }
 

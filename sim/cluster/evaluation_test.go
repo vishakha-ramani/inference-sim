@@ -17,7 +17,7 @@ func TestNewEvaluationResult_WithTraceAndSummary_SummaryAccessible(t *testing.T)
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances:    2,
 		TraceLevel:      "decisions",
@@ -25,7 +25,7 @@ func TestNewEvaluationResult_WithTraceAndSummary_SummaryAccessible(t *testing.T)
 	}
 	requests := testGenerateRequests(42, 5000000, 1.0/1e6, 3,
 		0, 10, 0, 10, 10, 5, 0, 5, 5)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 	if err := cs.Run(); err != nil {
 		t.Fatalf("cs.Run: %v", err)
 	}

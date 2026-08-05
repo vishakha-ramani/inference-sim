@@ -28,7 +28,7 @@ import run_slo_externality_joint_campaign as diagnostic
 
 DEFAULT_OUT = base.CAMPAIGN / "out" / "public_workload_heterogeneity_closeout"
 WORKLOAD_DIR = base.CAMPAIGN / "workloads" / "public-closeout"
-HETERO_BUNDLE = base.CAMPAIGN / "out" / "hetero_real_cmp" / "bundle.yaml"
+HETERO_BUNDLE = base.CAMPAIGN / "inputs" / "hetero-realistic-1p2d.yaml"
 LLMD_PREFIX_POLICY = "llmd_prefix_threshold_workload_tuned"
 LLMD_SCORERS = "precise-prefix-cache:2,queue-depth:1"
 LLMD_THRESHOLDS = {"interactive": 1024, "reasoning": 16, "deep_research": 16}

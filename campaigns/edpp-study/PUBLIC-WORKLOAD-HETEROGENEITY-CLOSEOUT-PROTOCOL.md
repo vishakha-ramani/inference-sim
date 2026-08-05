@@ -36,8 +36,9 @@ where the JSON specifies exponential output.
 ## Fleet and load normalization
 
 Every run uses a 1P2D topology. The homogeneous fleet has H100 prefill and two
-H100 decode instances. The heterogeneous fleet uses the existing realistic
-bundle: H100 prefill, one H100 decode instance, and one A100 decode instance
+H100 decode instances. The heterogeneous fleet uses the frozen bundle at
+`campaigns/edpp-study/inputs/hetero-realistic-1p2d.yaml`: H100 prefill, one H100
+decode instance, and one A100 decode instance
 with `coeffs-llama70b-a100real-tp4.json`. The obsolete fabricated/crippled A100
 is excluded.
 

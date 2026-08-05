@@ -177,5 +177,24 @@ trained_physics_coefficients:
   # β₈: per-MoE-layer overhead - architecture-aware (µs/MoE-layer, interleaved only)
   # β₁ᵦ (β₉): prefill memory correction (dimensionless, unused in 10-beta mode)
   # β₂ᵦ (β₁₀): decode memory correction (dimensionless)
-  beta_coeffs: [0.152128, 0.0, 1.36252915, 0.752037, 32.09546717, 4.41684444, 126.024825, 481.8613888, 0.0, 1.94710771]
+  # β_EP (β₁₁): MoE dispatch/combine all-to-all comm correction (dimensionless, #1419).
+  #   Seeded to β₄ (0.752037): both comm families run over the same NVLink fabric β₄
+  #   calibrates, and NCCL's bus-bandwidth model gives all-gather/reduce-scatter and
+  #   all-to-all the same (n-1)/n per-phase efficiency as the ring all-reduce β₄ corrects.
+  #   The comm-family VOLUME difference lives in the dispatch basis, not this coefficient.
+  #   Per-family efficiency refit is deferred to #E; omitting the 11th value defaults to β₄.
+  beta_coeffs: [0.152128, 0.0, 1.36252915, 0.752037, 32.09546717, 4.41684444, 126.024825, 481.8613888, 0.0, 1.94710771, 0.752037]
+# LoRA control-plane defaults (#1464). INERT: these seed the --lora-* flag defaults
+# but are only applied to a run when adapters are configured. With no adapters
+# declared, the subsystem is a no-op and output is byte-identical to a pre-feature
+# build (INV-6). adapter_capacity is intentionally absent (nil => inert); the adapter
+# registry is declared per-run via a config file, not here.
+lora:
+  load_base_latency_us: 1500.0
+  load_bandwidth_bytes_us: 2.0e6
+  footprint_bytes_per_rank: 2.0e6
+  step_overhead_tiers:
+    8: {k6: 0.02, k7: 1.0}
+    16: {k6: 0.035, k7: 1.0}
+    32: {k6: 0.06, k7: 1.0}
 version: 0.0.1

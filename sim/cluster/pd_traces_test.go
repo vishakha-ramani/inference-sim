@@ -18,13 +18,13 @@ func TestPDTrace_NonDisaggMode_NoDisaggRecords(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test-model", "H100", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances: 4,
 		TraceLevel:   "decisions",
 	}
 	requests := newTestRequests(5)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)
@@ -62,7 +62,7 @@ func TestPDTrace_DisaggMode_AllRecordTypesPresent(t *testing.T) {
 	config := newTestDisaggDeploymentConfig(4, 2, 2)
 	config.TraceLevel = "decisions"
 	requests := newTestRequests(numRequests)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	mustRun(t, cs)
 
@@ -143,7 +143,7 @@ func TestPDTrace_DisaggMode_Counterfactual(t *testing.T) {
 	config.RoutingPolicy = "weighted"
 	config.RoutingScorerConfigs = sim.DefaultScorerConfigs()
 	requests := newTestRequests(3)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	mustRun(t, cs)
 
@@ -181,7 +181,7 @@ func TestPDTrace_DisaggMode_Cardinality(t *testing.T) {
 	config := newTestDisaggDeploymentConfig(4, 2, 2)
 	config.TraceLevel = "decisions"
 	requests := newTestRequests(numRequests)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)
@@ -219,7 +219,7 @@ func TestPDTrace_DisaggMode_DisaggDecisionRecorded(t *testing.T) {
 	config := newTestDisaggDeploymentConfig(4, 2, 2)
 	config.TraceLevel = "decisions"
 	requests := newTestRequests(3)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)
@@ -262,7 +262,7 @@ func TestPDTrace_DroppedAtDecodeKV_NoOrphanRecords(t *testing.T) {
 	config.KVCacheConfig = sim.NewKVCacheConfig(3, 16, 0, 0, 0, 0)
 	config.TraceLevel = "decisions"
 	requests := newShortRequests(4)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)
@@ -305,7 +305,7 @@ func TestPDTrace_NeverDecider_WithPools_OnlyDisaggRecords(t *testing.T) {
 	config.TraceLevel = "decisions"
 	const numRequests = 4
 	requests := newTestRequests(numRequests)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)
@@ -352,7 +352,7 @@ func TestPDTrace_NormalMode_NoDroppedUnservable(t *testing.T) {
 	config := newTestDisaggDeploymentConfig(4, 2, 2)
 	config.TraceLevel = "decisions"
 	requests := newTestRequests(5)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)

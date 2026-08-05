@@ -30,7 +30,7 @@ func TestWaitingForRemoteKVs_ReservationHoldsBlocksDuringTransfer(t *testing.T) 
 	// immediately after the started event (before the completed event fires).
 	config := newTestDisaggDeploymentConfig(3, 1, 2)
 	requests := newShortRequests(1) // single request → deterministic pod choice
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// Before the simulation starts, no blocks are used anywhere.
 	for _, inst := range cs.instances {
@@ -58,7 +58,7 @@ func TestWaitingForRemoteKVs_ReservationHoldsBlocksDuringTransfer(t *testing.T) 
 func TestWaitingForRemoteKVs_StateDuringTransfer(t *testing.T) {
 	config := newTestDisaggDeploymentConfig(3, 1, 2)
 	requests := newShortRequests(1)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// Drive the event loop manually until a KVTransferStartedEvent fires,
 	// then stop and check the sub-request state.
@@ -102,7 +102,7 @@ func TestWaitingForRemoteKVs_ReservationFailure_DropsAtTransferStart(t *testing.
 	config.KVCacheConfig = sim.NewKVCacheConfig(3, 16, 0, 0, 0, 0)
 
 	requests := newShortRequests(4)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 	mustRun(t, cs)
 
 	if cs.droppedAtDecodeKV == 0 {
@@ -157,18 +157,18 @@ func TestWaitingForRemoteKVs_ConcurrentReservationsDoNotStealBlocks(t *testing.T
 		KVCacheConfig:       sim.NewKVCacheConfig(5, 16, 0, 0, 0, 0),
 		BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 		LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test", "H100", 1, 1, false, "roofline", 0),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test", "H100", 1, 1, false, "", "roofline", 0),
 	}
 	inst := NewInstanceSimulator("decode_0", cfg)
 
 	reqA := &sim.Request{
 		ID:          "transferA_decode",
-		InputTokens: make([]int, 80), // exactly 5 blocks at blockSize=16
+		InputTokens: make([]sim.TokenID, 80), // exactly 5 blocks at blockSize=16
 		State:       sim.StateWaitingForRemoteKVs,
 	}
 	reqB := &sim.Request{
 		ID:          "transferB_decode",
-		InputTokens: make([]int, 16), // 1 block — minimum non-zero
+		InputTokens: make([]sim.TokenID, 16), // 1 block — minimum non-zero
 		State:       sim.StateWaitingForRemoteKVs,
 	}
 
@@ -208,13 +208,13 @@ func TestReserveTransferredKV_ReleaseFreesBlocks(t *testing.T) {
 		KVCacheConfig:       sim.NewKVCacheConfig(10, 16, 0, 0, 0, 0),
 		BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 		LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test", "H100", 1, 1, false, "roofline", 0),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test", "H100", 1, 1, false, "", "roofline", 0),
 	}
 	inst := NewInstanceSimulator("decode_0", cfg)
 
 	req := &sim.Request{
 		ID:          "reserved_req",
-		InputTokens: make([]int, 80), // 5 blocks
+		InputTokens: make([]sim.TokenID, 80), // 5 blocks
 		State:       sim.StateWaitingForRemoteKVs,
 	}
 

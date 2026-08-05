@@ -26,7 +26,7 @@ type TraceHeader struct {
 	//   - a file path when --workload-spec is used (e.g. "workload.yaml")
 	//   - "preset:<name>" when --workload is used (e.g. "preset:chatbot")
 	//   - empty (omitted) when distribution synthesis or concurrency mode is used
-	WorkloadSpec   string `yaml:"workload_spec,omitempty"`
+	WorkloadSpec string `yaml:"workload_spec,omitempty"`
 
 	Server  *TraceServerConfig  `yaml:"server,omitempty"`
 	Network *TraceNetworkConfig `yaml:"network,omitempty"`
@@ -40,13 +40,13 @@ type TraceHeader struct {
 
 // TraceServerConfig captures server configuration in trace header.
 type TraceServerConfig struct {
-	Type                  string  `yaml:"type,omitempty"`
-	Model                 string  `yaml:"model,omitempty"`
-	TensorParallel        int     `yaml:"tensor_parallel,omitempty"`
-	MaxNumSeqs            int     `yaml:"max_num_seqs,omitempty"`
-	BlockSize             int     `yaml:"block_size,omitempty"`
-	GPUMemoryUtilization  float64 `yaml:"gpu_memory_utilization,omitempty"`
-	MaxModelLen           int64   `yaml:"max_model_len,omitempty"`
+	Type                 string  `yaml:"type,omitempty"`
+	Model                string  `yaml:"model,omitempty"`
+	TensorParallel       int     `yaml:"tensor_parallel,omitempty"`
+	MaxNumSeqs           int     `yaml:"max_num_seqs,omitempty"`
+	BlockSize            int     `yaml:"block_size,omitempty"`
+	GPUMemoryUtilization float64 `yaml:"gpu_memory_utilization,omitempty"`
+	MaxModelLen          int64   `yaml:"max_model_len,omitempty"`
 }
 
 // TraceNetworkConfig captures network configuration in trace header.
@@ -60,7 +60,7 @@ type TraceRecord struct {
 	ClientID          string
 	TenantID          string
 	SLOClass          string
-	VLLMPriority      int    // vLLM priority value (0=highest urgency, higher=lower urgency); 0 when not set
+	VLLMPriority      int // vLLM priority value (0=highest urgency, higher=lower urgency); 0 when not set
 	SessionID         string
 	RoundIndex        int
 	PrefixGroup       string
@@ -86,6 +86,7 @@ type TraceRecord struct {
 	ErrorMessage      string
 	FinishReason      string // server-reported finish_reason ("stop", "length", "abort", etc.); empty = not recorded
 	XRequestID        string // client-generated UUID sent as x-request-id header (real-mode only); empty = not recorded
+	Adapter           string // LoRA adapter id serving this request (registry key; #1464); empty = base-model-only
 }
 
 // TraceV2 combines header and records for a complete trace.
@@ -149,6 +150,18 @@ func ExportTraceV2(header *TraceHeader, records []TraceRecord, headerPath, dataP
 		}
 	}
 
+	// Conditionally include adapter column (#1464): present iff any record carries
+	// a non-empty LoRA adapter id. Trailing position (like x_request_id) keeps the
+	// positional parser's index math untouched. Omitted for adapter-blind traces so
+	// the no-op default adds no columns (INV-6).
+	includeAdapter := false
+	for _, r := range records {
+		if r.Adapter != "" {
+			includeAdapter = true
+			break
+		}
+	}
+
 	// Conditionally include vllm_priority column: present iff priority was actually computed.
 	// Include when either:
 	// 1. Any record has non-zero priority (batch, standard, sheddable, background from observe)
@@ -180,6 +193,10 @@ func ExportTraceV2(header *TraceHeader, records []TraceRecord, headerPath, dataP
 	// indices in the positional parser.
 	if includeXRequestID {
 		columns = append(columns, "x_request_id")
+	}
+	// Append adapter at end (#1464): also trailing; parsed by header-position lookup.
+	if includeAdapter {
+		columns = append(columns, "adapter")
 	}
 
 	// Write header row
@@ -221,7 +238,7 @@ func ExportTraceV2(header *TraceHeader, records []TraceRecord, headerPath, dataP
 		}
 		row = append(row,
 			strconv.Itoa(r.ServerInputTokens),
-			strconv.FormatInt(r.ArrivalTimeUs, 10),   // integer format
+			strconv.FormatInt(r.ArrivalTimeUs, 10),    // integer format
 			strconv.FormatInt(r.SendTimeUs, 10),       // integer format
 			strconv.FormatInt(r.FirstChunkTimeUs, 10), // integer format
 			strconv.FormatInt(r.LastChunkTimeUs, 10),  // integer format
@@ -233,6 +250,10 @@ func ExportTraceV2(header *TraceHeader, records []TraceRecord, headerPath, dataP
 		// Append x_request_id at end (issue #1428).
 		if includeXRequestID {
 			row = append(row, r.XRequestID)
+		}
+		// Append adapter at end (#1464).
+		if includeAdapter {
+			row = append(row, r.Adapter)
 		}
 		if err := writer.Write(row); err != nil {
 			return fmt.Errorf("writing CSV row %d: %w", r.RequestID, err)
@@ -275,6 +296,7 @@ func LoadTraceV2(headerPath, dataPath string) (*TraceV2, error) {
 	hasVLLMPriority := false
 	hasSLOTarget := false
 	xRequestIDIdx := -1 // header-position lookup; -1 = absent (issue #1428)
+	adapterIdx := -1    // header-position lookup; -1 = absent (#1464)
 	for i, col := range headerRow {
 		switch col {
 		case "vllm_priority":
@@ -283,6 +305,8 @@ func LoadTraceV2(headerPath, dataPath string) (*TraceV2, error) {
 			hasSLOTarget = true
 		case "x_request_id":
 			xRequestIDIdx = i
+		case "adapter":
+			adapterIdx = i
 		}
 	}
 
@@ -305,11 +329,14 @@ func LoadTraceV2(headerPath, dataPath string) (*TraceV2, error) {
 		if xRequestIDIdx >= 0 {
 			minCols++
 		}
+		if adapterIdx >= 0 {
+			minCols++
+		}
 		if len(row) < minCols {
 			return nil, fmt.Errorf("CSV row has %d columns, expected at least %d", len(row), minCols)
 		}
 
-		r, err := parseTraceRecord(row, hasVLLMPriority, hasSLOTarget, xRequestIDIdx)
+		r, err := parseTraceRecord(row, hasVLLMPriority, hasSLOTarget, xRequestIDIdx, adapterIdx)
 		if err != nil {
 			return nil, err
 		}
@@ -320,10 +347,10 @@ func LoadTraceV2(headerPath, dataPath string) (*TraceV2, error) {
 }
 
 // parseTraceRecord parses a CSV row. Handles optional columns vllm_priority
-// (after slo_class), slo_target_us (after deadline_us), and x_request_id
-// (trailing). xRequestIDIdx is the absolute column index in the row, or -1
-// if the column is absent.
-func parseTraceRecord(row []string, hasVLLMPriority, hasSLOTarget bool, xRequestIDIdx int) (*TraceRecord, error) {
+// (after slo_class), slo_target_us (after deadline_us), and the trailing
+// columns x_request_id and adapter. xRequestIDIdx and adapterIdx are absolute
+// column indices in the row, or -1 if the respective column is absent.
+func parseTraceRecord(row []string, hasVLLMPriority, hasSLOTarget bool, xRequestIDIdx, adapterIdx int) (*TraceRecord, error) {
 	// Column offset: optional columns shift subsequent indices.
 	// vllm_priority appears after slo_class (index 3) → shifts everything after by +1.
 	// slo_target_us appears after deadline_us → shifts everything after by +1.
@@ -481,6 +508,13 @@ func parseTraceRecord(row []string, hasVLLMPriority, hasSLOTarget bool, xRequest
 		xRequestID = strings.TrimSpace(row[xRequestIDIdx])
 	}
 
+	// Optional adapter at trailing column (#1464): looked up by absolute header
+	// position so the positional index math above is unaffected.
+	var adapter string
+	if adapterIdx >= 0 && adapterIdx < len(row) {
+		adapter = strings.TrimSpace(row[adapterIdx])
+	}
+
 	return &TraceRecord{
 		RequestID:         requestID,
 		ClientID:          row[1],
@@ -512,6 +546,7 @@ func parseTraceRecord(row []string, hasVLLMPriority, hasSLOTarget bool, xRequest
 		ErrorMessage:      strings.TrimSpace(row[25+offset]),
 		FinishReason:      finishReason,
 		XRequestID:        xRequestID,
+		Adapter:           adapter,
 	}, nil
 }
 
@@ -554,12 +589,12 @@ func RequestsToTraceRecords(requests []*sim.Request) []TraceRecord {
 		}
 
 		prefixLen := req.PrefixLength
-		inputTokens := len(req.InputTokens) - prefixLen
+		inputTokens := int(req.InputLen()) - prefixLen
 		if inputTokens < 0 {
 			// Safety: PrefixLength exceeds InputTokens (should not happen with well-formed data).
 			// Treat as no prefix. Detectable in output: PrefixLength=0 with non-empty PrefixGroup.
 			// R6: no logrus in sim/ — caller is responsible for detecting this via the record.
-			inputTokens = len(req.InputTokens)
+			inputTokens = int(req.InputLen())
 			prefixLen = 0
 		}
 
@@ -573,7 +608,7 @@ func RequestsToTraceRecords(requests []*sim.Request) []TraceRecord {
 			PrefixGroup:      req.PrefixGroup,
 			PrefixLength:     prefixLen,
 			Streaming:        req.Streaming,
-			InputTokens:      inputTokens,      // suffix-only: total - PrefixLength
+			InputTokens:      inputTokens,           // suffix-only: total - PrefixLength
 			OutputTokens:     len(req.OutputTokens), // pre-determined count for replay fidelity
 			TextTokens:       req.TextTokenCount,
 			ImageTokens:      req.ImageTokenCount,
@@ -589,6 +624,7 @@ func RequestsToTraceRecords(requests []*sim.Request) []TraceRecord {
 			LastChunkTimeUs:  lastChunkUs,
 			NumChunks:        0, // not tracked in simulation
 			Status:           status,
+			Adapter:          req.Adapter, // LoRA adapter id (#1464); "" = base-model-only
 		})
 	}
 	return records
@@ -614,7 +650,7 @@ func TraceRecordsToRequests(records []TraceRecord) []*sim.Request {
 	for _, rec := range records {
 		req := &sim.Request{
 			ArrivalTime:  rec.ArrivalTimeUs,
-			OutputTokens: []int{rec.OutputTokens},
+			OutputTokens: []sim.TokenID{sim.TokenID(rec.OutputTokens)},
 		}
 
 		// TTFTSet and FirstTokenTime

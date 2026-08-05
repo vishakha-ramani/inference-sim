@@ -52,7 +52,7 @@ func (tb *TokenBucket) Admit(req *Request, state *RouterState) (bool, string) {
 		tb.currentTokens = min(tb.capacity, tb.currentTokens+refill)
 		tb.lastRefill = clock
 	}
-	cost := float64(len(req.InputTokens))
+	cost := float64(req.InputLen())
 	if tb.currentTokens >= cost {
 		tb.currentTokens -= cost
 		return true, ""
@@ -66,7 +66,6 @@ type RejectAll struct{}
 func (r *RejectAll) Admit(_ *Request, _ *RouterState) (bool, string) {
 	return false, "reject-all"
 }
-
 
 // SLOTierPriority maps an SLOClass string to an integer priority using GAIE-compatible defaults.
 // Deprecated: use SLOPriorityMap.Priority() for configurable priorities.

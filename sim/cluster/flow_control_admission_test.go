@@ -194,13 +194,13 @@ func TestFlowControlAdmission_INV1_Conservation(t *testing.T) {
 				TenantID:     fmt.Sprintf("tenant-%d", i%3),
 				SLOClass:     sloClasses[i%len(sloClasses)],
 				ArrivalTime:  int64(i * 100_000),
-				InputTokens:  make([]int, 100),
-				OutputTokens: make([]int, 50),
+				InputTokens:  make([]sim.TokenID, 100),
+				OutputTokens: make([]sim.TokenID, 50),
 				MaxOutputLen: 200,
 			}
 		}
 
-		cs := NewClusterSimulator(config, requests, nil)
+		cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 		mustRun(t, cs)
 		verifyINV1Conservation(t, cs, requests)
 	})
@@ -225,13 +225,13 @@ func TestFlowControlAdmission_INV1_Conservation(t *testing.T) {
 				TenantID:     fmt.Sprintf("tenant-%d", i%2),
 				SLOClass:     sloClasses[i%len(sloClasses)],
 				ArrivalTime:  int64(i * 100_000),
-				InputTokens:  make([]int, 100),
-				OutputTokens: make([]int, 50),
+				InputTokens:  make([]sim.TokenID, 100),
+				OutputTokens: make([]sim.TokenID, 50),
 				MaxOutputLen: 200,
 			}
 		}
 
-		cs := NewClusterSimulator(config, requests, nil)
+		cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 		mustRun(t, cs)
 		verifyINV1Conservation(t, cs, requests)
 	})
@@ -254,13 +254,13 @@ func TestFlowControlAdmission_INV1_Conservation(t *testing.T) {
 				TenantID:     fmt.Sprintf("tenant-%d", i%2),
 				SLOClass:     "standard", // non-sheddable: overflow means rejection
 				ArrivalTime:  int64(i * 100_000),
-				InputTokens:  make([]int, 100),
-				OutputTokens: make([]int, 50),
+				InputTokens:  make([]sim.TokenID, 100),
+				OutputTokens: make([]sim.TokenID, 50),
 				MaxOutputLen: 200,
 			}
 		}
 
-		cs := NewClusterSimulator(config, requests, nil)
+		cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 		mustRun(t, cs)
 		verifyINV1Conservation(t, cs, requests)
 	})

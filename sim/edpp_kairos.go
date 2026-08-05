@@ -199,10 +199,10 @@ func (d *EDPPDecider) kairosAdaptedPrefillTTFT(req *Request, chunkCap float64) (
 		if chi <= 0 {
 			continue
 		}
-		sumL := float64(ps.ResidentPrefillTokens) + float64(ps.QueueDepth)*float64(len(req.InputTokens))
+		sumL := float64(ps.ResidentPrefillTokens) + float64(ps.QueueDepth)*float64(int(req.InputLen()))
 		queueWait := 0.0
 		if sumL > 0 {
-			ctxQ := math.Min(sumL/2, float64(len(req.InputTokens)))
+			ctxQ := math.Min(sumL/2, float64(int(req.InputLen())))
 			queueWait = (sumL / chi) * kairosStepPrefill(theta, chi, ctxQ)
 		}
 		exec := 0.0
@@ -227,7 +227,7 @@ func (d *EDPPDecider) kairosPaperPrefillTTFT(req *Request, chunkCap float64) (fl
 	snaps := sortedSnapshotsByID(d.prefillSnapshots())
 	// Kairos does not account for prefix-cache residency; Algorithm 1 takes the
 	// request's full prompt length as input.
-	tokens := float64(len(req.InputTokens))
+	tokens := float64(int(req.InputLen()))
 	if tokens <= 0 {
 		return math.Inf(1), ""
 	}
@@ -271,7 +271,7 @@ func (d *EDPPDecider) kairosTrace(req *Request, mode string, alpha, tauTTFT, tau
 	}
 	first, minimum, steps := kairosScheduleSummary(schedule)
 	return &EDPPDecisionTrace{
-		Class: req.SLOClass, SkipReason: skip, Ap: len(req.InputTokens),
+		Class: req.SLOClass, SkipReason: skip, Ap: int(req.InputLen()),
 		TauTTFT: tauTTFT, TauITL: tauITL, TTFTP: ttftPrefill, TTFTD: bestTTFT,
 		KairosMode: mode, KairosAlpha: alpha, KairosAlphaThreshold: alpha * ttftPrefill,
 		KairosTTFTGateRequired: gateRequired, KairosTTFTGatePassed: bestTTFT <= tauTTFT,
@@ -298,7 +298,7 @@ func (d *EDPPDecider) decideKairos(req *Request, state *RouterState) Disaggregat
 func (d *EDPPDecider) decideKairosAdapted(req *Request, state *RouterState) DisaggregationDecision {
 	keepLocal := DisaggregationDecision{Disaggregate: false}
 	tauTTFTUs, tauITLUs := d.targetsFor(req.SLOClass)
-	if len(req.InputTokens) == 0 {
+	if int(req.InputLen()) == 0 {
 		keepLocal.EDPPTrace = d.kairosTrace(req, "adapted", 1, float64(tauTTFTUs), float64(tauITLUs), 0, 0, 0, 0, nil, false, false, "empty-prompt")
 		return keepLocal
 	}
@@ -352,7 +352,7 @@ func (d *EDPPDecider) decideKairosAdapted(req *Request, state *RouterState) Disa
 func (d *EDPPDecider) decideKairosPaper(req *Request, state *RouterState) DisaggregationDecision {
 	keepLocal := DisaggregationDecision{Disaggregate: false}
 	tauTTFTUs, tauITLUs := d.targetsFor(req.SLOClass)
-	if len(req.InputTokens) == 0 {
+	if int(req.InputLen()) == 0 {
 		keepLocal.EDPPTrace = d.kairosTrace(req, "paper", d.kairosAlpha, float64(tauTTFTUs), float64(tauITLUs), 0, 0, 0, 0, nil, true, false, "empty-prompt")
 		return keepLocal
 	}
@@ -374,7 +374,7 @@ func (d *EDPPDecider) decideKairosPaper(req *Request, state *RouterState) Disagg
 		residentTau := d.kairosResidentTBTTarget(ds, req.SLOClass)
 		tbtBudget := d.kairosBeta * residentTau
 		theta := d.coeffsFor(ds.GPUType)
-		t, schedule, ok := kairosDiscreteDeflectTTFT(theta, ds.BatchSize, ds.KvTokensInUse, float64(len(req.InputTokens)), tbtBudget, candidates, maxSteps)
+		t, schedule, ok := kairosDiscreteDeflectTTFT(theta, ds.BatchSize, ds.KvTokensInUse, float64(int(req.InputLen())), tbtBudget, candidates, maxSteps)
 		if !ok {
 			continue
 		}

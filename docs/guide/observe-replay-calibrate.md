@@ -95,10 +95,12 @@ Four input modes are available. At least one must be provided per invocation:
 | `--server-type` | `string` | `"vllm"` | Server type (vllm, tgi, etc.) |
 | `--max-concurrency` | `int` | `256` | Maximum simultaneous in-flight requests |
 | `--warmup-requests` | `int` | `0` | Number of initial requests to exclude from trace |
+| `--prewarm-duration` | `duration` | `0` | System priming phase before real workload (e.g., `60s`). Sends small fixed requests at low concurrency to warm CUDA/EPP/memory. 0 = disabled |
 | `--no-streaming` | `bool` | `false` | Disable streaming (use non-streaming HTTP) |
 | `--seed` | `int64` | `42` | RNG seed for workload generation |
 | `--horizon` | `int64` | `0` | Observation horizon in microseconds (0 = from spec or unlimited) |
 | `--num-requests` | `int` | `0` | Maximum requests to generate (0 = from spec or unlimited) |
+| `--lazy-generation` | `bool` | `false` | Alpha (#1441/#1443): stream requests from the generator instead of pre-generating the full slice (same flag/semantics as `blis run`). Supports every workload class — multi-session reasoning (`SingleSession=false`, #1458), concurrency clients (`concurrency > 0`, #1459), and time-varying / per-window workloads (#1460); there is no eager fallback. Default (off) dispatch behavior is unchanged |
 | `--think-time-ms` | `int` | `0` | Think time in ms between response and next request (concurrency mode only) |
 | `--api-format` | `string` | `"completions"` | API format: `completions` or `chat` |
 | `--unconstrained-output` | `bool` | `false` | Do not set `max_tokens` (let server decide output length) |
@@ -106,7 +108,7 @@ Four input modes are available. At least one must be provided per invocation:
 | `--timeout` | `int` | `300` | HTTP request timeout in seconds (per request); increase for slow servers or large-prefill workloads |
 | `--rtt-ms` | `float64` | `0` | Measured network round-trip time in milliseconds |
 | `--defaults-filepath` | `string` | `"defaults.yaml"` | Path to `defaults.yaml` containing preset definitions (preset mode only) |
-| `--record-itl` | `bool` | `false` | Record per-chunk timestamps for ITL calibration (streaming only; use with `--itl-output`) |
+| `--record-itl` | `bool` | `false` | Record per-chunk timestamps for ITL calibration (forces streaming per request; mutually exclusive with `--no-streaming`; use with `--itl-output`) |
 | `--itl-output` | `string` | `""` | Output path for ITL CSV file (default: `<trace-data>.itl.csv` when `--record-itl` is set) |
 
 ### Distribution Synthesis Flags
@@ -184,6 +186,23 @@ Used when `--rate` or `--concurrency` mode is active (ignored when `--workload-s
 
 !!! info "Session support"
     If the workload spec contains session clients, observe runs in closed-loop mode: each completed request may trigger follow-up requests from the session manager, interleaved with pre-generated arrivals by arrival time.
+
+### System Prewarming
+
+When targeting a cold system (fresh vLLM restart, new EPP connections), the first 30-60s of requests typically see 20-25x worse latency due to CUDA kernel compilation, memory allocator priming, and connection establishment. At high target rates, this cold-start transient can even trigger queue collapse.
+
+The `--prewarm-duration` flag addresses this by running a fixed priming phase before measurement begins:
+
+```bash
+./blis observe --server-url http://localhost:8000 --model qwen/qwen3-14b \
+  --prewarm-duration 60s \
+  --workload chatbot --rate 20 --num-requests 500 \
+  --trace-header trace.yaml --trace-data trace.csv
+```
+
+The prewarm phase sends small, fixed requests (256 input tokens, 64 output tokens) at low concurrency (4 simultaneous requests). This exercises the full request path without risking overload, regardless of the real workload's rate or token sizes. Prewarm requests never appear in `trace_data.csv`.
+
+**Which warmup flag?** Use `--prewarm-duration` when targeting a cold system (fresh restart, new connections). Use `--warmup-requests` only if you need to exclude initial requests for other reasons (e.g., rate ramp-up). You typically don't need both.
 
 ---
 

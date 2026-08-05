@@ -49,18 +49,18 @@ func newTestSimulatorForHook(t *testing.T) *Simulator {
 		KVCacheConfig:       NewKVCacheConfig(100, 4, 0, 0, 0, 0),
 		BatchConfig:         NewBatchConfig(10, 1000, 0),
 		LatencyCoeffs:       NewLatencyCoeffs([]float64{100, 0.5, 0.5}, []float64{100, 0.1, 50}),
-		ModelHardwareConfig: NewModelHardwareConfig(rooflineModelConfig(), rooflineHWCalib(), "test-model", "", 1, 1, false, "roofline", 0),
+		ModelHardwareConfig: NewModelHardwareConfig(rooflineModelConfig(), rooflineHWCalib(), "test-model", "", 1, 1, false, "", "roofline", 0),
 	})
 }
 
 func newTestRequest(id string, arrivalTime int64, inputLen, outputLen int) *Request {
-	input := make([]int, inputLen)
-	output := make([]int, outputLen)
+	input := make([]TokenID, inputLen)
+	output := make([]TokenID, outputLen)
 	for i := range input {
-		input[i] = i % MaxTokenID
+		input[i] = TokenID(i % MaxTokenID)
 	}
 	for i := range output {
-		output[i] = i % MaxTokenID
+		output[i] = TokenID(i % MaxTokenID)
 	}
 	return &Request{
 		ID:           id,
@@ -138,7 +138,7 @@ func TestSimulator_ProgressHook_FinalSnapshotClockClamped(t *testing.T) {
 		KVCacheConfig:       NewKVCacheConfig(100, 4, 0, 0, 0, 0),
 		BatchConfig:         NewBatchConfig(10, 1000, 0),
 		LatencyCoeffs:       NewLatencyCoeffs([]float64{100, 0.5, 0.5}, []float64{100, 0.1, 50}),
-		ModelHardwareConfig: NewModelHardwareConfig(rooflineModelConfig(), rooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+		ModelHardwareConfig: NewModelHardwareConfig(rooflineModelConfig(), rooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 	})
 	sim.InjectArrival(newTestRequest("req-1", 0, 100, int(math.MaxInt16)))
 
@@ -225,7 +225,7 @@ func TestSimulator_ProgressHook_FreshSlicePerCall(t *testing.T) {
 		KVCacheConfig:       NewKVCacheConfig(100, 4, 0, 0, 0, 0),
 		BatchConfig:         NewBatchConfig(10, 1000, 0),
 		LatencyCoeffs:       NewLatencyCoeffs([]float64{100, 0.5, 0.5}, []float64{100, 0.1, 50}),
-		ModelHardwareConfig: NewModelHardwareConfig(rooflineModelConfig(), rooflineHWCalib(), "test-model", "", 1, 1, false, "roofline", 0),
+		ModelHardwareConfig: NewModelHardwareConfig(rooflineModelConfig(), rooflineHWCalib(), "test-model", "", 1, 1, false, "", "roofline", 0),
 	})
 	s.InjectArrival(newTestRequest("req-1", 0, 100, int(math.MaxInt16)))
 

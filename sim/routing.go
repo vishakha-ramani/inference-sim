@@ -49,6 +49,13 @@ type RoutingSnapshot struct {
 	MaxScheduledTokens        int64
 	LongPrefillTokenThreshold int64
 	BlockSizeTokens           int64
+	// ResidentAdapters is the set of LoRA adapter ids currently resident on this
+	// instance (membership set; #1469, PR6). Consumed by the lora-affinity scorer
+	// for placement affinity. Freshness (R17, INV-7): Periodic — refreshed by
+	// CachedSnapshotProvider at --snapshot-refresh-interval (default 50ms), Immediate
+	// when the interval is 0. Zero value (nil) ⇒ no adapter resident ⇒ scorer neutral,
+	// preserving byte-identical routing when the LoRA subsystem is inert (INV-6).
+	ResidentAdapters map[string]bool
 }
 
 // EffectiveLoad returns the total effective load on this instance:
@@ -319,7 +326,7 @@ func NewRoutingPolicy(name string, scorerConfigs []ScorerConfig, blockSize int64
 // and no-hit-lru scorers. cacheFn maps instance ID to a function returning the count of
 // consecutive cached prefix blocks for given tokens; pass nil to disable those scorers
 // (equivalent to calling NewRoutingPolicy).
-func NewRoutingPolicyWithCache(name string, scorerConfigs []ScorerConfig, blockSize int64, rng *rand.Rand, cacheFn map[string]func([]int) int) RoutingPolicy {
+func NewRoutingPolicyWithCache(name string, scorerConfigs []ScorerConfig, blockSize int64, rng *rand.Rand, cacheFn map[string]func([]TokenID) int) RoutingPolicy {
 	return newRoutingPolicyInternal(name, scorerConfigs, blockSize, rng, cacheQueryFn(cacheFn))
 }
 

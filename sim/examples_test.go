@@ -94,7 +94,7 @@ func TestExampleConfigs_EPPEstimatePrefix_RoutingBehavior(t *testing.T) {
 	}
 
 	// WHEN routing a request
-	req := &Request{ID: "req1", InputTokens: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}}
+	req := &Request{ID: "req1", InputTokens: []TokenID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}}
 	decision := policy.Route(req, &RouterState{Snapshots: snapshots, Clock: 1000})
 
 	// THEN a valid decision is made
@@ -130,7 +130,7 @@ func TestExampleConfigs_EPPPrecisePrefix_RoutingBehavior(t *testing.T) {
 	}
 
 	// WHEN routing a request
-	req := &Request{ID: "req1", InputTokens: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}}
+	req := &Request{ID: "req1", InputTokens: []TokenID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}}
 	decision := policy.Route(req, &RouterState{Snapshots: snapshots, Clock: 1000})
 
 	// THEN a valid decision is made
@@ -166,9 +166,9 @@ func TestExampleConfigs_EPPPrecisePrefix_WeightRatioEffect(t *testing.T) {
 	}
 
 	// Route first request (no prefix cache yet)
-	tokens := make([]int, 32) // 2 blocks at block_size=16
+	tokens := make([]TokenID, 32) // 2 blocks at block_size=16
 	for i := range tokens {
-		tokens[i] = i + 1
+		tokens[i] = TokenID(i + 1)
 	}
 	req1 := &Request{ID: "req1", InputTokens: tokens}
 	decision1 := policy.Route(req1, &RouterState{Snapshots: snapshots, Clock: 1000})
@@ -222,7 +222,7 @@ func TestExampleConfigs_EPPEstimatePrefix_LoadBalanceMonotonicity(t *testing.T) 
 		{ID: "high", QueueDepth: 20, BatchSize: 0}, // highest load
 	}
 
-	req := &Request{ID: "req1", InputTokens: []int{1, 2, 3}}
+	req := &Request{ID: "req1", InputTokens: []TokenID{1, 2, 3}}
 	decision := policy.Route(req, &RouterState{Snapshots: snapshots, Clock: 1000})
 
 	// THEN lower load instances score higher (monotonicity)
@@ -257,12 +257,12 @@ func TestExampleConfigs_EPPPrecisePrefix_QueueDepthMonotonicity(t *testing.T) {
 	// WHEN routing through a queue-depth-only policy with instances of varying load
 	policy := NewRoutingPolicy("weighted", []ScorerConfig{{Name: "queue-depth", Weight: 1.0}}, 16, nil)
 	snapshots := []RoutingSnapshot{
-		{ID: "empty", QueueDepth: 0, BatchSize: 0},   // lowest load
-		{ID: "half", QueueDepth: 5, BatchSize: 0},    // medium load
-		{ID: "full", QueueDepth: 10, BatchSize: 0},   // highest load
+		{ID: "empty", QueueDepth: 0, BatchSize: 0}, // lowest load
+		{ID: "half", QueueDepth: 5, BatchSize: 0},  // medium load
+		{ID: "full", QueueDepth: 10, BatchSize: 0}, // highest load
 	}
 
-	req := &Request{ID: "req1", InputTokens: []int{1, 2, 3}}
+	req := &Request{ID: "req1", InputTokens: []TokenID{1, 2, 3}}
 	decision := policy.Route(req, &RouterState{Snapshots: snapshots, Clock: 1000})
 
 	// THEN lower queue depth scores higher (monotonicity)
@@ -297,12 +297,12 @@ func TestExampleConfigs_EPPPrecisePrefix_KVUtilizationMonotonicity(t *testing.T)
 	// WHEN routing through a kv-utilization-only policy with instances of varying utilization
 	policy := NewRoutingPolicy("weighted", []ScorerConfig{{Name: "kv-utilization", Weight: 1.0}}, 16, nil)
 	snapshots := []RoutingSnapshot{
-		{ID: "empty", KVUtilization: 0.0},  // lowest utilization
-		{ID: "half", KVUtilization: 0.5},   // medium utilization
-		{ID: "full", KVUtilization: 1.0},   // highest utilization
+		{ID: "empty", KVUtilization: 0.0}, // lowest utilization
+		{ID: "half", KVUtilization: 0.5},  // medium utilization
+		{ID: "full", KVUtilization: 1.0},  // highest utilization
 	}
 
-	req := &Request{ID: "req1", InputTokens: []int{1, 2, 3}}
+	req := &Request{ID: "req1", InputTokens: []TokenID{1, 2, 3}}
 	decision := policy.Route(req, &RouterState{Snapshots: snapshots, Clock: 1000})
 
 	// THEN lower utilization scores higher (monotonicity)

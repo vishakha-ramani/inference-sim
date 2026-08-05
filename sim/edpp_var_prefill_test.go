@@ -56,7 +56,7 @@ func TestVarPrefill_OwnGoodAddsExactRequestValueDifference(t *testing.T) {
 	d := NewEDPPDecider(
 		cfg, newTestAffineModel(), coldCacheQuery("D0", "P0"), prefill,
 	)
-	req := &Request{ID: "r", InputTokens: make([]int, 400)}
+	req := &Request{ID: "r", InputTokens: make([]TokenID, 400)}
 	state := &RouterState{
 		SelectedInstance: "D0",
 		Snapshots: []RoutingSnapshot{{
@@ -87,7 +87,7 @@ func TestVarPrefill_OwnGoodAddsExactRequestValueDifference(t *testing.T) {
 func TestVarPrefill_OnlyChargesPrefillQueueStabilityWithoutVaR(t *testing.T) {
 	const weight = 2.0
 	d := newVarPrefillTestDecider(t, weight)
-	req := &Request{ID: "r", InputTokens: make([]int, 400)}
+	req := &Request{ID: "r", InputTokens: make([]TokenID, 400)}
 	n := d.normFor(req.SLOClass)
 
 	// qp = Qp/W*p = 1. Decode backlog and virtual queues are deliberately huge;
@@ -125,7 +125,7 @@ func TestVarPrefill_OnlyChargesPrefillQueueStabilityWithoutVaR(t *testing.T) {
 
 func TestVarPrefill_ZeroWeightIsVaROnlyAblation(t *testing.T) {
 	d := newVarPrefillTestDecider(t, 0)
-	req := &Request{ID: "r", InputTokens: make([]int, 400)}
+	req := &Request{ID: "r", InputTokens: make([]TokenID, 400)}
 	n := d.normFor(req.SLOClass)
 	d.qpWork = 10 * n.wStarP
 	state := &RouterState{
@@ -156,16 +156,16 @@ func TestVarPrefill_PathSpecificPrefillWorkUsesRemoteCache(t *testing.T) {
 	cfg.VarPrefillWeight = 1
 	cfg.PathSpecificPrefillWork = true
 	cfg.TraceEnabled = true
-	cache := map[string]func([]int) int{
-		"D0": func([]int) int { return 10 }, // 160 cached => a_p^D=840
-		"P0": func([]int) int { return 50 }, // 800 cached => a_p^P=200
+	cache := map[string]func([]TokenID) int{
+		"D0": func([]TokenID) int { return 10 }, // 160 cached => a_p^D=840
+		"P0": func([]TokenID) int { return 50 }, // 800 cached => a_p^P=200
 	}
 	prefill := func() []RoutingSnapshot { return []RoutingSnapshot{{ID: "P0"}} }
 	d := NewEDPPDecider(cfg, newTestAffineModel(), cache, prefill)
 	n := d.normFor("")
 	d.qpWork = n.wStarP // q_p=1 makes the remote-work stability operand visible
 
-	req := &Request{ID: "r", InputTokens: make([]int, 1000)}
+	req := &Request{ID: "r", InputTokens: make([]TokenID, 1000)}
 	state := &RouterState{
 		SelectedInstance: "D0",
 		Snapshots:        []RoutingSnapshot{{ID: "D0"}},
@@ -204,13 +204,13 @@ func TestVarPrefill_PathSpecificOnRouteBooksRemoteWork(t *testing.T) {
 	cfg.VarMetric = "util"
 	cfg.VarDeployable = true
 	cfg.PathSpecificPrefillWork = true
-	cache := map[string]func([]int) int{
-		"D0": func([]int) int { return 10 },
-		"P0": func([]int) int { return 50 },
+	cache := map[string]func([]TokenID) int{
+		"D0": func([]TokenID) int { return 10 },
+		"P0": func([]TokenID) int { return 50 },
 	}
 	prefill := func() []RoutingSnapshot { return []RoutingSnapshot{{ID: "P0"}} }
 	d := NewEDPPDecider(cfg, newTestAffineModel(), cache, prefill)
-	req := &Request{ID: "r", InputTokens: make([]int, 1000)}
+	req := &Request{ID: "r", InputTokens: make([]TokenID, 1000)}
 
 	d.OnRoute(req, req.ID, true, 1000, "D0", "")
 	want := d.coeffs.Wp(200, 1000)
@@ -228,7 +228,7 @@ func TestVarPrefill_PathSpecificOnRouteBooksRemoteWork(t *testing.T) {
 // queue, that positive VaR difference must select disaggregation.
 func TestVarPrefill_VaRCanSelectDisaggregation(t *testing.T) {
 	d := newVarPrefillTestDecider(t, 1)
-	req := &Request{ID: "r", InputTokens: make([]int, 400)}
+	req := &Request{ID: "r", InputTokens: make([]TokenID, 400)}
 	state := &RouterState{
 		Clock:            10_000,
 		SelectedInstance: "D0",

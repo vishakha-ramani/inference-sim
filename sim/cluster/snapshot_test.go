@@ -18,7 +18,7 @@ func newTestInstance(id InstanceID, totalKVBlocks int64) *InstanceSimulator {
 		KVCacheConfig:       sim.NewKVCacheConfig(totalKVBlocks, 16, 0, 0, 0, 0),
 		BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 		LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test", "H100", 1, 1, false, "roofline", 0),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "test", "H100", 1, 1, false, "", "roofline", 0),
 	}
 	return NewInstanceSimulator(id, cfg)
 }
@@ -34,8 +34,8 @@ func TestSnapshot_Immutability(t *testing.T) {
 	req := &sim.Request{
 		ID:           "req_0",
 		ArrivalTime:  0,
-		InputTokens:  make([]int, 50),
-		OutputTokens: make([]int, 10),
+		InputTokens:  make([]sim.TokenID, 50),
+		OutputTokens: make([]sim.TokenID, 10),
 		State:        sim.StateQueued,
 	}
 	inst.InjectRequest(req)
@@ -50,8 +50,8 @@ func TestSnapshot_Immutability(t *testing.T) {
 	req2 := &sim.Request{
 		ID:           "req_1",
 		ArrivalTime:  100,
-		InputTokens:  make([]int, 30),
-		OutputTokens: make([]int, 5),
+		InputTokens:  make([]sim.TokenID, 30),
+		OutputTokens: make([]sim.TokenID, 5),
 		State:        sim.StateQueued,
 	}
 	inst.InjectRequest(req2)
@@ -185,6 +185,7 @@ func TestSnapshotProvider_DefaultConfig_AllImmediate(t *testing.T) {
 		{"KVUtilization", config.KVUtilization},
 		{"CacheBlocks", config.CacheBlocks},
 		{"PreemptionCount", config.PreemptionCount},
+		{"ResidentAdapters", config.ResidentAdapters},
 	}
 
 	for _, tc := range tests {
@@ -213,6 +214,7 @@ func TestNewObservabilityConfig_ZeroAndNegativeInterval_AllImmediate(t *testing.
 				{"KVUtilization", config.KVUtilization},
 				{"CacheBlocks", config.CacheBlocks},
 				{"PreemptionCount", config.PreemptionCount},
+				{"ResidentAdapters", config.ResidentAdapters},
 			} {
 				if f.fc.Mode != Immediate {
 					t.Errorf("%s: Mode = %d, want Immediate (%d)", f.name, f.fc.Mode, Immediate)
@@ -238,6 +240,7 @@ func TestNewObservabilityConfig_NonZeroInterval_AllFieldsPeriodic(t *testing.T) 
 		{"BatchSize", config.BatchSize},
 		{"KVUtilization", config.KVUtilization},
 		{"PreemptionCount", config.PreemptionCount},
+		{"ResidentAdapters", config.ResidentAdapters},
 	}
 	for _, f := range fields {
 		t.Run(f.name, func(t *testing.T) {
@@ -363,12 +366,12 @@ func TestCachedSnapshotProvider_DualTimers_IndependentRefresh(t *testing.T) {
 	obsConfig := newObservabilityConfig(200, 500)
 	provider := NewCachedSnapshotProvider(instances, obsConfig)
 
-	tokens := []int{1, 2, 3, 4, 5, 6, 7, 8}
+	tokens := []sim.TokenID{1, 2, 3, 4, 5, 6, 7, 8}
 
 	// Run a request to populate cache blocks.
 	req := &sim.Request{
 		ID: "r1", ArrivalTime: 0, InputTokens: tokens,
-		OutputTokens: []int{100}, State: sim.StateQueued,
+		OutputTokens: []sim.TokenID{100}, State: sim.StateQueued,
 	}
 	inst.InjectRequest(req)
 	inst.Run()
@@ -413,7 +416,7 @@ func TestCachedSnapshotProvider_CacheQuery_StaleUntilRefresh(t *testing.T) {
 	obsConfig := newObservabilityConfig(0, 1000) // cache delay 1000µs
 	provider := NewCachedSnapshotProvider(instances, obsConfig)
 
-	tokens := []int{1, 2, 3, 4, 5, 6, 7, 8}
+	tokens := []sim.TokenID{1, 2, 3, 4, 5, 6, 7, 8}
 
 	// Initial snapshot — empty cache
 	assert.Equal(t, 0, provider.CacheQuery("inst-0", tokens))
@@ -421,7 +424,7 @@ func TestCachedSnapshotProvider_CacheQuery_StaleUntilRefresh(t *testing.T) {
 	// Populate cache via request
 	req := &sim.Request{
 		ID: "r1", ArrivalTime: 0, InputTokens: tokens,
-		OutputTokens: []int{100}, State: sim.StateQueued,
+		OutputTokens: []sim.TokenID{100}, State: sim.StateQueued,
 	}
 	inst.InjectRequest(req)
 	inst.Run()
@@ -448,10 +451,10 @@ func TestCachedSnapshotProvider_CacheQuery_OracleMode(t *testing.T) {
 	obsConfig := newObservabilityConfig(0, 0) // oracle mode
 	provider := NewCachedSnapshotProvider(instances, obsConfig)
 
-	tokens := []int{1, 2, 3, 4, 5, 6, 7, 8}
+	tokens := []sim.TokenID{1, 2, 3, 4, 5, 6, 7, 8}
 	req := &sim.Request{
 		ID: "r1", ArrivalTime: 0, InputTokens: tokens,
-		OutputTokens: []int{100}, State: sim.StateQueued,
+		OutputTokens: []sim.TokenID{100}, State: sim.StateQueued,
 	}
 	inst.InjectRequest(req)
 	inst.Run()
@@ -473,7 +476,7 @@ func TestCachedSnapshotProvider_AddRemoveCacheInstance(t *testing.T) {
 	// AddInstance registers for scalar snapshots; AddCacheInstance for cache tracking.
 	provider.AddInstance("inst-new", inst)
 	provider.AddCacheInstance("inst-new", inst)
-	tokens := []int{1, 2, 3, 4}
+	tokens := []sim.TokenID{1, 2, 3, 4}
 	assert.Equal(t, 0, provider.CacheQuery("inst-new", tokens)) // empty cache
 
 	provider.RemoveCacheInstance("inst-new")
@@ -507,13 +510,13 @@ func TestCachedSnapshotProvider_AddCacheInstance_HonorsStaleBoundary(t *testing.
 	provider.AddInstance("inst-deferred", inst)
 	provider.AddCacheInstance("inst-deferred", inst) // snapshot taken here: cache empty
 
-	tokens := []int{1, 2, 3, 4, 5, 6, 7, 8}
+	tokens := []sim.TokenID{1, 2, 3, 4, 5, 6, 7, 8}
 	cqf := provider.BuildCacheQueryFn()
 
 	// Populate cache after registration
 	req := &sim.Request{
 		ID: "r1", ArrivalTime: 0, InputTokens: tokens,
-		OutputTokens: []int{100}, State: sim.StateQueued,
+		OutputTokens: []sim.TokenID{100}, State: sim.StateQueued,
 	}
 	inst.InjectRequest(req)
 	inst.Run()
@@ -543,12 +546,12 @@ func TestCachedSnapshotProvider_RefreshCacheIfNeeded_BoundaryAtIntervalMinusOne(
 	obsConfig := newObservabilityConfig(0, 1000) // stale mode, interval=1000
 	provider := NewCachedSnapshotProvider(instances, obsConfig)
 
-	tokens := []int{1, 2, 3, 4, 5, 6, 7, 8}
+	tokens := []sim.TokenID{1, 2, 3, 4, 5, 6, 7, 8}
 
 	// Populate cache
 	req := &sim.Request{
 		ID: "r1", ArrivalTime: 0, InputTokens: tokens,
-		OutputTokens: []int{100}, State: sim.StateQueued,
+		OutputTokens: []sim.TokenID{100}, State: sim.StateQueued,
 	}
 	inst.InjectRequest(req)
 	inst.Run()
@@ -597,7 +600,7 @@ func TestCachedSnapshotProvider_BuildCacheQueryFn_DelegatesToStale(t *testing.T)
 	provider := NewCachedSnapshotProvider(instances, obsConfig)
 
 	cqf := provider.BuildCacheQueryFn()
-	tokens := []int{1, 2, 3, 4, 5, 6, 7, 8}
+	tokens := []sim.TokenID{1, 2, 3, 4, 5, 6, 7, 8}
 
 	// Initially returns 0 (empty cache in snapshot)
 	assert.Equal(t, 0, cqf["inst-0"](tokens))
@@ -605,7 +608,7 @@ func TestCachedSnapshotProvider_BuildCacheQueryFn_DelegatesToStale(t *testing.T)
 	// Populate cache
 	req := &sim.Request{
 		ID: "r1", ArrivalTime: 0, InputTokens: tokens,
-		OutputTokens: []int{100}, State: sim.StateQueued,
+		OutputTokens: []sim.TokenID{100}, State: sim.StateQueued,
 	}
 	inst.InjectRequest(req)
 	inst.Run()
@@ -629,7 +632,7 @@ func TestCachedSnapshotProvider_RemoveCacheInstance_Basic(t *testing.T) {
 	obsConfig := newObservabilityConfig(0, 1000)
 	provider := NewCachedSnapshotProvider(instances, obsConfig)
 
-	tokens := []int{1, 2, 3, 4}
+	tokens := []sim.TokenID{1, 2, 3, 4}
 
 	// Sanity: instance is queryable
 	assert.Equal(t, 0, provider.CacheQuery("inst-0", tokens))
@@ -682,7 +685,7 @@ func TestCluster_CacheSignalDelay_StaleRouting(t *testing.T) {
 				KVCacheConfig:       sim.NewKVCacheConfig(100, 4, 0, 0, 0, 0),
 				BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 				LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-				ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+				ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 			},
 			NumInstances:     2,
 			CacheSignalDelay: delay,
@@ -693,9 +696,9 @@ func TestCluster_CacheSignalDelay_StaleRouting(t *testing.T) {
 		}
 	}
 
-	tokens := make([]int, 16) // 4 blocks of size 4
+	tokens := make([]sim.TokenID, 16) // 4 blocks of size 4
 	for i := range tokens {
-		tokens[i] = i + 1
+		tokens[i] = sim.TokenID(i + 1)
 	}
 
 	// Generate N requests: r0 warms the cache, r1..r(N-1) share the same prefix.
@@ -707,7 +710,7 @@ func TestCluster_CacheSignalDelay_StaleRouting(t *testing.T) {
 				ID:           fmt.Sprintf("r%d", i),
 				ArrivalTime:  int64(i) * 50_000, // 50ms apart
 				InputTokens:  tokens,
-				OutputTokens: []int{1},
+				OutputTokens: []sim.TokenID{1},
 				State:        sim.StateQueued,
 			}
 		}
@@ -715,12 +718,12 @@ func TestCluster_CacheSignalDelay_StaleRouting(t *testing.T) {
 	}
 
 	// Oracle mode: delay=0
-	csOracle := NewClusterSimulator(makeConfig(0), makeRequests(), nil)
+	csOracle := NewClusterSimulator(makeConfig(0), NewSliceRequestSource(makeRequests()), nil)
 	require.NoError(t, csOracle.Run())
 	oraclePerInst := csOracle.PerInstanceMetrics()
 
 	// Stale mode: delay=50s (much larger than total workload span)
-	csStale := NewClusterSimulator(makeConfig(50_000_000), makeRequests(), nil)
+	csStale := NewClusterSimulator(makeConfig(50_000_000), NewSliceRequestSource(makeRequests()), nil)
 	require.NoError(t, csStale.Run())
 	stalePerInst := csStale.PerInstanceMetrics()
 
@@ -757,7 +760,7 @@ func TestCluster_CacheSignalDelay_Zero_OracleBehavior(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 4, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances:  2,
 		RoutingPolicy: "weighted",
@@ -766,17 +769,17 @@ func TestCluster_CacheSignalDelay_Zero_OracleBehavior(t *testing.T) {
 		},
 	}
 
-	tokens := make([]int, 16)
+	tokens := make([]sim.TokenID, 16)
 	for i := range tokens {
-		tokens[i] = i + 1
+		tokens[i] = sim.TokenID(i + 1)
 	}
 
 	requests := []*sim.Request{
-		{ID: "r1", ArrivalTime: 0, InputTokens: tokens, OutputTokens: []int{1}, State: sim.StateQueued},
-		{ID: "r2", ArrivalTime: 100_000, InputTokens: tokens, OutputTokens: []int{1}, State: sim.StateQueued},
+		{ID: "r1", ArrivalTime: 0, InputTokens: tokens, OutputTokens: []sim.TokenID{1}, State: sim.StateQueued},
+		{ID: "r2", ArrivalTime: 100_000, InputTokens: tokens, OutputTokens: []sim.TokenID{1}, State: sim.StateQueued},
 	}
 
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 	err := cs.Run()
 	require.NoError(t, err)
 
@@ -797,15 +800,15 @@ func TestSnapshot_ResidentPrefillTokens_PopulatedUnderBatchGate(t *testing.T) {
 
 	// Directly inject a prefill-phase request into RunningBatch (ProgressIndex < len(InputTokens)).
 	// This mirrors the s_pf accumulation in sim/simulator.go:758-763.
-	inputTokens := make([]int, 256) // 256 input tokens
+	inputTokens := make([]sim.TokenID, 256) // 256 input tokens
 	req := &sim.Request{
 		ID:            "pf-req",
 		ArrivalTime:   0,
 		InputTokens:   inputTokens,
-		OutputTokens:  []int{1},
+		OutputTokens:  []sim.TokenID{1},
 		State:         sim.StateRunning,
-		ProgressIndex: 0,          // in prefill phase: ProgressIndex < len(InputTokens)
-		NumNewTokens:  128,        // the value ResidentPrefillTokens should sum
+		ProgressIndex: 0,   // in prefill phase: ProgressIndex < len(InputTokens)
+		NumNewTokens:  128, // the value ResidentPrefillTokens should sum
 	}
 	inst.sim.RunningBatch = &sim.Batch{Requests: []*sim.Request{req}}
 

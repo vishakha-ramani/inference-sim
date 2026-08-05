@@ -109,7 +109,7 @@ func newTestEDPPDeploymentConfig(numInstances, prefill, decode int) DeploymentCo
 			KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs(betas, alphas),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(modelCfg, hwCfg, "test-model", "H100", 1, 1, false, "trained-physics", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(modelCfg, hwCfg, "test-model", "H100", 1, 1, false, "", "trained-physics", 0),
 		},
 		NumInstances:            numInstances,
 		PrefillInstances:        prefill,
@@ -131,7 +131,7 @@ func newTestEDPPDeploymentConfig(numInstances, prefill, decode int) DeploymentCo
 
 func TestEDPP_Cluster_WiringAndFeedback(t *testing.T) {
 	config := newTestEDPPDeploymentConfig(4, 2, 2)
-	cs := NewClusterSimulator(config, newTestRequests(5), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(5)), nil)
 
 	// The "edpp" name must resolve to an EDPPDecider...
 	if _, ok := cs.disaggregationDecider.(*sim.EDPPDecider); !ok {
@@ -158,7 +158,7 @@ func TestEDPP_VarPrefill_EnablesDeployableVaRInputs(t *testing.T) {
 	config.EDPPRule = "var-prefill"
 	config.EDPPVarMetric = "util"
 	config.EDPPVarDeployable = true
-	cs := NewClusterSimulator(config, newTestRequests(1), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(1)), nil)
 
 	for _, inst := range cs.instances {
 		if !inst.sim.AdmissionDetailEnabled() {
@@ -189,7 +189,7 @@ func TestEDPP_ResidentExternalityPolicies_EnableAdmissionDetail(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			config := newTestEDPPDeploymentConfig(3, 1, 2)
 			test.configure(&config)
-			cs := NewClusterSimulator(config, newTestRequests(1), nil)
+			cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(1)), nil)
 			for _, inst := range cs.instances {
 				if !inst.sim.AdmissionDetailEnabled() {
 					t.Fatalf("instance %s has admission detail disabled; resident externality would be identically zero", inst.ID())
@@ -218,7 +218,7 @@ func TestEDPP_NewTTFTPoliciesExposeSchedulerRolloutStateOnEveryCandidate(t *test
 		t.Run(test.name, func(t *testing.T) {
 			config := newTestEDPPDeploymentConfig(3, 1, 2)
 			test.configure(&config)
-			cs := NewClusterSimulator(config, newTestRequests(1), nil)
+			cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(1)), nil)
 			for _, inst := range cs.instances {
 				id := inst.ID()
 				snap := cs.snapshotProvider.Snapshot(id, cs.clock)
@@ -265,7 +265,7 @@ func TestEDPP_Cluster_ConservationAfterDisaggregatedCompletion(t *testing.T) {
 		[]float64{1000, 0, 0, 0, 0, 0, 0}, // β₁>0 ⇒ nonzero prefill-chunk ITL inflation
 		[]float64{100, 1, 100},
 	)
-	cs := NewClusterSimulator(config, newTestRequests(10), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(10)), nil)
 
 	dec, ok := cs.disaggregationDecider.(*sim.EDPPDecider)
 	if !ok {
@@ -313,7 +313,7 @@ func TestEDPP_Cluster_WaitingBacklogDrainsAtAdmission(t *testing.T) {
 		[]float64{1000, 0, 0, 0, 0, 0, 0},
 		[]float64{100, 1, 100},
 	)
-	cs := NewClusterSimulator(config, newTestRequests(10), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(10)), nil)
 
 	dec, ok := cs.disaggregationDecider.(*sim.EDPPDecider)
 	if !ok {
@@ -365,7 +365,7 @@ func TestEDPP_Cluster_ConservationViaAdmission_NormalCompletion(t *testing.T) {
 	// Default V/c_xfer and NO pre-seeded z ⇒ the E14 rule keeps Disaggregate=false, so
 	// every request is D-routed and completes normally (TTFT + multiple ITL samples
 	// from newTestRequests' multi-token outputs ⇒ OnComplete, not Forget).
-	cs := NewClusterSimulator(config, newTestRequests(10), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(10)), nil)
 
 	dec, ok := cs.disaggregationDecider.(*sim.EDPPDecider)
 	if !ok {
@@ -414,7 +414,7 @@ func TestEDPP_Cluster_ConservationOnNonCompletionTerminal(t *testing.T) {
 	// silently dropped (the pre-fix early-return leaked their backlog).
 	reqs := testGenerateRequests(11, math.MaxInt64, 50.0/1e6, 12,
 		0, 300, 40, 100, 500, 1, 0, 1, 1)
-	cs := NewClusterSimulator(config, reqs, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(reqs), nil)
 	dec := cs.disaggregationDecider.(*sim.EDPPDecider)
 
 	mustRun(t, cs)
@@ -434,7 +434,7 @@ func TestEDPP_OccupancyCapacity_WiresSchedulerReferenceWidth(t *testing.T) {
 	config.EDPPJointSLOExternality = true
 	config.EDPPSLOExternalityOccupancyCapacity = true
 	config.BatchConfig = sim.NewBatchConfig(8, 2048, 0)
-	cs := NewClusterSimulator(config, newTestRequests(2), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(2)), nil)
 	mustRun(t, cs)
 
 	d, ok := cs.disaggregationDecider.(*sim.EDPPDecider)

@@ -63,7 +63,7 @@ func TestBuildPDOutcomeRecords_DisaggAndLocal(t *testing.T) {
 	}
 	// Disaggregated request r1 (disagg derived in builder from distinct decode instance).
 	cs.parentRequests["r1"] = &ParentRequest{
-		ID: "r1", OriginalRequest: &sim.Request{ID: "r1", InputTokens: make([]int, 512), SLOClass: "standard"},
+		ID: "r1", OriginalRequest: &sim.Request{ID: "r1", InputTokens: make([]sim.TokenID, 512), SLOClass: "standard"},
 		PrefillInstanceID: "instance_0", DecodeInstanceID: "instance_2",
 		PrefillEnqueueTime: 100, PrefillScheduleTime: 140,
 		DecodeEnqueueTime: 900, DecodeScheduleTime: 1200,

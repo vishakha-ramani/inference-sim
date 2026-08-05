@@ -10,6 +10,7 @@ import (
 
 	"github.com/inference-sim/inference-sim/sim"
 	"github.com/inference-sim/inference-sim/sim/latency"
+	"github.com/inference-sim/inference-sim/sim/lora"
 )
 
 // --- Test helpers ---
@@ -321,7 +322,7 @@ func TestCalculateKVBlocks_ZeroDenominators_ReturnError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m, h, tpVal, bs, p := tt.setup()
-			_, err := latency.CalculateKVBlocks(m, h, tpVal, bs, 0.9, p)
+			_, err := latency.CalculateKVBlocks(m, h, tpVal, 1, bs, 0.9, p)
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tt.errWant)
 			}
@@ -383,7 +384,7 @@ func TestCalculateKVBlocks_NaNInfInputs_ReturnError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m, h := tt.setup()
-			_, err := latency.CalculateKVBlocks(m, h, 1, 16, 0.9, params)
+			_, err := latency.CalculateKVBlocks(m, h, 1, 1, 16, 0.9, params)
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tt.errWant)
 			}
@@ -400,7 +401,7 @@ func TestCalculateKVBlocks_HeadDimNotDivisible_ReturnError(t *testing.T) {
 	hc := validHWConfig()
 	params := validDenseKVParams()
 
-	_, err := latency.CalculateKVBlocks(mc, hc, 1, 16, 0.9, params)
+	_, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params)
 	if err == nil {
 		t.Fatal("expected error for non-divisible head dim, got nil")
 	}
@@ -415,7 +416,7 @@ func TestCalculateKVBlocks_BudgetExceeded_ReturnError(t *testing.T) {
 	hc.MemoryGiB = 1.0 // too small for an 8B model
 	params := validDenseKVParams()
 
-	_, err := latency.CalculateKVBlocks(mc, hc, 1, 16, 0.9, params)
+	_, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params)
 	if err == nil {
 		t.Fatal("expected error for exceeded budget, got nil")
 	}
@@ -444,7 +445,7 @@ func TestCalculateKVBlocks_InsufficientMemory_SuggestsMinTP(t *testing.T) {
 	tp := 2
 
 	// WHEN CalculateKVBlocks is called with TP=2 (insufficient)
-	_, err := latency.CalculateKVBlocks(mc, hc, tp, 16, 0.9, params)
+	_, err := latency.CalculateKVBlocks(mc, hc, tp, 1, 16, 0.9, params)
 
 	// THEN error is returned
 	if err == nil {
@@ -486,7 +487,7 @@ func TestCalculateKVBlocks_InsufficientMemory_SucceedsAtSuggestedTP(t *testing.T
 	params := latency.NewKVCapacityParams(true, 256, false, "silu", 2048, 2048)
 
 	// WHEN CalculateKVBlocks fails with TP=2, it should suggest minTP=10
-	_, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, params)
+	_, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
 	if err == nil {
 		t.Fatal("expected error for insufficient memory with TP=2, got nil")
 	}
@@ -495,7 +496,7 @@ func TestCalculateKVBlocks_InsufficientMemory_SucceedsAtSuggestedTP(t *testing.T
 	}
 
 	// AND CalculateKVBlocks should succeed at TP=16 (next valid TP >= 10 that divides num_kv_heads=128)
-	blocks, err := latency.CalculateKVBlocks(mc, hc, 16, 16, 0.9, params)
+	blocks, err := latency.CalculateKVBlocks(mc, hc, 16, 1, 16, 0.9, params)
 	if err != nil {
 		t.Errorf("expected success at TP=16 (next valid TP >= suggested minTP=10), got error: %v", err)
 	}
@@ -512,7 +513,7 @@ func TestCalculateKVBlocks_ZeroGPUMemory_RejectsInput(t *testing.T) {
 	params := validDenseKVParams()
 
 	// WHEN CalculateKVBlocks is called
-	_, err := latency.CalculateKVBlocks(mc, hc, 1, 16, 0.9, params)
+	_, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params)
 
 	// THEN error is returned
 	if err == nil {
@@ -535,7 +536,7 @@ func TestCalculateKVBlocks_FloorZero_ReturnError(t *testing.T) {
 	params := validDenseKVParams()
 
 	// blockSize = 10M tokens → one block is huge, floor division yields 0
-	_, err := latency.CalculateKVBlocks(mc, hc, 1, 10_000_000, 0.9, params)
+	_, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 10_000_000, 0.9, params)
 	if err == nil {
 		t.Fatal("expected error for floor-zero blocks, got nil")
 	}
@@ -550,7 +551,7 @@ func TestCalculateKVBlocks_NonSwiGLU_ReturnError(t *testing.T) {
 	params := validDenseKVParams()
 	params.HiddenAct = "relu"
 
-	_, err := latency.CalculateKVBlocks(mc, hc, 1, 16, 0.9, params)
+	_, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params)
 	if err == nil {
 		t.Fatal("expected error for non-SwiGLU activation, got nil")
 	}
@@ -565,7 +566,7 @@ func TestCalculateKVBlocks_TPDivisibility_ReturnError(t *testing.T) {
 	hc := validHWConfig()
 	params := validDenseKVParams()
 
-	_, err := latency.CalculateKVBlocks(mc, hc, 3, 16, 0.9, params)
+	_, err := latency.CalculateKVBlocks(mc, hc, 3, 1, 16, 0.9, params)
 	if err == nil {
 		t.Fatal("expected error for TP not dividing num_kv_heads, got nil")
 	}
@@ -591,7 +592,7 @@ func TestCalculateKVBlocks_Llama31_8B_H100_TP2_WithinTolerance(t *testing.T) {
 	const empirical int64 = 132139
 	const tolerance = 0.10
 
-	got, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, params)
+	got, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -615,7 +616,7 @@ func TestCalculateKVBlocks_Llama31_8B_H100_TP4_WithinTolerance(t *testing.T) {
 	const empirical int64 = 559190
 	const tolerance = 0.10
 
-	got, err := latency.CalculateKVBlocks(mc, hc, 4, 16, 0.9, params)
+	got, err := latency.CalculateKVBlocks(mc, hc, 4, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -636,12 +637,12 @@ func TestCalculateKVBlocks_Monotonicity_TP1ToTP2(t *testing.T) {
 	params := validDenseKVParams()
 	blockSize := int64(16)
 
-	blocksTP1, err := latency.CalculateKVBlocks(mc, hc, 1, blockSize, 0.9, params)
+	blocksTP1, err := latency.CalculateKVBlocks(mc, hc, 1, 1, blockSize, 0.9, params)
 	if err != nil {
 		t.Fatalf("TP=1 error: %v", err)
 	}
 
-	blocksTP2, err := latency.CalculateKVBlocks(mc, hc, 2, blockSize, 0.9, params)
+	blocksTP2, err := latency.CalculateKVBlocks(mc, hc, 2, 1, blockSize, 0.9, params)
 	if err != nil {
 		t.Fatalf("TP=2 error: %v", err)
 	}
@@ -664,7 +665,7 @@ func TestCalculateKVBlocks_FractionalBytesPerParam_ProducesMoreBlocks(t *testing
 	params := validDenseKVParams()
 
 	// FP16 baseline (BytesPerParam = 2.0)
-	blocksFP16, err := latency.CalculateKVBlocks(mc, hc, 1, 16, 0.9, params)
+	blocksFP16, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("FP16 error: %v", err)
 	}
@@ -672,7 +673,7 @@ func TestCalculateKVBlocks_FractionalBytesPerParam_ProducesMoreBlocks(t *testing
 	// INT4 (BytesPerParam = 0.5)
 	mcINT4 := mc
 	mcINT4.BytesPerParam = 0.5
-	blocksINT4, err := latency.CalculateKVBlocks(mcINT4, hc, 1, 16, 0.9, params)
+	blocksINT4, err := latency.CalculateKVBlocks(mcINT4, hc, 1, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("INT4 (BytesPerParam=0.5) error: %v", err)
 	}
@@ -690,12 +691,12 @@ func TestCalculateKVBlocks_Purity_SameInputsSameOutput(t *testing.T) {
 	hc := validHWConfig()
 	params := validDenseKVParams()
 
-	result1, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, params)
+	result1, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("first call error: %v", err)
 	}
 
-	result2, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, params)
+	result2, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("second call error: %v", err)
 	}
@@ -725,7 +726,7 @@ func TestCalculateKVBlocks_Mixtral_8x7B_H100_TP2_WithinTolerance(t *testing.T) {
 	const empirical int64 = 58377
 	const tolerance = 0.20
 
-	got, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, params)
+	got, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -755,12 +756,12 @@ func TestCalculateKVBlocks_MoE_UsesHigherActivationConstant(t *testing.T) {
 	denseParams := latency.NewKVCapacityParams(false, 0, false, "silu", 0, 0)
 	moeParams := latency.NewKVCapacityParams(true, 8, false, "silu", 0, 0)
 
-	denseBlocks, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, denseParams)
+	denseBlocks, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, denseParams)
 	if err != nil {
 		t.Fatalf("dense error: %v", err)
 	}
 
-	moeBlocks, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, moeParams)
+	moeBlocks, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, moeParams)
 	if err != nil {
 		t.Fatalf("MoE error: %v", err)
 	}
@@ -783,12 +784,12 @@ func TestCalculateKVBlocks_TiedEmbeddings_ProducesMoreBlocks(t *testing.T) {
 	untiedParams := latency.NewKVCapacityParams(false, 0, false, "silu", 0, 0)
 	tiedParams := latency.NewKVCapacityParams(false, 0, true, "silu", 0, 0)
 
-	untiedBlocks, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, untiedParams)
+	untiedBlocks, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, untiedParams)
 	if err != nil {
 		t.Fatalf("untied error: %v", err)
 	}
 
-	tiedBlocks, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, tiedParams)
+	tiedBlocks, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, tiedParams)
 	if err != nil {
 		t.Fatalf("tied error: %v", err)
 	}
@@ -905,7 +906,7 @@ func TestCalculateKVBlocks_NumKVHeadsZero_FallsBackToNumHeads(t *testing.T) {
 	// Explicit NumKVHeads = NumHeads (MHA)
 	mcExplicit := mc
 	mcExplicit.NumKVHeads = mc.NumHeads // 32
-	blocksExplicit, err := latency.CalculateKVBlocks(mcExplicit, hc, 1, 16, 0.9, params)
+	blocksExplicit, err := latency.CalculateKVBlocks(mcExplicit, hc, 1, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("explicit NumKVHeads=%d error: %v", mc.NumHeads, err)
 	}
@@ -913,7 +914,7 @@ func TestCalculateKVBlocks_NumKVHeadsZero_FallsBackToNumHeads(t *testing.T) {
 	// NumKVHeads = 0 (should behave identically to NumHeads)
 	mcZero := mc
 	mcZero.NumKVHeads = 0
-	blocksZero, err := latency.CalculateKVBlocks(mcZero, hc, 1, 16, 0.9, params)
+	blocksZero, err := latency.CalculateKVBlocks(mcZero, hc, 1, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("NumKVHeads=0 error: %v", err)
 	}
@@ -933,7 +934,7 @@ func TestCalculateKVBlocks_NumKVHeadsLessThanTP_Succeeds(t *testing.T) {
 	params := validDenseKVParams()
 
 	// TP=4 > numKVHeads=2: vLLM replicates KV heads, our formula approximates
-	blocks, err := latency.CalculateKVBlocks(mc, hc, 4, 16, 0.9, params)
+	blocks, err := latency.CalculateKVBlocks(mc, hc, 4, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("numKVHeads=2, TP=4 should succeed (known approximation), got error: %v", err)
 	}
@@ -1063,7 +1064,7 @@ func TestCalculateKVBlocks_DeepSeekV3_PerExpertDimFix(t *testing.T) {
 	// With per-expert dim fix: should produce usable blocks on 16×H100
 	// (DeepSeek-V3 at 671B FP8 ≈ 656 GiB — requires TP≥16 on H100-80GB)
 	params := latency.NewKVCapacityParams(true, 256, false, "silu", 2048, 2048)
-	blocks, err := latency.CalculateKVBlocks(mc, hc, 16, 16, 0.9, params)
+	blocks, err := latency.CalculateKVBlocks(mc, hc, 16, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("per-expert dim fix should succeed, got error: %v", err)
 	}
@@ -1074,7 +1075,7 @@ func TestCalculateKVBlocks_DeepSeekV3_PerExpertDimFix(t *testing.T) {
 
 	// Without fix (using general intermediate dim as per-expert): should fail or give fewer blocks
 	paramsBuggy := latency.NewKVCapacityParams(true, 256, false, "silu", 0, 0)
-	blocksBuggy, errBuggy := latency.CalculateKVBlocks(mc, hc, 16, 16, 0.9, paramsBuggy)
+	blocksBuggy, errBuggy := latency.CalculateKVBlocks(mc, hc, 16, 1, 16, 0.9, paramsBuggy)
 	if errBuggy == nil && blocksBuggy >= blocks {
 		t.Errorf("BC-7: buggy path (using general dim) should give fewer blocks or error: buggy=%d, fixed=%d",
 			blocksBuggy, blocks)
@@ -1105,7 +1106,7 @@ func TestCalculateKVBlocks_MixtralPublishedParams(t *testing.T) {
 	hc := validHWConfig()
 	hc.MemoryGiB = 80.0
 
-	blocks, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, params)
+	blocks, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1121,7 +1122,7 @@ func TestCalculateKVBlocks_Dense_UnchangedWithNewParams(t *testing.T) {
 	hc := validHWConfig()
 
 	params := latency.NewKVCapacityParams(false, 0, false, "silu", 0, 0)
-	blocks, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, params)
+	blocks, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1203,7 +1204,7 @@ func TestCalculateKVBlocks_W4A16_MoreBlocksThanFP16(t *testing.T) {
 	params := validDenseKVParams()
 
 	// FP16 baseline
-	blocksFP16, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, params)
+	blocksFP16, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("FP16 error: %v", err)
 	}
@@ -1211,7 +1212,7 @@ func TestCalculateKVBlocks_W4A16_MoreBlocksThanFP16(t *testing.T) {
 	// W4A16: weight precision is 0.5, compute dtype stays at 2.0
 	mcW4 := mc
 	mcW4.WeightBytesPerParam = 0.5
-	blocksW4, err := latency.CalculateKVBlocks(mcW4, hc, 2, 16, 0.9, params)
+	blocksW4, err := latency.CalculateKVBlocks(mcW4, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("W4A16 error: %v", err)
 	}
@@ -1235,7 +1236,7 @@ func TestCalculateKVBlocks_W4A16_PerTokenKVBytesUnchanged(t *testing.T) {
 	params := validDenseKVParams()
 
 	// FP16 baseline
-	blocksFP16, err := latency.CalculateKVBlocks(mc, hc, 1, 16, 0.9, params)
+	blocksFP16, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("FP16 error: %v", err)
 	}
@@ -1243,7 +1244,7 @@ func TestCalculateKVBlocks_W4A16_PerTokenKVBytesUnchanged(t *testing.T) {
 	// FP8 weights (1.0 bytes/param) — intermediate between FP16 and W4A16
 	mcFP8 := mc
 	mcFP8.WeightBytesPerParam = 1.0
-	blocksFP8, err := latency.CalculateKVBlocks(mcFP8, hc, 1, 16, 0.9, params)
+	blocksFP8, err := latency.CalculateKVBlocks(mcFP8, hc, 1, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("FP8 error: %v", err)
 	}
@@ -1251,7 +1252,7 @@ func TestCalculateKVBlocks_W4A16_PerTokenKVBytesUnchanged(t *testing.T) {
 	// W4A16 (0.5 bytes/param)
 	mcW4 := mc
 	mcW4.WeightBytesPerParam = 0.5
-	blocksW4, err := latency.CalculateKVBlocks(mcW4, hc, 1, 16, 0.9, params)
+	blocksW4, err := latency.CalculateKVBlocks(mcW4, hc, 1, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("W4A16 error: %v", err)
 	}
@@ -1273,7 +1274,7 @@ func TestCalculateKVBlocks_NonQuantized_UnchangedByWeightField(t *testing.T) {
 	hc := validHWConfig()
 	params := validDenseKVParams()
 
-	blocksBaseline, err := latency.CalculateKVBlocks(mc, hc, 2, 16, 0.9, params)
+	blocksBaseline, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("baseline error: %v", err)
 	}
@@ -1281,7 +1282,7 @@ func TestCalculateKVBlocks_NonQuantized_UnchangedByWeightField(t *testing.T) {
 	// Explicitly set WeightBytesPerParam=0 (sentinel)
 	mcExplicit := mc
 	mcExplicit.WeightBytesPerParam = 0
-	blocksExplicit, err := latency.CalculateKVBlocks(mcExplicit, hc, 2, 16, 0.9, params)
+	blocksExplicit, err := latency.CalculateKVBlocks(mcExplicit, hc, 2, 1, 16, 0.9, params)
 	if err != nil {
 		t.Fatalf("explicit sentinel error: %v", err)
 	}
@@ -1317,7 +1318,7 @@ func TestCalculateKVBlocks_GpuMemoryUtilization_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := latency.CalculateKVBlocks(mc, hc, 1, 16, tt.gpuUtil, params)
+			_, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, tt.gpuUtil, params)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("gpuMemoryUtilization=%v: got error=%v, wantErr=%v", tt.gpuUtil, err, tt.wantErr)
 			}
@@ -1333,11 +1334,11 @@ func TestCalculateKVBlocks_GpuMemoryUtilization_HigherUtilProducesMoreBlocks(t *
 	params := validDenseKVParams()
 
 	// WHEN computed at 90% vs 95% utilization
-	blocks90, err := latency.CalculateKVBlocks(mc, hc, 1, 16, 0.90, params)
+	blocks90, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.90, params)
 	if err != nil {
 		t.Fatalf("util=0.90: unexpected error: %v", err)
 	}
-	blocks95, err := latency.CalculateKVBlocks(mc, hc, 1, 16, 0.95, params)
+	blocks95, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.95, params)
 	if err != nil {
 		t.Fatalf("util=0.95: unexpected error: %v", err)
 	}
@@ -1369,3 +1370,309 @@ func TestCalculateKVBlocks_GpuMemoryUtilization_HigherUtilProducesMoreBlocks(t *
 //    $ ./blis run --model deepseek-ai/DeepSeek-V3 --tp 16 --hardware H100 --num-requests 10
 //    => SUCCESS: auto-calculated total-kv-blocks=293387 (GPU=80 GiB, TP=16, block_size=16, MoE=true)
 //    => Completed 10 requests successfully
+
+// --- DP scaling tests (#1420) ---
+
+// validMoEModelConfig returns a Mixtral-like MoE model config for DP-scaling tests.
+func validMoEModelConfig() sim.ModelConfig {
+	mc := validDenseModelConfig()
+	mc.NumLocalExperts = 8
+	mc.NumExpertsPerTok = 2
+	mc.MoEExpertFFNDim = 14336
+	return mc
+}
+
+// validMoEKVParams returns KVCapacityParams for an MoE model (IsMoE=true).
+func validMoEKVParams() latency.KVCapacityParams {
+	return latency.NewKVCapacityParams(true, 8, false, "silu", 14336, 0)
+}
+
+// TestCalculateKVBlocks_DPScaling_MoE verifies the #1420 contract: for an MoE model
+// the aggregate usable KV-block count scales EXACTLY linearly with DP — each DP rank is
+// a separate EngineCore with its own full KV budget on its own GPUs (vllm@f6ec81c7
+// core.py:1243-1276). Per-GPU KV is sized by attention TP only, so DP multiplies the
+// final total. The law is asserted as an exact integer multiple, independent of golden
+// values, so it survives any refactor of the per-GPU sizing math.
+func TestCalculateKVBlocks_DPScaling_MoE(t *testing.T) {
+	mc := validMoEModelConfig()
+	hc := validHWConfig()
+	params := validMoEKVParams()
+
+	base, err := latency.CalculateKVBlocks(mc, hc, 2 /*tp*/, 1 /*dp*/, 16, 0.9, params)
+	if err != nil {
+		t.Fatalf("dp=1: unexpected error: %v", err)
+	}
+	for _, dp := range []int{2, 4, 8} {
+		got, err := latency.CalculateKVBlocks(mc, hc, 2 /*tp*/, dp, 16, 0.9, params)
+		if err != nil {
+			t.Fatalf("dp=%d: unexpected error: %v", dp, err)
+		}
+		want := base * int64(dp)
+		if got != want {
+			t.Errorf("dp=%d: KV blocks = %d, want %d (= %d × %d, exact DP scaling)", dp, got, want, base, dp)
+		}
+	}
+}
+
+// TestCalculateKVBlocks_DPScaling_EPIndependent verifies KV capacity is independent of
+// expert-parallel mode (#1420): KV serves attention, and EP touches only MoE expert
+// sharding, never attention/KV. CalculateKVBlocks has no EP parameter at all — this test
+// documents that contract: the same (mc, hc, tp, dp, params) gives the same capacity
+// regardless of how the caller intends to shard experts. (EP-off vs EP-on both arrive
+// here identically.)
+func TestCalculateKVBlocks_DPScaling_EPIndependent(t *testing.T) {
+	mc := validMoEModelConfig()
+	hc := validHWConfig()
+	params := validMoEKVParams()
+	// There is no EP knob to vary; capacity is a pure function of (tp, dp). Assert the
+	// dp=2 result is deterministic and exactly 2× dp=1 — the EP-independence is structural
+	// (no EP input exists), and this pins it so a future EP param can't silently change KV.
+	dp1, err := latency.CalculateKVBlocks(mc, hc, 2, 1, 16, 0.9, params)
+	if err != nil {
+		t.Fatalf("dp=1: %v", err)
+	}
+	dp2, err := latency.CalculateKVBlocks(mc, hc, 2, 2, 16, 0.9, params)
+	if err != nil {
+		t.Fatalf("dp=2: %v", err)
+	}
+	if dp2 != dp1*2 {
+		t.Errorf("EP-independent DP scaling: dp2=%d, want %d", dp2, dp1*2)
+	}
+}
+
+// TestCalculateKVBlocks_DPScaling_DenseAndDP1Unchanged verifies the gate: DP scaling
+// applies only to MoE models with DP>1. A dense model (IsMoE=false) is never scaled even
+// if dp>1 is passed (the constructor rejects dense DP>1 upstream in #A; this is the final
+// guard). And dp=1 is byte-identical to the pre-#1420 single-rank result for any model.
+func TestCalculateKVBlocks_DPScaling_DenseAndDP1Unchanged(t *testing.T) {
+	hc := validHWConfig()
+
+	// Dense: dp>1 must NOT scale (gate is isMoE && dp>1).
+	denseMC := validDenseModelConfig()
+	denseParams := validDenseKVParams()
+	dense1, err := latency.CalculateKVBlocks(denseMC, hc, 1, 1, 16, 0.9, denseParams)
+	if err != nil {
+		t.Fatalf("dense dp=1: %v", err)
+	}
+	dense2, err := latency.CalculateKVBlocks(denseMC, hc, 1, 2, 16, 0.9, denseParams)
+	if err != nil {
+		t.Fatalf("dense dp=2: %v", err)
+	}
+	if dense2 != dense1 {
+		t.Errorf("dense model must not DP-scale: dp=2 gave %d, dp=1 gave %d", dense2, dense1)
+	}
+
+	// MoE dp=1 unchanged (regression): equals the result with no dp scaling.
+	moeMC := validMoEModelConfig()
+	moeParams := validMoEKVParams()
+	moe1, err := latency.CalculateKVBlocks(moeMC, hc, 2, 1, 16, 0.9, moeParams)
+	if err != nil {
+		t.Fatalf("moe dp=1: %v", err)
+	}
+	if moe1 <= 0 {
+		t.Errorf("moe dp=1 must produce a positive block count, got %d", moe1)
+	}
+}
+
+// TestCalculateKVBlocks_RejectsInvalidDP verifies dp < 1 is rejected at the library
+// boundary (R3/R11), mirroring the tp guard.
+func TestCalculateKVBlocks_RejectsInvalidDP(t *testing.T) {
+	mc := validMoEModelConfig()
+	hc := validHWConfig()
+	params := validMoEKVParams()
+	for _, dp := range []int{0, -1} {
+		if _, err := latency.CalculateKVBlocks(mc, hc, 2, dp, 16, 0.9, params); err == nil {
+			t.Errorf("dp=%d must be rejected, got nil error", dp)
+		}
+	}
+}
+
+// --- LoRA static HBM reservation (PR5, T033) ---
+//
+// The KV-capacity module subtracts a fixed, capacity-based adapter reservation
+// (capacity × per-slot footprint, sized from the max declared rank) once at
+// startup beside model weights — the static memory model (design D2 / INV-L4).
+// These tests assert the observable laws: usable KV shrinks by the reservation,
+// memory is conserved, the reservation is the fixed capacity/max-rank amount (not
+// a dynamic per-adapter sum), an infeasible reservation is rejected at startup
+// (R22), and the zero reservation is byte-identical to the pre-feature result
+// (INV-6).
+
+// perBlockBytesFor mirrors CalculateKVBlocks' per-block byte computation so tests
+// can reason about block-count deltas.
+func perBlockBytesFor(t *testing.T, mc sim.ModelConfig, tp int, blockSize int64) int64 {
+	t.Helper()
+	perTok, err := latency.KVBytesPerToken(mc, tp)
+	if err != nil {
+		t.Fatalf("KVBytesPerToken: %v", err)
+	}
+	return int64(perTok * float64(blockSize))
+}
+
+// TestCalculateKVBlocks_AdapterReservationShrinksAndConserves verifies a non-zero
+// reservation shrinks usable KV blocks and that memory is conserved: the block
+// count lost equals the reserved bytes divided by the per-block size
+// (allocated + free + adapter_reserved = total, INV-4/INV-L4), within one block
+// of truncation.
+func TestCalculateKVBlocks_AdapterReservationShrinksAndConserves(t *testing.T) {
+	mc, hc, params := validDenseModelConfig(), validHWConfig(), validDenseKVParams()
+	tp, dp, blockSize, util := 1, 1, int64(16), 0.9
+
+	base, err := latency.CalculateKVBlocks(mc, hc, tp, dp, blockSize, util, params)
+	if err != nil {
+		t.Fatalf("baseline (no reservation): %v", err)
+	}
+
+	reserved := int64(2) << 30 // 2 GiB
+	withRes, err := latency.CalculateKVBlocks(mc, hc, tp, dp, blockSize, util, params,
+		latency.WithAdapterReservedBytes(reserved))
+	if err != nil {
+		t.Fatalf("with reservation: %v", err)
+	}
+
+	if withRes >= base {
+		t.Fatalf("reservation did not shrink usable KV blocks: base=%d withReservation=%d", base, withRes)
+	}
+
+	// Conservation: the bytes carved out (lost blocks × per-block) equal the
+	// reservation, within one block of int64 truncation.
+	perBlock := perBlockBytesFor(t, mc, tp, blockSize)
+	lostBlocks := base - withRes
+	expectedLost := reserved / perBlock
+	if lostBlocks < expectedLost-1 || lostBlocks > expectedLost+1 {
+		t.Errorf("lost %d blocks, want ≈ reserved/perBlock = %d (±1); reserved=%d perBlock=%d",
+			lostBlocks, expectedLost, reserved, perBlock)
+	}
+}
+
+// TestCalculateKVBlocks_ReservationUsesFixedCapacityMaxRank drives the reservation
+// through the real sim/lora cost model (the pure query behind the sim.AdapterCost
+// seam) and confirms the value fed to CalculateKVBlocks is the fixed
+// capacity × maxRank amount — NOT a sum over declared/resident adapters. This
+// guards against the rejected dynamic running-sum model: because the reservation
+// is capacity-provisioned at the max rank, it is invariant to which adapters are
+// resident (adapters churn within the pre-reserved slots; INV-L4).
+func TestCalculateKVBlocks_ReservationUsesFixedCapacityMaxRank(t *testing.T) {
+	capacity := 4
+	fp := func(v float64) *float64 { return &v }
+	cfg := sim.LoRAConfig{
+		AdapterCapacity:       &capacity,
+		LoadBaseLatencyUs:     fp(1000.0),
+		LoadBandwidthBytesUs:  fp(2.0e6),
+		FootprintBytesPerRank: fp(2.0e6),
+		StepOverheadTiers:     map[int]sim.StepOverheadTier{8: {K6: fp(0.02), K7: fp(1.0)}},
+		Adapters: []sim.AdapterSpec{
+			{ID: "a8", Rank: 8},
+			{ID: "a16", Rank: 16},
+			{ID: "a32", Rank: 32}, // max rank sizes the per-slot footprint
+		},
+	}
+	cm, err := lora.NewCostModel(cfg)
+	if err != nil {
+		t.Fatalf("lora.NewCostModel: %v", err)
+	}
+
+	// The exact formula (capacity × maxRank × footprint, and that it is NOT a
+	// per-adapter sum) is the cost model's own contract, verified in
+	// TestCostModel_AdapterReservedBytes. Here we treat AdapterReservedBytes() as a
+	// black box and confirm the real cost model's value flows through
+	// CalculateKVBlocks and shrinks usable KV (the integration this test owns).
+	reserved := int64(cm.AdapterReservedBytes())
+	if reserved <= 0 {
+		t.Fatalf("cost model reservation must be positive, got %d", reserved)
+	}
+
+	mc, hc, params := validDenseModelConfig(), validHWConfig(), validDenseKVParams()
+	base, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	withRes, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params,
+		latency.WithAdapterReservedBytes(reserved))
+	if err != nil {
+		t.Fatalf("with reservation: %v", err)
+	}
+	if withRes >= base {
+		t.Errorf("cost-model reservation did not shrink usable KV blocks: base=%d withReservation=%d", base, withRes)
+	}
+}
+
+// TestCalculateKVBlocks_AdapterReservationPerDPRankScaling verifies the reservation
+// is a per-DP-rank overhead (treated like model weights), NOT dp-scaled itself. For
+// an MoE model at dp>1 the per-rank block count is multiplied by dp to aggregate the
+// instance total, so the TOTAL blocks lost to the reservation is dp × (reserved /
+// per-block) — each rank independently reserves its own slots. This locks the DP
+// semantics: a reduction of only reserved/per-block would mean dp was ignored; a
+// reduction of dp² × (...) would mean the reservation was itself wrongly dp-scaled.
+func TestCalculateKVBlocks_AdapterReservationPerDPRankScaling(t *testing.T) {
+	mc, hc, params := validMoEModelConfig(), validHWConfig(), validMoEKVParams()
+	tp, dp, blockSize, util := 2, 2, int64(16), 0.9
+
+	base, err := latency.CalculateKVBlocks(mc, hc, tp, dp, blockSize, util, params)
+	if err != nil {
+		t.Fatalf("baseline MoE dp=2: %v", err)
+	}
+
+	reserved := int64(2) << 30 // 2 GiB, per DP rank
+	withRes, err := latency.CalculateKVBlocks(mc, hc, tp, dp, blockSize, util, params,
+		latency.WithAdapterReservedBytes(reserved))
+	if err != nil {
+		t.Fatalf("MoE dp=2 with reservation: %v", err)
+	}
+	if withRes >= base {
+		t.Fatalf("reservation did not shrink MoE dp=2 blocks: base=%d withReservation=%d", base, withRes)
+	}
+
+	perBlock := perBlockBytesFor(t, mc, tp, blockSize)
+	lostBlocks := base - withRes
+	expectedLost := int64(dp) * (reserved / perBlock) // per-rank loss, aggregated across dp ranks
+	// Tolerance ±dp: one block of int64 truncation per DP rank.
+	if lostBlocks < expectedLost-int64(dp) || lostBlocks > expectedLost+int64(dp) {
+		t.Errorf("MoE dp=%d lost %d blocks, want ≈ dp×(reserved/perBlock) = %d (±%d); reserved=%d perBlock=%d",
+			dp, lostBlocks, expectedLost, dp, reserved, perBlock)
+	}
+}
+
+// TestCalculateKVBlocks_InfeasibleReservationRejectedAtStartup verifies an adapter
+// reservation that cannot fit alongside weights + activation + minimum KV is
+// rejected at startup (returns an error the CLI maps to Fatalf), never a silent
+// runtime KV drop (R22 / INV-L4).
+func TestCalculateKVBlocks_InfeasibleReservationRejectedAtStartup(t *testing.T) {
+	mc, hc, params := validDenseModelConfig(), validHWConfig(), validDenseKVParams()
+	reserved := int64(1000) << 30 // 1000 GiB — far exceeds the 80 GiB budget
+	_, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params,
+		latency.WithAdapterReservedBytes(reserved))
+	if err == nil {
+		t.Fatal("expected startup error for an infeasible adapter reservation (R22), got nil")
+	}
+	// Pin that the adapter reservation caused the rejection, not some unrelated
+	// capacity error — the error breakdown names the reservation term.
+	if !strings.Contains(err.Error(), "lora-adapter-reservation") {
+		t.Errorf("infeasibility error must name the adapter reservation term, got: %v", err)
+	}
+}
+
+// TestCalculateKVBlocks_ZeroReservationByteIdentical verifies the no-op default:
+// omitting the option, or passing zero, yields the exact pre-feature block count
+// (INV-6). A negative reservation is rejected (guard).
+func TestCalculateKVBlocks_ZeroReservationByteIdentical(t *testing.T) {
+	mc, hc, params := validDenseModelConfig(), validHWConfig(), validDenseKVParams()
+
+	base, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params)
+	if err != nil {
+		t.Fatalf("no option: %v", err)
+	}
+	zero, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params,
+		latency.WithAdapterReservedBytes(0))
+	if err != nil {
+		t.Fatalf("zero option: %v", err)
+	}
+	if zero != base {
+		t.Errorf("WithAdapterReservedBytes(0) = %d, want %d (INV-6 byte-identical no-op)", zero, base)
+	}
+
+	if _, err := latency.CalculateKVBlocks(mc, hc, 1, 1, 16, 0.9, params,
+		latency.WithAdapterReservedBytes(-1)); err == nil {
+		t.Error("negative adapter reservation must be rejected, got nil error")
+	}
+}

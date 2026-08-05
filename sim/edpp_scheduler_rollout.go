@@ -279,7 +279,7 @@ func (d *EDPPDecider) schedulerRolloutTimes(req *Request, snap RoutingSnapshot, 
 	for _, state := range snap.SchedulerWaiting {
 		waiting = append(waiting, d.schedulerReqForRollout(state, chunkCap))
 	}
-	prompt := int64(len(req.InputTokens))
+	prompt := req.InputLen()
 	computed := int64(max(cachedTokens, 0))
 	targetKV := ceilBlocks(computed, blockSize)
 	if decodeOnly {
@@ -307,7 +307,7 @@ func (d *EDPPDecider) schedulerRolloutTimes(req *Request, snap RoutingSnapshot, 
 }
 
 func (d *EDPPDecider) rolloutLocalTTFT(ec *jointEvalCtx, ds RoutingSnapshot, theta EDPPCoeffs) (tAdm, ttft float64, ok bool) {
-	cached := len(ec.req.InputTokens) - max(d.apForInstance(ec.req, ds.ID), 0)
+	cached := int(ec.req.InputLen()) - max(d.apForInstance(ec.req, ds.ID), 0)
 	result, ok := d.schedulerRolloutTimes(ec.req, ds, theta, cached, false, false, ec.nHatOut, ec.nowUs)
 	if !ok || !result.firstToken {
 		return 0, 0, false
@@ -316,7 +316,7 @@ func (d *EDPPDecider) rolloutLocalTTFT(ec *jointEvalCtx, ds RoutingSnapshot, the
 }
 
 func (d *EDPPDecider) rolloutDecodeAdmission(ec *jointEvalCtx, ds RoutingSnapshot, theta EDPPCoeffs) (float64, bool) {
-	result, ok := d.schedulerRolloutTimes(ec.req, ds, theta, len(ec.req.InputTokens), true, false, ec.nHatOut, ec.nowUs)
+	result, ok := d.schedulerRolloutTimes(ec.req, ds, theta, int(ec.req.InputLen()), true, false, ec.nHatOut, ec.nowUs)
 	if !ok {
 		return 0, false
 	}
@@ -324,7 +324,7 @@ func (d *EDPPDecider) rolloutDecodeAdmission(ec *jointEvalCtx, ds RoutingSnapsho
 }
 
 func (d *EDPPDecider) rolloutPrefillCompletion(ec *jointEvalCtx, ps RoutingSnapshot, theta EDPPCoeffs) (tAdm, completion float64, ok bool) {
-	cached := len(ec.req.InputTokens) - max(d.apForInstance(ec.req, ps.ID), 0)
+	cached := int(ec.req.InputLen()) - max(d.apForInstance(ec.req, ps.ID), 0)
 	result, ok := d.schedulerRolloutTimes(ec.req, ps, theta, cached, false, true, ec.nHatOut, ec.nowUs)
 	if !ok || !result.firstToken {
 		return 0, 0, false

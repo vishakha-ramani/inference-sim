@@ -27,7 +27,7 @@ func TestClusterSimulator_InFlightRequests_VisibleInRoutingState(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances:    1,
 		RoutingLatency:  100, // Creates window where pending is visible
@@ -42,13 +42,13 @@ func TestClusterSimulator_InFlightRequests_VisibleInRoutingState(t *testing.T) {
 		reqs[i] = &sim.Request{
 			ID:           "vis_req_" + string(rune('a'+i)),
 			ArrivalTime:  0, // All arrive at t=0
-			InputTokens:  make([]int, 16),
-			OutputTokens: make([]int, 8),
+			InputTokens:  make([]sim.TokenID, 16),
+			OutputTokens: make([]sim.TokenID, 8),
 			State:        sim.StateQueued,
 		}
 	}
 
-	cs := NewClusterSimulator(config, reqs, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(reqs), nil)
 
 	mustRun(t, cs)
 
@@ -96,7 +96,7 @@ func TestClusterSimulator_InFlightRequests_CounterfactualIncludesInFlight(t *tes
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances:    1,
 		RoutingLatency:  100, // Creates pending state visible to routing
@@ -110,13 +110,13 @@ func TestClusterSimulator_InFlightRequests_CounterfactualIncludesInFlight(t *tes
 		reqs[i] = &sim.Request{
 			ID:           "cf_req_" + string(rune('a'+i)),
 			ArrivalTime:  0,
-			InputTokens:  make([]int, 16),
-			OutputTokens: make([]int, 8),
+			InputTokens:  make([]sim.TokenID, 16),
+			OutputTokens: make([]sim.TokenID, 8),
 			State:        sim.StateQueued,
 		}
 	}
 
-	cs := NewClusterSimulator(config, reqs, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(reqs), nil)
 
 	mustRun(t, cs)
 
@@ -158,7 +158,7 @@ func TestClusterSimulator_InFlightRequests_DrainsToZeroAfterCompletion(t *testin
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances:         2,
 		RoutingPolicy:        "weighted",
@@ -166,7 +166,7 @@ func TestClusterSimulator_InFlightRequests_DrainsToZeroAfterCompletion(t *testin
 	}
 	requests := testGenerateRequests(42, 10000000, 2.0/1e6, 6,
 		0, 16, 0, 16, 16, 8, 0, 8, 8)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	mustRun(t, cs)
 
@@ -194,7 +194,7 @@ func TestClusterSimulator_InFlightRequests_DroppedUnservable_Decrements(t *testi
 			KVCacheConfig:       sim.NewKVCacheConfig(5, 16, 0, 0, 0, 0), // Very small — will force drops
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances: 1,
 	}
@@ -204,12 +204,12 @@ func TestClusterSimulator_InFlightRequests_DroppedUnservable_Decrements(t *testi
 		reqs[i] = &sim.Request{
 			ID:           fmt.Sprintf("drop_req_%d", i),
 			ArrivalTime:  int64(i * 1000),
-			InputTokens:  make([]int, 200), // 200 tokens / 16 block_size = 13 blocks > 5 total
-			OutputTokens: make([]int, 8),
+			InputTokens:  make([]sim.TokenID, 200), // 200 tokens / 16 block_size = 13 blocks > 5 total
+			OutputTokens: make([]sim.TokenID, 8),
 			State:        sim.StateQueued,
 		}
 	}
-	cs := NewClusterSimulator(config, reqs, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(reqs), nil)
 	mustRun(t, cs)
 
 	// All requests should be dropped as unservable
@@ -244,7 +244,7 @@ func TestClusterSimulator_InFlightRequests_CompletionBasedDecrement(t *testing.T
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances:    1,
 		RoutingLatency:  100,
@@ -256,12 +256,12 @@ func TestClusterSimulator_InFlightRequests_CompletionBasedDecrement(t *testing.T
 		reqs[i] = &sim.Request{
 			ID:           fmt.Sprintf("causal_req_%d", i),
 			ArrivalTime:  0,
-			InputTokens:  make([]int, 16),
-			OutputTokens: make([]int, 8),
+			InputTokens:  make([]sim.TokenID, 16),
+			OutputTokens: make([]sim.TokenID, 8),
 			State:        sim.StateQueued,
 		}
 	}
-	cs := NewClusterSimulator(config, reqs, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(reqs), nil)
 	mustRun(t, cs)
 
 	// Key assertion: at least one routing decision sees InFlightRequests > QueueDepth + BatchSize

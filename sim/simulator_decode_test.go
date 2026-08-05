@@ -14,14 +14,14 @@ func TestSimulator_DecodePhase_RequestCompletesSuccessfully(t *testing.T) {
 		KVCacheConfig:       NewKVCacheConfig(100, 4, 0, 0, 0, 0),
 		BatchConfig:         NewBatchConfig(10, 1000, 0),
 		LatencyCoeffs:       NewLatencyCoeffs([]float64{100, 0.5, 0.5}, []float64{100, 0.1, 50}),
-		ModelHardwareConfig: NewModelHardwareConfig(rooflineModelConfig(), rooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+		ModelHardwareConfig: NewModelHardwareConfig(rooflineModelConfig(), rooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 	})
 
 	// Create a request with known input/output that exercises decode phase
 	req := &Request{
 		ID:           "decode_test",
-		InputTokens:  []int{1, 2, 3, 4, 5, 6, 7, 8},
-		OutputTokens: []int{100, 200, 300},
+		InputTokens:  []TokenID{1, 2, 3, 4, 5, 6, 7, 8},
+		OutputTokens: []TokenID{100, 200, 300},
 		ArrivalTime:  0,
 		State:        StateQueued,
 	}

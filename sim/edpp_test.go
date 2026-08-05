@@ -248,7 +248,7 @@ func newTestEDPPDeciderWithEstimator(t *testing.T, est AdmissionDelayEstimator) 
 
 // makeReq builds a Request with nInput input tokens and the given SLO class.
 func makeReq(id string, nInput int, class string) *Request {
-	return &Request{ID: id, InputTokens: make([]int, nInput), SLOClass: class}
+	return &Request{ID: id, InputTokens: make([]TokenID, nInput), SLOClass: class}
 }
 
 // The deployable remaining-steps must NOT collapse to 1 under saturation: with running
@@ -419,8 +419,8 @@ func TestEDPP_NOutIndependence(t *testing.T) {
 	d := NewEDPPDecider(defaultTestEDPPConfig(), newTestAffineModel(), nil, nil)
 	state := decodeState("d0", 10, 8, 60_000)
 
-	reqA := &Request{ID: "a", InputTokens: make([]int, 800)}
-	reqB := &Request{ID: "b", InputTokens: make([]int, 800), OutputTokens: make([]int, 4096)}
+	reqA := &Request{ID: "a", InputTokens: make([]TokenID, 800)}
+	reqB := &Request{ID: "b", InputTokens: make([]TokenID, 800), OutputTokens: make([]TokenID, 4096)}
 
 	if d.Decide(reqA, state).Disaggregate != d.Decide(reqB, state).Disaggregate {
 		t.Errorf("decision depended on OutputTokens (INV-9 violation)")
@@ -433,7 +433,7 @@ func TestEDPP_DisaggregationPayoffSign(t *testing.T) {
 	cfg := defaultTestEDPPConfig()
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, func() []RoutingSnapshot { return nil })
 
-	req := &Request{ID: "r", InputTokens: make([]int, 800)}
+	req := &Request{ID: "r", InputTokens: make([]TokenID, 800)}
 	state := decodeState("d0", 10, 8, 60_000) // decode ITL above τ_itl
 
 	// Drive z_itl large via realized ITL misses (E8), prefill stays idle.
@@ -508,10 +508,10 @@ func TestEDPP_PerClass_IndependentVirtualQueues(t *testing.T) {
 
 	state := decodeState("d0", 10, 8, 60_000)
 	// Critical (breached) shifts toward P; batch (no breach, loose target) stays D.
-	if !d.Decide(&Request{ID: "c", InputTokens: make([]int, 800), SLOClass: "critical"}, state).Disaggregate {
+	if !d.Decide(&Request{ID: "c", InputTokens: make([]TokenID, 800), SLOClass: "critical"}, state).Disaggregate {
 		t.Errorf("critical request should disaggregate under its own ITL breach")
 	}
-	if d.Decide(&Request{ID: "b", InputTokens: make([]int, 800), SLOClass: "batch"}, state).Disaggregate {
+	if d.Decide(&Request{ID: "b", InputTokens: make([]TokenID, 800), SLOClass: "batch"}, state).Disaggregate {
 		t.Errorf("batch request should not disaggregate (no breach on its class)")
 	}
 }
@@ -532,7 +532,7 @@ func TestEDPP_DecisionTrace_PopulatedAndConsistent(t *testing.T) {
 	cfg.TraceEnabled = true
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, func() []RoutingSnapshot { return nil })
 
-	req := &Request{ID: "r", InputTokens: make([]int, 800), SLOClass: "batch"}
+	req := &Request{ID: "r", InputTokens: make([]TokenID, 800), SLOClass: "batch"}
 	state := decodeState("d0", 10, 8, 60_000)
 
 	dec := d.Decide(req, state)
@@ -580,7 +580,7 @@ func TestEDPP_DecisionTrace_PopulatedAndConsistent(t *testing.T) {
 func TestEDPP_DecisionTrace_NilWhenDisabled(t *testing.T) {
 	// Default config leaves tracing off ⇒ zero overhead, no trace attached.
 	d := NewEDPPDecider(defaultTestEDPPConfig(), newTestAffineModel(), nil, nil)
-	dec := d.Decide(&Request{ID: "r", InputTokens: make([]int, 800)}, decodeState("d0", 10, 8, 60_000))
+	dec := d.Decide(&Request{ID: "r", InputTokens: make([]TokenID, 800)}, decodeState("d0", 10, 8, 60_000))
 	if dec.EDPPTrace != nil {
 		t.Errorf("EDPPTrace should be nil when tracing disabled, got %+v", dec.EDPPTrace)
 	}
@@ -614,8 +614,8 @@ func TestEDPP_TransferTerm_ScalesInverseTauSquared(t *testing.T) {
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, func() []RoutingSnapshot { return nil })
 	state := decodeState("d0", 10, 8, 60_000)
 
-	base := d.Decide(&Request{ID: "a", InputTokens: make([]int, 800), SLOClass: "batch"}, state).EDPPTrace // τ = τ_ref
-	dbl := d.Decide(&Request{ID: "b", InputTokens: make([]int, 800), SLOClass: "x2"}, state).EDPPTrace     // τ = 2·τ_ref
+	base := d.Decide(&Request{ID: "a", InputTokens: make([]TokenID, 800), SLOClass: "batch"}, state).EDPPTrace // τ = τ_ref
+	dbl := d.Decide(&Request{ID: "b", InputTokens: make([]TokenID, 800), SLOClass: "x2"}, state).EDPPTrace     // τ = 2·τ_ref
 
 	if base == nil || dbl == nil {
 		t.Fatal("expected traces")
@@ -647,7 +647,7 @@ func TestEDPP_TransferPenalty_FixedTauRef_EngagesAtLooseDefault(t *testing.T) {
 	}
 
 	state := decodeState("d0", 50, 0, 60_000) // heavy decode backlog, idle prefill
-	req := &Request{ID: "r", InputTokens: make([]int, 800), SLOClass: "batch"}
+	req := &Request{ID: "r", InputTokens: make([]TokenID, 800), SLOClass: "batch"}
 	if !d.Decide(req, state).Disaggregate {
 		t.Errorf("loose-default-τ request must disaggregate under heavy imbalance (fixed τ_ref), got kept-local")
 	}
@@ -669,7 +669,7 @@ func TestEDPPConfig_RequiresCoeffsAndTauITLAboveAlpha(t *testing.T) {
 func TestEDPP_BookkeepingConservation(t *testing.T) {
 	cfg := defaultTestEDPPConfig()
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, nil)
-	r1 := &Request{ID: "r1", SLOClass: "", InputTokens: make([]int, 200), OutputTokens: []int{0}}
+	r1 := &Request{ID: "r1", SLOClass: "", InputTokens: make([]TokenID, 200), OutputTokens: []TokenID{0}}
 	// First completion seeds N̂_out (no prior estimate ⇒ use a 1-token default), so
 	// route adds W_p only for the decode side until N̂_out is known.
 	d.OnRoute(r1, r1.ID, true /*toPrefill*/, 200, "", "")
@@ -694,7 +694,7 @@ func TestEDPP_BookkeepingConservation(t *testing.T) {
 	}
 	// OnComplete updates N̂_out and virtual queues (backlog already drained).
 	r1.ITL = []int64{40_000}
-	r1.OutputTokens = []int{1, 2, 3} // realized N_out=3 (post-completion read; INV-9 OK)
+	r1.OutputTokens = []TokenID{1, 2, 3} // realized N_out=3 (post-completion read; INV-9 OK)
 	d.OnComplete(r1, r1.ID, 90_000, 40_000)
 	// N̂_out updated from the realized length.
 	if m := d.nHatOut[""]; m == nil || m.mean() != 3 {
@@ -708,7 +708,7 @@ func TestEDPP_Forget_ReleasesBacklogWithoutZBump(t *testing.T) {
 	// virtual queues and N̂_out are untouched (no realized SLO signal).
 	cfg := defaultTestEDPPConfig()
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, nil)
-	r := &Request{ID: "drop1", SLOClass: "", InputTokens: make([]int, 200)}
+	r := &Request{ID: "drop1", SLOClass: "", InputTokens: make([]TokenID, 200)}
 	d.OnRoute(r, r.ID, false /*toPrefill: D path, all work on decode*/, 200, "", "")
 	qp, qd, n := d.BacklogForTest()
 	if (qp == 0 && qd == 0) || n != 1 {
@@ -741,10 +741,10 @@ func TestEDPP_NoutDoesNotChangeDecision(t *testing.T) {
 	// admission read which uses input-only a_p + the class N̂_out estimate).
 	cfg := defaultTestEDPPConfig()
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, func() []RoutingSnapshot { return nil })
-	req := &Request{ID: "x", InputTokens: make([]int, 300)}
+	req := &Request{ID: "x", InputTokens: make([]TokenID, 300)}
 	state := &RouterState{Snapshots: []RoutingSnapshot{{ID: "d0", QueueDepth: 1, BatchSize: 2, ResidentPrefillTokens: 0}}}
 	dec1 := d.Decide(req, state)
-	req.OutputTokens = []int{1, 2, 3, 4, 5} // would-be large N_out; decision path must ignore it
+	req.OutputTokens = []TokenID{1, 2, 3, 4, 5} // would-be large N_out; decision path must ignore it
 	dec2 := d.Decide(req, state)
 	if dec1.Disaggregate != dec2.Disaggregate {
 		t.Errorf("decision changed with N_out: %v vs %v", dec1.Disaggregate, dec2.Disaggregate)
@@ -784,7 +784,7 @@ func TestEDPP_PredictorsAndITLCollapse(t *testing.T) {
 		d.OnComplete(&Request{ID: rid, SLOClass: ""}, rid, 0, 200_000)
 	}
 
-	req := &Request{ID: "t", InputTokens: make([]int, 400), SLOClass: ""}
+	req := &Request{ID: "t", InputTokens: make([]TokenID, 400), SLOClass: ""}
 	// Decode snapshot: B=1, KV=2048, S_pf=0.
 	state := &RouterState{
 		SelectedInstance: "d0",
@@ -829,7 +829,7 @@ func TestEDPP_PredictorsEndAtClientVisibleFirstToken(t *testing.T) {
 	model.post = 250
 	d := NewEDPPDecider(cfg, model, nil, func() []RoutingSnapshot { return nil })
 
-	req := &Request{ID: "t", InputTokens: make([]int, 400)}
+	req := &Request{ID: "t", InputTokens: make([]TokenID, 400)}
 	state := &RouterState{
 		SelectedInstance: "d0",
 		Snapshots:        []RoutingSnapshot{{ID: "d0", BatchSize: 1, KvTokensInUse: 2048}},
@@ -863,7 +863,7 @@ func TestEDPP_TTFTOverlapAware_OverlapsRemoteLeadAndDecodeAdmission(t *testing.T
 	// Decide asks for prefill admission first, then decode admission.
 	d.tadmEstimator = &sequenceAdmissionEstimator{values: []float64{4_000, 20_000}}
 
-	req := &Request{ID: "t", InputTokens: make([]int, 400)}
+	req := &Request{ID: "t", InputTokens: make([]TokenID, 400)}
 	state := &RouterState{
 		SelectedInstance: "d0",
 		Snapshots:        []RoutingSnapshot{{ID: "d0", BatchSize: 1, KvTokensInUse: 2048}},
@@ -902,7 +902,7 @@ func TestEDPP_ChunkCap_CapsDeltaPfChunkAtBudget(t *testing.T) {
 		SelectedInstance: "d0",
 		Snapshots:        []RoutingSnapshot{{ID: "d0", BatchSize: 1}},
 	}
-	req := &Request{ID: "cap-test", InputTokens: make([]int, 1000), SLOClass: ""}
+	req := &Request{ID: "cap-test", InputTokens: make([]TokenID, 1000), SLOClass: ""}
 
 	t.Run("capped", func(t *testing.T) {
 		cfg := defaultTestEDPPConfig()
@@ -953,7 +953,7 @@ func TestEDPP_Anchor_SignalDirection(t *testing.T) {
 	cfg.TraceEnabled = true
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, func() []RoutingSnapshot { return nil })
 
-	req := &Request{ID: "a", InputTokens: make([]int, 200)}
+	req := &Request{ID: "a", InputTokens: make([]TokenID, 200)}
 	state := &RouterState{
 		SelectedInstance: "d0",
 		Snapshots:        []RoutingSnapshot{{ID: "d0", BatchSize: 2, KvTokensInUse: 1024}},
@@ -985,7 +985,7 @@ func TestEDPP_Anchor_DisaggPayoffSign(t *testing.T) {
 	cfg.TraceEnabled = true
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, func() []RoutingSnapshot { return nil })
 
-	req := &Request{ID: "a", InputTokens: make([]int, 300)}
+	req := &Request{ID: "a", InputTokens: make([]TokenID, 300)}
 	state := &RouterState{
 		SelectedInstance: "d0",
 		Snapshots:        []RoutingSnapshot{{ID: "d0", BatchSize: 2, KvTokensInUse: 1024}},
@@ -995,7 +995,7 @@ func TestEDPP_Anchor_DisaggPayoffSign(t *testing.T) {
 
 	// Drive z_itl large via a realized ITL breach well above τ_itl.
 	breach := &Request{ID: "x", SLOClass: ""}
-	breach.OutputTokens = []int{1}
+	breach.OutputTokens = []TokenID{1}
 	d.OnComplete(breach, breach.ID, 0, cfg.TauITLUs+50_000)
 
 	after := d.Decide(req, state).EDPPTrace.RHS
@@ -1054,12 +1054,12 @@ func TestEDPP_Anchor_UnitsDimensionless(t *testing.T) {
 		//   z_itl = (τ_itl + 50_000*k − τ_itl) / τ_itl = 50_000/50_000 = 1  (constant across k)
 		//   z_ttft = (τ_ttft + 50_000*k − τ_ttft) / τ_ttft = 50_000*k / (100_000*k) = 0.5 (constant)
 		// Both ttftTerm and itlTerm are now non-zero and must scale invariantly.
-		breach := &Request{ID: "b", SLOClass: "", ArrivalTime: 0, OutputTokens: []int{1}}
+		breach := &Request{ID: "b", SLOClass: "", ArrivalTime: 0, OutputTokens: []TokenID{1}}
 		d.OnRoute(breach, breach.ID, false, 1, "", "") // track so the OnComplete z_ttft fallback fires
 		d.OnComplete(breach, breach.ID, cfg.TauTTFTUs+50_000*k, cfg.TauITLUs+50_000*k)
 
 		return d.Decide(
-			&Request{ID: "u", InputTokens: make([]int, 200)},
+			&Request{ID: "u", InputTokens: make([]TokenID, 200)},
 			&RouterState{Snapshots: []RoutingSnapshot{{ID: "d0", BatchSize: 2, KvTokensInUse: 1024}}},
 		)
 	}
@@ -1131,11 +1131,11 @@ func TestEDPP_Anchor_UnitsDimensionless_DecidesTrueInvariant(t *testing.T) {
 		}
 
 		// Also seed z_ttft and z_itl to exercise both terms.
-		breach := &Request{ID: fmt.Sprintf("bt%d", k), SLOClass: "", OutputTokens: []int{1}}
+		breach := &Request{ID: fmt.Sprintf("bt%d", k), SLOClass: "", OutputTokens: []TokenID{1}}
 		d.OnComplete(breach, breach.ID, cfg.TauTTFTUs+50_000*k, cfg.TauITLUs+50_000*k)
 
 		return d.Decide(
-			&Request{ID: fmt.Sprintf("u%d", k), InputTokens: make([]int, 200)},
+			&Request{ID: fmt.Sprintf("u%d", k), InputTokens: make([]TokenID, 200)},
 			&RouterState{Snapshots: []RoutingSnapshot{{ID: "d0", BatchSize: 2, KvTokensInUse: 1024}}},
 		)
 	}
@@ -1179,7 +1179,7 @@ func TestEDPP_WaitingOnly_DrainsAtAdmissionNotCompletion(t *testing.T) {
 		t.Fatalf("after OnRoute: qd=%v pending=%d, want qd>0 pending=1", qd0, n0)
 	}
 	// OnComplete must NOT drain the backlog (waiting work already left at admission)...
-	r.OutputTokens = []int{1, 2}
+	r.OutputTokens = []TokenID{1, 2}
 	d.OnComplete(r, r.ID, 90_000, 40_000)
 	_, qdAfterComplete, nAfterComplete := d.BacklogForTest()
 	if qdAfterComplete != qd0 {
@@ -1228,7 +1228,7 @@ func TestEDPP_Anchor_WaitingVsRunning(t *testing.T) {
 	cfg := defaultTestEDPPConfig()
 	cfg.TraceEnabled = true
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, func() []RoutingSnapshot { return nil })
-	probe := &Request{ID: "x", InputTokens: make([]int, 200)}
+	probe := &Request{ID: "x", InputTokens: make([]TokenID, 200)}
 	state := &RouterState{SelectedInstance: "d0", Snapshots: []RoutingSnapshot{{ID: "d0", BatchSize: 2, KvTokensInUse: 1024}}}
 	d.OnRoute(&Request{ID: "w1", SLOClass: ""}, "w1", false, 500, "", "") // waiting work present
 	lhsWaiting := d.Decide(probe, state).EDPPTrace.LHS
@@ -1251,7 +1251,7 @@ func TestEDPP_TTFTP_UsesPrefillCoResidency(t *testing.T) {
 		return []RoutingSnapshot{{ID: "p0", ResidentPrefillTokens: 400}}
 	}
 	d := NewEDPPDecider(cfg, newTestAffineModel(), nil, prefill)
-	req := &Request{ID: "q", InputTokens: make([]int, 300)}
+	req := &Request{ID: "q", InputTokens: make([]TokenID, 300)}
 	state := &RouterState{SelectedInstance: "d0", Snapshots: []RoutingSnapshot{{ID: "d0", BatchSize: 1}}}
 	tr := d.Decide(req, state).EDPPTrace
 	// μ_pf = 1 − α_p/(α_p + c_pf·S_pf) = 1 − 1000/(1000+10·400) = 1 − 1000/5000 = 0.8
@@ -1277,7 +1277,7 @@ func zval(z *edppClassState) float64 {
 }
 
 func newWaitingReq(id string, arrivalUs int64) *Request {
-	return &Request{ID: id, SLOClass: "", ArrivalTime: arrivalUs, InputTokens: []int{1, 2, 3}}
+	return &Request{ID: id, SLOClass: "", ArrivalTime: arrivalUs, InputTokens: []TokenID{1, 2, 3}}
 }
 
 // First token at 250ms with τ_ttft=100ms ⇒ z_ttft bumps by the 150ms miss (same as the
@@ -1346,7 +1346,7 @@ func TestEDPP_Forget_KeepsCredit(t *testing.T) {
 func TestEDPP_OnComplete_FallbackBumpsZTTFT(t *testing.T) {
 	d := NewEDPPDecider(defaultTestEDPPConfig(), newTestAffineModel(), nil, nil)
 	req := newWaitingReq("r1", 0)
-	req.OutputTokens = []int{1, 2}
+	req.OutputTokens = []TokenID{1, 2}
 	d.OnRoute(req, "r1", false, 3, "", "")
 	d.OnComplete(req, "r1", 250_000, 10_000)
 	if got := zval(d.zByClass[""]); math.Abs(got-150_000) > 1 {
@@ -1358,7 +1358,7 @@ func TestEDPP_OnComplete_FallbackBumpsZTTFT(t *testing.T) {
 func TestEDPP_OnComplete_NoDoubleAfterFirstToken(t *testing.T) {
 	d := NewEDPPDecider(defaultTestEDPPConfig(), newTestAffineModel(), nil, nil)
 	req := newWaitingReq("r1", 0)
-	req.OutputTokens = []int{1, 2}
+	req.OutputTokens = []TokenID{1, 2}
 	d.OnRoute(req, "r1", false, 3, "", "")
 	d.OnFirstToken("r1", 250_000)
 	d.OnComplete(req, "r1", 250_000, 10_000)

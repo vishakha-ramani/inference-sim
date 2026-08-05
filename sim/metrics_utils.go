@@ -11,18 +11,19 @@ type IntOrFloat64 interface {
 
 // Individual request metrics for the JSON log
 type RequestMetrics struct {
-	ArrivedAt        float64 `json:"arrived_at"`
-	ID               string  `json:"requestID"`
-	NumPrefillTokens int     `json:"num_prefill_tokens"`
-	NumDecodeTokens  int     `json:"num_decode_tokens"`
-	TTFT             float64 `json:"ttft_ms"`
-	ITL              float64 `json:"itl_ms"`
-	E2E              float64 `json:"e2e_ms"`
-	SchedulingDelay  float64 `json:"scheduling_delay_ms"`
-	SLOClass         string  `json:"slo_class,omitempty"`   // PR10: for per-SLO-class metrics
-	TenantID         string  `json:"tenant_id,omitempty"`  // PR10: for per-tenant fairness
-	HandledBy        string  `json:"handled_by,omitempty"` // #181: instance that processed this request
-	Model            string  `json:"model,omitempty"`      // W0-1: model tag for per-model metrics
+	ArrivedAt         float64 `json:"arrived_at"`
+	ID                string  `json:"requestID"`
+	NumPrefillTokens  int     `json:"num_prefill_tokens"`
+	NumDecodeTokens   int     `json:"num_decode_tokens"`
+	TTFT              float64 `json:"ttft_ms"`
+	ITL               float64 `json:"itl_ms"`
+	E2E               float64 `json:"e2e_ms"`
+	SchedulingDelay   float64 `json:"scheduling_delay_ms"`
+	SLOClass          string  `json:"slo_class,omitempty"`              // PR10: for per-SLO-class metrics
+	TenantID          string  `json:"tenant_id,omitempty"`              // PR10: for per-tenant fairness
+	HandledBy         string  `json:"handled_by,omitempty"`             // #181: instance that processed this request
+	Model             string  `json:"model,omitempty"`                  // W0-1: model tag for per-model metrics
+	Adapter           string  `json:"adapter,omitempty"`                // #1464: LoRA adapter id serving this request ("" = base model)
 	LengthCapped      bool    `json:"length_capped,omitempty"`          // #588: per-request indicator for BC-5 force-completion
 	GatewayQueueDelay float64 `json:"gateway_queue_delay_ms,omitempty"` // #882: time spent in gateway queue (ms)
 	SessionID         string  `json:"session_id,omitempty"`             // #1058: session context for multi-turn metrics
@@ -36,12 +37,13 @@ func NewRequestMetrics(req *Request, arrivedAt float64) RequestMetrics {
 	rm := RequestMetrics{
 		ID:               req.ID,
 		ArrivedAt:        arrivedAt,
-		NumPrefillTokens: len(req.InputTokens),
+		NumPrefillTokens: int(req.InputLen()),
 		NumDecodeTokens:  len(req.OutputTokens),
 		SLOClass:         req.SLOClass,
 		TenantID:         req.TenantID,
 		HandledBy:        req.AssignedInstance,
 		Model:            req.Model,
+		Adapter:          req.Adapter,
 		LengthCapped:     req.LengthCapped,
 		SessionID:        req.SessionID,
 		RoundIndex:       req.RoundIndex,
@@ -55,29 +57,29 @@ func NewRequestMetrics(req *Request, arrivedAt float64) RequestMetrics {
 
 // MetricsOutput defines the JSON structure for the saved metrics
 type MetricsOutput struct {
-	InstanceID            string           `json:"instance_id"`
-	CompletedRequests     int              `json:"completed_requests"`
-	StillQueued           int              `json:"still_queued"`
-	StillRunning          int              `json:"still_running"`
-	InjectedRequests      int              `json:"injected_requests"`
-	TotalInputTokens      int              `json:"total_input_tokens"`
-	TotalOutputTokens     int              `json:"total_output_tokens"`
-	VllmDurationSec       float64          `json:"vllm_estimated_duration_s"`
-	ResponsesPerSec       float64          `json:"responses_per_sec"`
-	TokensPerSec          float64          `json:"tokens_per_sec"`
-	E2EMeanMs             float64          `json:"e2e_mean_ms"`
-	E2EP90Ms              float64          `json:"e2e_p90_ms"`
-	E2EP95Ms              float64          `json:"e2e_p95_ms"`
-	E2EP99Ms              float64          `json:"e2e_p99_ms"`
-	TTFTMeanMs            float64          `json:"ttft_mean_ms"`
-	TTFTP90Ms             float64          `json:"ttft_p90_ms"`
-	TTFTP95Ms             float64          `json:"ttft_p95_ms"`
-	TTFTP99Ms             float64          `json:"ttft_p99_ms"`
-	ITLMeanMs             float64          `json:"itl_mean_ms"`
-	ITLP90Ms              float64          `json:"itl_p90_ms"`
-	ITLP95Ms              float64          `json:"itl_p95_ms"`
-	ITLP99Ms              float64          `json:"itl_p99_ms"`
-	SchedulingDelayP99Ms     float64          `json:"scheduling_delay_p99_ms"`
+	InstanceID           string  `json:"instance_id"`
+	CompletedRequests    int     `json:"completed_requests"`
+	StillQueued          int     `json:"still_queued"`
+	StillRunning         int     `json:"still_running"`
+	InjectedRequests     int     `json:"injected_requests"`
+	TotalInputTokens     int     `json:"total_input_tokens"`
+	TotalOutputTokens    int     `json:"total_output_tokens"`
+	VllmDurationSec      float64 `json:"vllm_estimated_duration_s"`
+	ResponsesPerSec      float64 `json:"responses_per_sec"`
+	TokensPerSec         float64 `json:"tokens_per_sec"`
+	E2EMeanMs            float64 `json:"e2e_mean_ms"`
+	E2EP90Ms             float64 `json:"e2e_p90_ms"`
+	E2EP95Ms             float64 `json:"e2e_p95_ms"`
+	E2EP99Ms             float64 `json:"e2e_p99_ms"`
+	TTFTMeanMs           float64 `json:"ttft_mean_ms"`
+	TTFTP90Ms            float64 `json:"ttft_p90_ms"`
+	TTFTP95Ms            float64 `json:"ttft_p95_ms"`
+	TTFTP99Ms            float64 `json:"ttft_p99_ms"`
+	ITLMeanMs            float64 `json:"itl_mean_ms"`
+	ITLP90Ms             float64 `json:"itl_p90_ms"`
+	ITLP95Ms             float64 `json:"itl_p95_ms"`
+	ITLP99Ms             float64 `json:"itl_p99_ms"`
+	SchedulingDelayP99Ms float64 `json:"scheduling_delay_p99_ms"`
 	// MeanRunningBatch is the arithmetic mean of the running-batch occupancy
 	// sampled once per step (Metrics.NumRunningBatchRequests). It is the achieved
 	// batch, distinct from the --max-num-running-reqs cap: capacity models that
@@ -86,14 +88,14 @@ type MetricsOutput struct {
 	// Averaged over the WHOLE run, so it includes the fill and drain transients;
 	// read it only from runs that are saturated end to end.
 	// Read-only statistic — does not feed back into state evolution.
-	MeanRunningBatch         float64          `json:"mean_running_batch,omitempty"`
-	KVAllocationFailures    int64            `json:"kv_allocation_failures,omitempty"`
-	PreemptionCount         int64            `json:"preemption_count"`
-	DroppedUnservable       int              `json:"dropped_unservable"`
-	LengthCappedRequests    int              `json:"length_capped_requests"`
-	TimedOutRequests        int              `json:"timed_out_requests"`
-	Requests                []RequestMetrics `json:"requests,omitempty"`
-	Saturation              interface{}      `json:"saturation,omitempty"` // saturation.Result, using interface{} to avoid import cycle
+	MeanRunningBatch     float64          `json:"mean_running_batch,omitempty"`
+	KVAllocationFailures int64            `json:"kv_allocation_failures,omitempty"`
+	PreemptionCount      int64            `json:"preemption_count"`
+	DroppedUnservable    int              `json:"dropped_unservable"`
+	LengthCappedRequests int              `json:"length_capped_requests"`
+	TimedOutRequests     int              `json:"timed_out_requests"`
+	Requests             []RequestMetrics `json:"requests,omitempty"`
+	Saturation           interface{}      `json:"saturation,omitempty"` // saturation.Result, using interface{} to avoid import cycle
 	// Goodput fields (issue #1409). Populated by cmd/-side goodput wiring when
 	// --slo-ttft/itl/e2e flags or workload-spec/trace-header goodput_slo_targets
 	// are configured; otherwise left zero and suppressed by omitempty.
@@ -103,6 +105,28 @@ type MetricsOutput struct {
 	GoodputRPS    float64     `json:"goodput_rps,omitempty"`
 	SLOAttainment float64     `json:"slo_attainment,omitempty"`
 	PerClass      interface{} `json:"per_class,omitempty"`
+
+	// Adapters holds per-LoRA-adapter aggregate metrics, keyed by adapter id.
+	// omitempty: absent when no request is attributed to an adapter, so an
+	// adapter-blind run adds no stdout fields (INV-6, SC-001). encoding/json emits
+	// map string keys in sorted order, giving deterministic output (R2).
+	Adapters map[string]AdapterMetrics `json:"adapters,omitempty"`
+}
+
+// AdapterMetrics is the per-adapter aggregate section
+// (specs/007-lora-control-plane/contracts/metrics.md). TTFT
+// percentiles are in microseconds (ticks); throughput is completed output tokens per
+// second. LoadCount/EvictionCount are cumulative resident-set event counts populated
+// by the per-instance resident set: LoadCount per cold load, EvictionCount per
+// eviction. They are 0 for an adapter whose requests all hit a warm slot (touch
+// only — no cold loads or evictions), and absent entirely on an adapter-blind run
+// (INV-6).
+type AdapterMetrics struct {
+	LoadCount         int64   `json:"load_count"`
+	EvictionCount     int64   `json:"eviction_count"`
+	TTFTP50Us         float64 `json:"ttft_p50_us"`
+	TTFTP99Us         float64 `json:"ttft_p99_us"`
+	ThroughputTokPerS float64 `json:"throughput_tok_per_s"`
 }
 
 // CalculatePercentile is a util function that calculates the p-th percentile of a data list
@@ -143,4 +167,3 @@ func CalculateMean[T IntOrFloat64](numbers []T) float64 {
 
 	return (sum / float64(len(numbers))) / 1000
 }
-

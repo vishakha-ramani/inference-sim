@@ -30,7 +30,7 @@ func TestFixedPlan_ForcedRouting_EndToEnd(t *testing.T) {
 	reqs[0].ID = "r1"
 	reqs[1].ID = "r2"
 
-	cs := NewClusterSimulator(config, reqs, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(reqs), nil)
 	mustRun(t, cs)
 
 	// r1 was forced local ⇒ no ParentRequest (disaggregation did not fire).
@@ -76,7 +76,7 @@ func TestFixedPlan_PDOutcomeTraceCapturesAdmissionTimes(t *testing.T) {
 	reqs[0].ID = "r1"
 	reqs[1].ID = "r2"
 
-	cs := NewClusterSimulator(config, reqs, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(reqs), nil)
 	cs.SetRecordPDOutcomes(true)
 	mustRun(t, cs)
 

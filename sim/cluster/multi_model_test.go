@@ -17,7 +17,7 @@ func newTestDeploymentConfigWithModel(numInstances int, model string) Deployment
 		KVCacheConfig:       sim.NewKVCacheConfig(10000, 16, 0, 0, 0, 0),
 		BatchConfig:         sim.NewBatchConfig(256, 2048, 0),
 		LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 1, 100}),
-		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), model, "H100", 1, 1, false, "roofline", 0),
+		ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), model, "H100", 1, 1, false, "", "roofline", 0),
 	}
 	return cfg
 }
@@ -28,8 +28,8 @@ func newModelRequest(id, model string, arrivalTime int64) *sim.Request {
 		ID:           id,
 		Model:        model,
 		ArrivalTime:  arrivalTime,
-		InputTokens:  []int{1, 2, 3, 4, 5},
-		OutputTokens: []int{1, 2, 3},
+		InputTokens:  []sim.TokenID{1, 2, 3, 4, 5},
+		OutputTokens: []sim.TokenID{1, 2, 3},
 		State:        sim.StateQueued,
 	}
 }
@@ -41,7 +41,7 @@ func TestMultiModel_BuildRouterState_FiltersbyModel(t *testing.T) {
 	// Create cluster with 2 "llama" instances and 2 "qwen" instances by
 	// creating a cluster where instances have Model set.
 	llamaCfg := newTestDeploymentConfigWithModel(2, "llama")
-	cs := NewClusterSimulator(llamaCfg, nil, nil)
+	cs := NewClusterSimulator(llamaCfg, NewSliceRequestSource(nil), nil)
 
 	// Manually set model on instances to simulate multi-model setup
 	for _, inst := range cs.instances {
@@ -49,7 +49,7 @@ func TestMultiModel_BuildRouterState_FiltersbyModel(t *testing.T) {
 	}
 	// Add 2 "qwen" instances
 	qwenCfg := newTestDeploymentConfigWithModel(2, "qwen")
-	cs2 := NewClusterSimulator(qwenCfg, nil, nil)
+	cs2 := NewClusterSimulator(qwenCfg, NewSliceRequestSource(nil), nil)
 	for _, inst := range cs2.instances {
 		inst.Model = "qwen"
 	}
@@ -78,7 +78,7 @@ func TestMultiModel_BuildRouterState_FiltersbyModel(t *testing.T) {
 // T046: All instances of model M non-Active → empty RouterState.
 func TestMultiModel_BuildRouterState_EmptyWhenNonActive(t *testing.T) {
 	cfg := newTestDeploymentConfigWithModel(2, "model-m")
-	cs := NewClusterSimulator(cfg, nil, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(nil), nil)
 
 	// Mark all instances as Draining (not routable)
 	for _, inst := range cs.instances {
@@ -99,7 +99,7 @@ func TestMultiModel_BuildRouterState_EmptyWhenNonActive(t *testing.T) {
 // T046b: Request with empty Model includes all routable instances (backward-compat).
 func TestMultiModel_BuildRouterState_EmptyModelIncludesAll(t *testing.T) {
 	cfg := newTestDeploymentConfig(3)
-	cs := NewClusterSimulator(cfg, nil, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(nil), nil)
 
 	// No model set — all instances treated as routable (backward-compat)
 	noModelReq := newModelRequest("req-nomodel", "", 0)
@@ -199,7 +199,7 @@ func TestWarmUpTTFTFactor_AppliedInAggregateMetrics(t *testing.T) {
 		WarmUpTTFTFactor:   2.0,
 	}
 	requests := newTestRequests(3)
-	cs := NewClusterSimulator(cfg, requests, nil)
+	cs := NewClusterSimulator(cfg, NewSliceRequestSource(requests), nil)
 
 	// Manually set instance to WarmingUp and record two warm-up requests
 	inst := cs.instances[0]

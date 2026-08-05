@@ -30,7 +30,7 @@ func edppTraceConfig(traceLevel string) DeploymentConfig {
 // terms compose into LHS/RHS and the recorded decision.
 func TestPDTrace_EDPP_RecordsDecisionTerms(t *testing.T) {
 	const numRequests = 5
-	cs := NewClusterSimulator(edppTraceConfig("decisions"), newTestRequests(numRequests), nil)
+	cs := NewClusterSimulator(edppTraceConfig("decisions"), NewSliceRequestSource(newTestRequests(numRequests)), nil)
 	mustRun(t, cs)
 
 	tr := cs.Trace()
@@ -66,7 +66,7 @@ func TestPDTrace_EDPP_RecordsDecisionTerms(t *testing.T) {
 // TestPDTrace_EDPP_NoRecordsWhenTraceNone: trace-level none ⇒ no trace, no EDPP records,
 // and no panic (zero-overhead path).
 func TestPDTrace_EDPP_NoRecordsWhenTraceNone(t *testing.T) {
-	cs := NewClusterSimulator(edppTraceConfig("none"), newTestRequests(5), nil)
+	cs := NewClusterSimulator(edppTraceConfig("none"), NewSliceRequestSource(newTestRequests(5)), nil)
 	mustRun(t, cs)
 	if tr := cs.Trace(); tr != nil && len(tr.EDPPDecisions) != 0 {
 		t.Errorf("expected no EDPP records when trace-level none, got %d", len(tr.EDPPDecisions))

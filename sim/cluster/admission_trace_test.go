@@ -190,7 +190,7 @@ func TestBuildAdmissionRecords_Disaggregated(t *testing.T) {
 // AdmissionRate that buildRouterState reports (parity).
 func TestPoolFilteredSnapshots_CarryAdmissionRate(t *testing.T) {
 	config := newTestEDPPDeploymentConfig(2, 1, 1)
-	cs := NewClusterSimulator(config, newTestRequests(1), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(1)), nil)
 	// Enable admission detail on every instance (as --edpp-admission-trace does), so the
 	// windowed admission-rate counter records and snapshots may carry it.
 	for _, inst := range cs.instances {
@@ -254,7 +254,7 @@ func TestPoolFilteredSnapshots_CarryAdmissionRate(t *testing.T) {
 // returns "H100"; the pool-filtered decode snapshots must carry it too.
 func TestBuildPoolFilteredSnapshots_CarriesGPUType(t *testing.T) {
 	config := newTestEDPPDeploymentConfig(4, 2, 2)
-	cs := NewClusterSimulator(config, newTestRequests(1), nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(newTestRequests(1)), nil)
 
 	const wantGPU = "H100"
 	for _, inst := range cs.instances {

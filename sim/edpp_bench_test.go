@@ -82,7 +82,7 @@ func benchTrainedPhysicsModel(tb testing.TB) LatencyModel {
 		IntermediateDim: 28672,
 		BytesPerParam:   2, // FP16
 	}
-	hw := NewModelHardwareConfig(mc, rooflineHWCalib(), "llama-70b", "H100", 4, 1, false, "trained-physics", 0)
+	hw := NewModelHardwareConfig(mc, rooflineHWCalib(), "llama-70b", "H100", 4, 1, false, "", "trained-physics", 0)
 	// A valid trained-physics coefficient vector (β₁–β₁₀, α₁–α₃), same shape as the
 	// frozen Llama-70B fit; the per-call arithmetic cost is what matters here, not the values.
 	coeffs := LatencyCoeffs{
@@ -142,7 +142,7 @@ func BenchmarkDecide_ByBatchWidth(b *testing.B) {
 				b.Run(fmt.Sprintf("%s/%s/B=%d", mn, rule, bw), func(b *testing.B) {
 					decodeIDs, prefillIDs, state, prefill := benchFleet(2, 1, bw)
 					d := benchDecider(rule, models[mn], decodeIDs, prefillIDs, prefill)
-					req := &Request{ID: "r", InputTokens: make([]int, 2000), SLOClass: "batch"}
+					req := &Request{ID: "r", InputTokens: make([]TokenID, 2000), SLOClass: "batch"}
 					b.ReportAllocs()
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
@@ -164,7 +164,7 @@ func BenchmarkDecide_ByFleet(b *testing.B) {
 			b.Run(fmt.Sprintf("%s/%dP%dD", rule, f.nP, f.nD), func(b *testing.B) {
 				decodeIDs, prefillIDs, state, prefill := benchFleet(f.nD, f.nP, 16)
 				d := benchDecider(rule, model, decodeIDs, prefillIDs, prefill)
-				req := &Request{ID: "r", InputTokens: make([]int, 2000), SLOClass: "batch"}
+				req := &Request{ID: "r", InputTokens: make([]TokenID, 2000), SLOClass: "batch"}
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {

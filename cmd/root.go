@@ -19,6 +19,7 @@ import (
 	sim "github.com/inference-sim/inference-sim/sim"
 	"github.com/inference-sim/inference-sim/sim/cluster"
 	"github.com/inference-sim/inference-sim/sim/latency"
+	_ "github.com/inference-sim/inference-sim/sim/lora" // registers sim.NewAdapterRegistryFunc via init()
 	"github.com/inference-sim/inference-sim/sim/saturation"
 	"github.com/inference-sim/inference-sim/sim/trace"
 	"github.com/inference-sim/inference-sim/sim/workload"
@@ -87,6 +88,7 @@ var (
 	tensorParallelism    int    // TP value
 	dataParallelism      int    // DP value (MoE only; trained-physics backend only)
 	enableExpertParallel bool   // EP mode (MoE only; trained-physics backend only)
+	moeCommBackend       string // MoE all-to-all comm backend (MoE only; trained-physics backend only)
 
 	// cluster config
 	numInstances int // Number of instances in the cluster
@@ -106,8 +108,9 @@ var (
 	gaieKVThreshold       float64            // GAIE-legacy KV cache utilization threshold (default 0.8)
 
 	// routing policy config (PR 6, evolved in PR17)
-	routingPolicy  string // Routing policy name
-	routingScorers string // Comma-separated name:weight pairs for weighted routing
+	routingPolicy    string  // Routing policy name
+	routingScorers   string  // Comma-separated name:weight pairs for weighted routing
+	loraScorerWeight float64 // Weight of the lora-affinity scorer; 0 (default) ⇒ off (#1469)
 
 	// Scheduler and preemption config
 	scheduler        string // Scheduler name
@@ -115,6 +118,20 @@ var (
 
 	// Policy bundle config
 	policyConfigPath string // Path to YAML policy configuration file
+
+	// LoRA control-plane config (#1464). All optional; absence => subsystem inert (INV-6).
+	loraConfigPath            string  // Path to YAML file with a top-level lora: block (adapter registry + capacity + coefficients)
+	loraAdapterCapacity       int     // --lora-adapter-capacity (applied only when Changed; 0 is meaningful => adapters forbidden)
+	loraLoadBaseLatencyUs     float64 // --lora-load-base-latency-us
+	loraLoadBandwidthBytesUs  float64 // --lora-load-bandwidth-bytes-us
+	loraFootprintBytesPerRank float64 // --lora-footprint-bytes-per-rank
+
+	// loraReservedBytesForKV carries the resolved static LoRA HBM reservation
+	// (bytes) into KV auto-capacity, mirroring how totalKVBlocks is threaded as a
+	// package var. Set once per command RunE from the single resolveLoRAConfig call
+	// (BEFORE resolveLatencyConfig, which reads it at the main auto-calc); 0 when the
+	// subsystem is inert, keeping KV capacity byte-identical to today (INV-6/PR5).
+	loraReservedBytesForKV int64
 
 	// Fitness evaluation config (PR9)
 	fitnessWeights string // Fitness weights string "key:val,key:val"
@@ -133,6 +150,7 @@ var (
 
 	// Workload spec config (PR10)
 	workloadSpecPath string // Path to YAML workload specification file
+	lazyGeneration   bool   // --lazy-generation: stream requests from generator (alpha, #1441)
 
 	// Tiered KV cache config (PR12)
 	kvCPUBlocks             int64
@@ -657,22 +675,35 @@ func resolveLatencyConfig(cmd *cobra.Command) latencyResolution {
 			if kvParamsErr != nil {
 				logrus.Warnf("--latency-model: could not extract KV capacity params: %v. "+
 					"Using total-kv-blocks=%d. Set --total-kv-blocks explicitly to override", kvParamsErr, totalKVBlocks)
+				logAdapterHBMReservationNotApplied()
 			} else if hwConfig.MemoryGiB <= 0 {
 				logrus.Warnf("--latency-model: GPU memory capacity not available in hardware config; "+
 					"using current total-kv-blocks=%d. Add MemoryGiB to hardware_config.json or pass --total-kv-blocks explicitly", totalKVBlocks)
+				logAdapterHBMReservationNotApplied()
 			} else {
 				if kvParams.HiddenAct == "" {
 					logrus.Infof("--latency-model: hidden_act not set in config.json; assuming SwiGLU (3-matrix MLP) for weight estimation")
 				}
-				autoBlocks, calcErr := latency.CalculateKVBlocks(modelConfig, hwConfig, tensorParallelism, blockSizeTokens, gpuMemoryUtilization, kvParams)
+				autoBlocks, calcErr := latency.CalculateKVBlocks(modelConfig, hwConfig, tensorParallelism, dataParallelism, blockSizeTokens, gpuMemoryUtilization, kvParams,
+					latency.WithAdapterReservedBytes(loraReservedBytesForKV))
 				if calcErr != nil {
 					logrus.Fatalf("--latency-model: KV capacity auto-calculation failed: %v", calcErr)
 				}
 				totalKVBlocks = autoBlocks
 				logrus.Infof("--gpu-memory-utilization: %.2f used for KV block auto-calculation", gpuMemoryUtilization)
-				logrus.Infof("--latency-model: auto-calculated total-kv-blocks=%d (GPU=%.0f GiB, TP=%d, block_size=%d, MoE=%v)",
-					totalKVBlocks, hwConfig.MemoryGiB, tensorParallelism, blockSizeTokens, kvParams.IsMoE)
+				logrus.Infof("--latency-model: auto-calculated total-kv-blocks=%d (GPU=%.0f GiB, TP=%d, DP=%d, block_size=%d, MoE=%v)",
+					totalKVBlocks, hwConfig.MemoryGiB, tensorParallelism, dataParallelism, blockSizeTokens, kvParams.IsMoE)
+				logAdapterHBMReservation("--latency-model")
 			}
+		} else if loraReservedBytesForKV > 0 {
+			// Explicit --total-kv-blocks bypasses the global auto-calc, so the static
+			// LoRA HBM reservation is NOT subtracted from that global count (it applies
+			// only on an auto-calc path). Surface this so a user who configured adapters
+			// is not surprised that usable KV did not shrink (matches the --lora-config
+			// flag help). Note: any per-pool auto-calc (--prefill-tp/--decode-tp etc.)
+			// still applies the reservation to its own pool block count.
+			logrus.Warnf("--total-kv-blocks set explicitly (%d blocks); the static LoRA adapter HBM reservation (%.2f GiB) is NOT applied to that explicit global block count (per-pool auto-calc, if any, still applies it) — omit --total-kv-blocks to let auto-calc subtract it",
+				totalKVBlocks, float64(loraReservedBytesForKV)/float64(1<<30))
 		}
 
 		// Auto-derive --max-model-len from HF config's max_position_embeddings.
@@ -762,6 +793,31 @@ func resolveLatencyConfig(cmd *cobra.Command) latencyResolution {
 		logrus.Fatalf("--enable-expert-parallel requires a MoE model (got dense model %q with no experts); "+
 			"vLLM fatally rejects this configuration.", model)
 	}
+	// --moe-comm-backend selects the MoE dispatch/combine cost model (trained-physics
+	// only, DP>1). Validate the name and reject non-default values on other backends so
+	// the flag never silently no-ops. Empty string defers to the model factory's default.
+	if moeCommBackend != "" {
+		if !latency.IsValidMoECommBackend(moeCommBackend) {
+			logrus.Fatalf("--moe-comm-backend %q is not a recognized vLLM MoE all-to-all backend (valid: %s).",
+				moeCommBackend, strings.Join(latency.ValidMoECommBackends, ", "))
+		}
+		if backend != "trained-physics" {
+			logrus.Fatalf("--moe-comm-backend requires --latency-model trained-physics "+
+				"(got --moe-comm-backend=%s, --latency-model=%s). The roofline backend does not model "+
+				"MoE communication.", moeCommBackend, backend)
+		}
+		// The flag is harmless but inert unless the MoE dispatch/combine term is actually
+		// charged (isMoE && DP>1). Warn (not fatal) on the no-op cases so a user does not
+		// believe a backend choice is affecting a run where it cannot.
+		if !modelConfig.IsMoE() {
+			logrus.Warnf("--moe-comm-backend=%s has no effect on a dense model; "+
+				"MoE dispatch/combine comm is only charged for MoE models.", moeCommBackend)
+		} else if dataParallelism <= 1 {
+			logrus.Warnf("--moe-comm-backend=%s has no effect at --dp=%d; "+
+				"MoE dispatch/combine comm is only charged when DP > 1 (at DP=1 the MoE FFN "+
+				"all-reduces over the TP group instead).", moeCommBackend, dataParallelism)
+		}
+	}
 
 	return latencyResolution{
 		Backend:     backend,
@@ -770,6 +826,31 @@ func resolveLatencyConfig(cmd *cobra.Command) latencyResolution {
 		AlphaCoeffs: alpha,
 		BetaCoeffs:  beta,
 	}
+}
+
+// composeLoRAScorer appends the lora-affinity scorer at the given weight to the
+// effective weighted-routing profile (#1469). When base is empty (no explicit
+// --routing-scorers or bundle), it materializes the default profile first so the
+// LoRA scorer composes alongside the standard dimensions rather than replacing
+// them. Returns an error for a non-finite/non-positive weight or when base already
+// declares lora-affinity (double-specification via both --routing-scorers and
+// --lora-scorer-weight). The returned slice never aliases base's backing array.
+func composeLoRAScorer(base []sim.ScorerConfig, weight float64) ([]sim.ScorerConfig, error) {
+	if weight <= 0 || math.IsNaN(weight) || math.IsInf(weight, 0) {
+		return nil, fmt.Errorf("weight must be a finite positive number, got %v", weight)
+	}
+	if len(base) == 0 {
+		base = sim.DefaultScorerConfigs()
+	}
+	for _, sc := range base {
+		if sc.Name == "lora-affinity" {
+			return nil, fmt.Errorf("lora-affinity already present in the scorer profile; set its weight via --routing-scorers OR --lora-scorer-weight, not both")
+		}
+	}
+	composed := make([]sim.ScorerConfig, 0, len(base)+1)
+	composed = append(composed, base...)
+	composed = append(composed, sim.ScorerConfig{Name: "lora-affinity", Weight: weight})
+	return composed, nil
 }
 
 // resolvePolicies resolves admission/routing/priority/scheduler policy configuration
@@ -1030,6 +1111,19 @@ func resolvePolicies(cmd *cobra.Command) ([]sim.ScorerConfig, *sim.PolicyBundle)
 		} else if len(bundleScorerConfigs) > 0 {
 			parsedScorerConfigs = bundleScorerConfigs
 		}
+		// Compose the lora-affinity scorer (#1469). Left unset the flag is inert, so
+		// routing is byte-identical to today (INV-6). When set (to a positive weight;
+		// an explicit non-positive value is rejected by composeLoRAScorer), append it
+		// to the effective profile — materializing the default base when no explicit
+		// --routing-scorers/bundle profile was given — so the LoRA scorer participates
+		// alongside the existing dimensions.
+		if cmd.Flags().Changed("lora-scorer-weight") {
+			composed, err := composeLoRAScorer(parsedScorerConfigs, loraScorerWeight)
+			if err != nil {
+				logrus.Fatalf("Invalid --lora-scorer-weight: %v", err)
+			}
+			parsedScorerConfigs = composed
+		}
 		activeScorerConfigs := parsedScorerConfigs
 		if len(activeScorerConfigs) == 0 {
 			activeScorerConfigs = sim.DefaultScorerConfigs()
@@ -1042,6 +1136,9 @@ func resolvePolicies(cmd *cobra.Command) ([]sim.ScorerConfig, *sim.PolicyBundle)
 	}
 	if routingPolicy != "weighted" && routingScorers != "" {
 		logrus.Warnf("--routing-scorers has no effect when routing policy is %q (only applies to 'weighted')", routingPolicy)
+	}
+	if routingPolicy != "weighted" && cmd.Flags().Changed("lora-scorer-weight") {
+		logrus.Warnf("--lora-scorer-weight has no effect when routing policy is %q (only applies to 'weighted')", routingPolicy)
 	}
 	if admissionPolicy == "token-bucket" {
 		logrus.Infof("Token bucket: capacity=%.0f, refill-rate=%.0f", tokenBucketCapacity, tokenBucketRefillRate)
@@ -1338,6 +1435,7 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&tensorParallelism, "tp", 0, "Tensor parallelism")
 	cmd.Flags().IntVar(&dataParallelism, "dp", 1, "Data parallelism degree (MoE models only; --latency-model trained-physics only)")
 	cmd.Flags().BoolVar(&enableExpertParallel, "enable-expert-parallel", false, "Enable expert parallelism for MoE models (mirrors vLLM --enable-expert-parallel; --latency-model trained-physics only)")
+	cmd.Flags().StringVar(&moeCommBackend, "moe-comm-backend", "", "MoE all-to-all comm backend for dispatch/combine cost (mirrors vLLM VLLM_ALL2ALL_BACKEND: naive, allgather_reducescatter [default], pplx, deepep_high_throughput, deepep_low_latency, mori, flashinfer_all2allv; MoE + --latency-model trained-physics + --dp > 1)")
 	cmd.Flags().StringVar(&latencyModelBackend, "latency-model", "trained-physics", "Latency model backend: trained-physics (default), roofline")
 	cmd.Flags().Int64Var(&maxModelLen, "max-model-len", 0, "Max total sequence length (input + output); 0 = unlimited. Auto-derived from HF config for analytical backends when not set.")
 
@@ -1354,6 +1452,7 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	// Routing policy config
 	cmd.Flags().StringVar(&routingPolicy, "routing-policy", "round-robin", "Routing policy: round-robin, least-loaded, weighted, always-busiest")
 	cmd.Flags().StringVar(&routingScorers, "routing-scorers", "", "Scorer weights for weighted routing (e.g., queue-depth:2,kv-utilization:2,load-balance:1). Default: precise-prefix-cache:2,queue-depth:1,kv-utilization:1")
+	cmd.Flags().Float64Var(&loraScorerWeight, "lora-scorer-weight", 0, "Weight of the lora-affinity routing scorer, composed into the weighted profile. Leave unset to keep routing unchanged; must be a finite positive number when set. Requires --routing-policy weighted (#1469)")
 
 	// Scheduler and preemption config
 	cmd.Flags().StringVar(&scheduler, "scheduler", "fcfs", "Instance scheduler: fcfs, priority-fcfs, sjf, reverse-priority")
@@ -1472,6 +1571,179 @@ func registerSimConfigFlags(cmd *cobra.Command) {
 	cmd.Flags().Int64Var(&prefillMaxModelLen, "prefill-max-model-len", 0, "Max model length for prefill pool instances (0 = use global --max-model-len)")
 	cmd.Flags().Int64Var(&decodeMaxModelLen, "decode-max-model-len", 0, "Max model length for decode pool instances (0 = use global --max-model-len)")
 
+	// LoRA control-plane config (#1464). Registered on both run and replay (INV-13
+	// parity). All optional; absence => subsystem inert (INV-6). The adapter registry
+	// and per-rank step_overhead_tiers are config-file only (--lora-config); a scalar
+	// flag cannot express a per-rank map. Scalar coefficient flags compose with and
+	// override the file / defaults.yaml (R18: applied only when Changed).
+	cmd.Flags().StringVar(&loraConfigPath, "lora-config", "", "Path to YAML file with a top-level lora: block (adapter registry, capacity, cost coefficients). The static adapter HBM reservation is subtracted from KV capacity only on the auto-calc path; an explicit --total-kv-blocks is used as-is (reservation not applied). Absent => LoRA subsystem inert.")
+	cmd.Flags().IntVar(&loraAdapterCapacity, "lora-adapter-capacity", 0, "Per-instance resident adapter slots (0 with adapters declared => error). Applied only when set.")
+	cmd.Flags().Float64Var(&loraLoadBaseLatencyUs, "lora-load-base-latency-us", 0, "Cold adapter-load fixed latency in µs. Applied only when set; else --lora-config / defaults.yaml.")
+	cmd.Flags().Float64Var(&loraLoadBandwidthBytesUs, "lora-load-bandwidth-bytes-us", 0, "Cold adapter-load bandwidth in bytes/µs (>0). Applied only when set; else --lora-config / defaults.yaml.")
+	cmd.Flags().Float64Var(&loraFootprintBytesPerRank, "lora-footprint-bytes-per-rank", 0, "Adapter HBM footprint per rank unit in bytes (>0). Applied only when set; else --lora-config / defaults.yaml.")
+}
+
+// loraConfigFile is the on-disk shape of a --lora-config YAML file: a single
+// top-level lora: block matching contracts/config-schema.md. Strict-parsed (R10).
+type loraConfigFile struct {
+	LoRA sim.LoRAConfig `yaml:"lora"`
+}
+
+// loadLoRAConfigFile parses a --lora-config YAML file's lora: block into a
+// sim.LoRAConfig. Strict field checking (R10). CLI boundary => logrus.Fatalf on any
+// read/parse error so a typo never silently no-ops.
+func loadLoRAConfigFile(path string) sim.LoRAConfig {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logrus.Fatalf("Failed to read --lora-config file %q: %v", path, err)
+	}
+	var f loraConfigFile
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&f); err != nil {
+		logrus.Fatalf("Failed to parse --lora-config file %q: %v", path, err)
+	}
+	return f.LoRA
+}
+
+// resolveLoRAConfig assembles the final sim.LoRAConfig from three composable sources,
+// in increasing precedence: defaults.yaml (cost-coefficient fallback), the optional
+// --lora-config file (adapter registry + any coefficients it sets), and the scalar
+// --lora-* flags (applied only when Changed, R18). It is the single LoRAConfig
+// construction site (R4), called by BOTH runCmd and replayCmd (INV-13 parity).
+//
+// The resolved config is validated at the CLI boundary; an invalid config aborts with
+// logrus.Fatalf (Principle V) — e.g. adapters declared with adapter_capacity 0.
+//
+// With no --lora-config and no --lora-* flags set, the returned config still carries
+// the defaults.yaml cost coefficients but declares no adapters, so HasAdapters() is
+// false and the subsystem is inert (INV-6 no-op default; coefficients are unused
+// until adapters exist).
+func resolveLoRAConfig(cmd *cobra.Command) sim.LoRAConfig {
+	var cfg sim.LoRAConfig
+	if loraConfigPath != "" {
+		cfg = loadLoRAConfigFile(loraConfigPath)
+	}
+
+	// defaults.yaml cost-coefficient fallback: fill only fields the file did not set,
+	// so an unset flag defers to the file/defaults rather than clobbering it (R18).
+	if defs := loadDefaultsConfig(defaultsFilePath).LoRADefaults; defs != nil {
+		if cfg.LoadBaseLatencyUs == nil {
+			v := defs.LoadBaseLatencyUs
+			cfg.LoadBaseLatencyUs = &v
+		}
+		if cfg.LoadBandwidthBytesUs == nil {
+			v := defs.LoadBandwidthBytesUs
+			cfg.LoadBandwidthBytesUs = &v
+		}
+		if cfg.FootprintBytesPerRank == nil {
+			v := defs.FootprintBytesPerRank
+			cfg.FootprintBytesPerRank = &v
+		}
+		if len(cfg.StepOverheadTiers) == 0 && len(defs.StepOverheadTiers) > 0 {
+			cfg.StepOverheadTiers = make(map[int]sim.StepOverheadTier, len(defs.StepOverheadTiers))
+			for rank, t := range defs.StepOverheadTiers {
+				k6, k7 := t.K6, t.K7
+				cfg.StepOverheadTiers[rank] = sim.StepOverheadTier{K6: &k6, K7: &k7}
+			}
+		}
+	}
+
+	// Scalar flag overrides (R18: only when explicitly set).
+	if cmd.Flags().Changed("lora-adapter-capacity") {
+		v := loraAdapterCapacity
+		cfg.AdapterCapacity = &v
+	}
+	if cmd.Flags().Changed("lora-load-base-latency-us") {
+		v := loraLoadBaseLatencyUs
+		cfg.LoadBaseLatencyUs = &v
+	}
+	if cmd.Flags().Changed("lora-load-bandwidth-bytes-us") {
+		v := loraLoadBandwidthBytesUs
+		cfg.LoadBandwidthBytesUs = &v
+	}
+	if cmd.Flags().Changed("lora-footprint-bytes-per-rank") {
+		v := loraFootprintBytesPerRank
+		cfg.FootprintBytesPerRank = &v
+	}
+
+	if err := cfg.Validate(); err != nil {
+		logrus.Fatalf("Invalid LoRA configuration: %v", err)
+	}
+	return cfg
+}
+
+// adapterReservedBytesFor returns the static LoRA HBM reservation (bytes) to carve
+// out of the KV budget for a resolved config, obtained through the sim/lora cost
+// model's pure AdapterReservedBytes() query (design boundary #4 — the memory path
+// never reaches into sim/lora internals). It routes through sim.BuildAdapterCost so
+// the activation condition matches NewSimulator's resident-set/cost wiring exactly
+// (R4): 0 when the subsystem is inert (no adapters, no capacity, or sim/lora not
+// linked), leaving KV capacity byte-identical to today (INV-6). A malformed cost
+// config aborts at the CLI boundary (Principle V), the same check NewSimulator makes.
+//
+// This deliberately builds an adapter-cost model that sim.NewSimulator (the
+// cold-load gate) and sim/cluster.NewInstanceSimulator (the latency backends,
+// #1467) each also build from the same config via sim.BuildAdapterCost. The model
+// is a pure, stateless value object, so independent builds from one config are
+// behaviorally identical — the extra one-time O(adapters) construction at startup is
+// the established BuildAdapterCost pattern, not a caching bug.
+func adapterReservedBytesFor(cfg sim.LoRAConfig) int64 {
+	ac, err := sim.BuildAdapterCost(sim.SimConfig{LoRAConfig: cfg})
+	if err != nil {
+		logrus.Fatalf("Invalid LoRA configuration (HBM reservation): %v", err)
+	}
+	if ac == nil {
+		return 0
+	}
+	// Defense in depth: NewCostModel already rejects a non-finite reservation and
+	// caps it below maxReservedBytes (< math.MaxInt64), so this conversion is exact
+	// and non-negative for any model built through it. Guard the CLI boundary
+	// explicitly anyway — so a future construction path that bypasses that check can
+	// never silently truncate a huge/±Inf float64 to a garbage int64 (Go's
+	// out-of-range float→int conversion is implementation-defined). Principle V:
+	// fail at the CLI boundary, not deep in the KV-capacity library.
+	//
+	// int64(x) is well-defined and exact for every representable float64 strictly
+	// below 2^63. The trap is float64(math.MaxInt64): MaxInt64 (2^63-1) is not
+	// representable in float64 and rounds UP to 2^63, so it must NOT be used as the
+	// bound (int64(2^63) overflows). We reject at the comfortably-conservative,
+	// exactly-representable 2^62 (≈4.6e18) — far above any real reservation (the cost
+	// model caps at 1e18) — so the cast is provably safe without relying on the exact
+	// 2^63 edge.
+	const maxSafeReservedBytes = float64(int64(1) << 62)
+	reserved := ac.AdapterReservedBytes()
+	if math.IsNaN(reserved) || math.IsInf(reserved, 0) || reserved < 0 || reserved >= maxSafeReservedBytes {
+		logrus.Fatalf("Invalid LoRA configuration (HBM reservation): %v bytes is outside the representable range", reserved)
+	}
+	return int64(reserved)
+}
+
+// logAdapterHBMReservation surfaces the static LoRA HBM reservation once, on the
+// main auto-calculated KV-block path, so a user can see WHY usable KV shrank (the
+// success-path counterpart to the reservation term in CalculateKVBlocks'
+// insufficient-memory / infeasibility error). The reservation is a single per-instance constant applied identically to
+// every KV auto-calc (global and any per-pool), so logging it once conveys the full
+// picture without repetition. No-op when the subsystem is inert (reservation 0), so
+// non-LoRA runs log nothing new (INV-6). scope labels the originating flag/path.
+func logAdapterHBMReservation(scope string) {
+	if loraReservedBytesForKV > 0 {
+		logrus.Infof("%s: reserved %.2f GiB GPU HBM for LoRA adapters (static capacity × per-slot footprint); usable KV blocks reduced accordingly",
+			scope, float64(loraReservedBytesForKV)/float64(1<<30))
+	}
+}
+
+// logAdapterHBMReservationNotApplied warns that a configured LoRA HBM reservation
+// was NOT subtracted because auto-calc was abandoned (KV params unextractable or no
+// GPU-memory figure) and total-kv-blocks fell back to its default. Without this, a
+// user who configured adapters would see only the generic "couldn't auto-derive
+// capacity" warning and no LoRA-specific signal that the reservation was dropped
+// (silent-LoRA-misconfig class). No-op when the subsystem is inert (INV-6).
+func logAdapterHBMReservationNotApplied() {
+	if loraReservedBytesForKV > 0 {
+		logrus.Warnf("--lora-config: KV auto-calculation was skipped, so the static LoRA adapter HBM reservation (%.2f GiB) is NOT applied to the fallback total-kv-blocks=%d — fix the model/hardware config or set --total-kv-blocks with headroom for adapters",
+			float64(loraReservedBytesForKV)/float64(1<<30), totalKVBlocks)
+	}
 }
 
 // applyTimeoutToSpec sets ClientSpec.Timeout and CohortSpec.Timeout on every entry in spec.
@@ -1531,6 +1803,14 @@ var runCmd = &cobra.Command{
 		if model == "" { // model not provided, exit
 			logrus.Fatalf("LLM name not provided. Exiting simulation.")
 		}
+
+		// LoRA control-plane (#1464): resolve the config ONCE here (R4 single site) so
+		// both the KV auto-capacity path — resolveLatencyConfig and the per-pool calc
+		// below read the resulting static HBM reservation (PR5) — and the SimConfig
+		// literal further down share one resolution. The reservation is 0 (KV
+		// unaffected) when the subsystem is inert (INV-6). Set before resolveLatencyConfig.
+		loraCfg := resolveLoRAConfig(cmd)
+		loraReservedBytesForKV = adapterReservedBytesFor(loraCfg)
 
 		// Resolve latency backend configuration (single code path shared with replayCmd).
 		lr := resolveLatencyConfig(cmd)
@@ -1597,13 +1877,16 @@ var runCmd = &cobra.Command{
 						} else if poolHC.MemoryGiB <= 0 {
 							logrus.Warnf("--prefill-hardware: GPU memory capacity not available for %q in hardware config; prefill pool will use global total-kv-blocks=%d", poolPrefillGPU, totalKVBlocks)
 						} else {
-							poolBlocks, calcErr := latency.CalculateKVBlocks(lr.ModelConfig, poolHC, poolPrefillTP, blockSizeTokens, gpuMemoryUtilization, kvParamsPool)
+							// Per-pool TP but GLOBAL dp: per-pool DP is out of scope (#1420);
+							// --dp applies uniformly to all pools. Not a bug — see issue #1420.
+							poolBlocks, calcErr := latency.CalculateKVBlocks(lr.ModelConfig, poolHC, poolPrefillTP, dataParallelism, blockSizeTokens, gpuMemoryUtilization, kvParamsPool,
+								latency.WithAdapterReservedBytes(loraReservedBytesForKV))
 							if calcErr != nil {
 								logrus.Fatalf("--prefill-tp/--prefill-hardware: KV capacity auto-calculation failed for prefill pool: %v", calcErr)
 							} else {
 								prefillOverrides.TotalKVBlocks = &poolBlocks
-								logrus.Infof("--prefill-tp/--prefill-hardware: auto-calculated prefill pool total-kv-blocks=%d (GPU=%.0f GiB, TP=%d)",
-									poolBlocks, poolHC.MemoryGiB, poolPrefillTP)
+								logrus.Infof("--prefill-tp/--prefill-hardware: auto-calculated prefill pool total-kv-blocks=%d (GPU=%.0f GiB, TP=%d, DP=%d)",
+									poolBlocks, poolHC.MemoryGiB, poolPrefillTP, dataParallelism)
 								if !cmd.Flags().Changed("prefill-max-model-len") {
 									kvFeasibleMax := poolBlocks * int64(blockSizeTokens)
 									if kvFeasibleMax < maxModelLen {
@@ -1631,13 +1914,15 @@ var runCmd = &cobra.Command{
 						} else if poolHC.MemoryGiB <= 0 {
 							logrus.Warnf("--decode-hardware: GPU memory capacity not available for %q in hardware config; decode pool will use global total-kv-blocks=%d", poolDecodeGPU, totalKVBlocks)
 						} else {
-							poolBlocks, calcErr := latency.CalculateKVBlocks(lr.ModelConfig, poolHC, poolDecodeTP, blockSizeTokens, gpuMemoryUtilization, kvParamsPool)
+							// Per-pool TP, global dp (see prefill-pool note above; #1420).
+							poolBlocks, calcErr := latency.CalculateKVBlocks(lr.ModelConfig, poolHC, poolDecodeTP, dataParallelism, blockSizeTokens, gpuMemoryUtilization, kvParamsPool,
+								latency.WithAdapterReservedBytes(loraReservedBytesForKV))
 							if calcErr != nil {
 								logrus.Fatalf("--decode-tp/--decode-hardware: KV capacity auto-calculation failed for decode pool: %v", calcErr)
 							} else {
 								decodeOverrides.TotalKVBlocks = &poolBlocks
-								logrus.Infof("--decode-tp/--decode-hardware: auto-calculated decode pool total-kv-blocks=%d (GPU=%.0f GiB, TP=%d)",
-									poolBlocks, poolHC.MemoryGiB, poolDecodeTP)
+								logrus.Infof("--decode-tp/--decode-hardware: auto-calculated decode pool total-kv-blocks=%d (GPU=%.0f GiB, TP=%d, DP=%d)",
+									poolBlocks, poolHC.MemoryGiB, poolDecodeTP, dataParallelism)
 								if !cmd.Flags().Changed("decode-max-model-len") {
 									kvFeasibleMax := poolBlocks * int64(blockSizeTokens)
 									if kvFeasibleMax < maxModelLen {
@@ -1766,6 +2051,40 @@ var runCmd = &cobra.Command{
 		if requestTimeoutSecs == 0 {
 			logrus.Fatalf("--timeout must be positive (seconds) or negative to disable; got 0")
 		}
+		// Pre-expand inference-perf / ServeGen specs (LAZY MODE ONLY) so
+		// the timeout-application step below sees every client — including
+		// those populated by expansion. Without this, --lazy-generation +
+		// --workload-spec=inference_perf.yaml + an explicit --timeout
+		// would build streaming states from clients whose Timeout is nil
+		// (because expansion inside GenerateWorkloadLazy happens AFTER
+		// applyTimeoutToSpec runs), producing the default 300 s deadline
+		// instead of the user-requested value (PR #1453 self-review).
+		//
+		// Scoped to `lazyGeneration` so it does not run for eager-only
+		// invocations. Running it unconditionally would clear the
+		// spec.InferencePerf marker before GenerateWorkload's Validate,
+		// which suppresses the mixed-slo_class check via
+		// `s.InferencePerf == nil && s.ServeGenData == nil` in spec.go.
+		// Today all inference-perf-expanded clients carry SLOClass="standard"
+		// (uniform → check can't fire), so eager was accidentally safe.
+		// But scoping here defends against a future ExpandInferencePerfSpec
+		// change that emits mixed/empty slo_class from silently failing
+		// eager runs that previously validated (PR #1453 review round 3).
+		//
+		// REMOVING THIS CALL re-introduces the lazy timeout bug silently.
+		// The regression is covered by
+		// TestGenerateWorkloadLazy_InferencePerf_TimeoutAppliedAfterPreExpand
+		// at the library layer; the cmd-level smoke is covered by the
+		// inference-perf byte-identity check verified during PR review.
+		//
+		// ExpandClientsAndCohorts is idempotent — the generators'
+		// validateAndExpandSpec runs it again with no effect since both
+		// branches guard on len(spec.Clients) == 0. (#1441)
+		if lazyGeneration {
+			if err := workload.ExpandClientsAndCohorts(spec); err != nil {
+				logrus.Fatalf("Failed to expand workload spec: %v", err)
+			}
+		}
 		if workloadSpecPath == "" || cmd.Flags().Changed("timeout") {
 			applyTimeoutToSpec(spec, requestTimeoutSecs)
 		}
@@ -1781,13 +2100,46 @@ var runCmd = &cobra.Command{
 			logrus.Fatalf("Workload requires either num_requests or --horizon to bound generation")
 		}
 
-		wl, err := workload.GenerateWorkload(spec, simulationHorizon, maxRequests)
-		if err != nil {
-			logrus.Fatalf("Failed to generate workload: %v", err)
+		// Lazy generation path (#1441, alpha). Default off. When set, build
+		// a streaming workload source instead of materializing the full
+		// request slice. As of #1460 there is NO eager-fallback class — every
+		// spec the eager generator accepts is streamed: multi-session reasoning
+		// (#1458), concurrency clients (#1459), and time-varying / per-window
+		// workloads (#1460).
+		var wl *workload.GeneratedWorkload
+		// lazyRequestSource is typed as the interface satisfied by
+		// *workload.lazyRequestSource: Next() delivers requests to the
+		// cluster; Err() surfaces any terminal sampler/generator error
+		// recorded on a per-client state after the run completes, so
+		// cmd can Fatalf and match the eager path's abort-on-invalid-spec
+		// behavior (PR #1453 review round 3).
+		var lazyRequestSource interface {
+			Next() (*sim.Request, bool)
+			Err() error
+		}
+		if lazyGeneration {
+			src, sessions, followUpBudget, lazyErr := workload.GenerateWorkloadLazy(spec, simulationHorizon, maxRequests)
+			// As of #1460 there is no ErrLazyUnsupported* fallback class — every
+			// spec the eager generator accepts is streamed. Any error is a real
+			// spec/validation failure → abort (matches eager's error handling).
+			if lazyErr != nil {
+				logrus.Fatalf("Failed to build lazy workload: %v", lazyErr)
+			}
+			lazyRequestSource = src
+			wl = &workload.GeneratedWorkload{Sessions: sessions, FollowUpBudget: followUpBudget}
+		}
+		if wl == nil {
+			var err error
+			wl, err = workload.GenerateWorkload(spec, simulationHorizon, maxRequests)
+			if err != nil {
+				logrus.Fatalf("Failed to generate workload: %v", err)
+			}
 		}
 		// Re-apply timeout to generated requests and session blueprints.
 		// For inference_perf specs, spec.Clients was empty at applyTimeoutToSpec time
 		// and populated inside GenerateWorkload — deadlines need correction here.
+		// In lazy mode wl.Requests is nil (no-op for the request loop); session
+		// blueprint Timeout pointers still need refresh.
 		if workloadSpecPath == "" || cmd.Flags().Changed("timeout") {
 			applyTimeoutToRequests(wl, requestTimeoutSecs)
 		}
@@ -1797,7 +2149,13 @@ var runCmd = &cobra.Command{
 			if wl.FollowUpBudget >= 0 {
 				sessionMgr.SetFollowUpBudget(wl.FollowUpBudget)
 			}
-			logrus.Infof("Generated %d requests + %d session blueprints (closed-loop)", len(wl.Requests), len(wl.Sessions))
+			if lazyRequestSource != nil {
+				logrus.Infof("Generated streaming source + %d session blueprints (closed-loop, lazy)", len(wl.Sessions))
+			} else {
+				logrus.Infof("Generated %d requests + %d session blueprints (closed-loop)", len(wl.Requests), len(wl.Sessions))
+			}
+		} else if lazyRequestSource != nil {
+			logrus.Infof("Generated streaming workload source (lazy, #1441)")
 		} else {
 			logrus.Infof("Generated %d requests via unified workload pipeline", len(wl.Requests))
 		}
@@ -2106,6 +2464,23 @@ var runCmd = &cobra.Command{
 		logrus.Infof("Starting simulation with %d KV blocks, horizon=%dticks, alphaCoeffs=%v, betaCoeffs=%v",
 			totalKVBlocks, simulationHorizon, lr.AlphaCoeffs, lr.BetaCoeffs)
 
+		// LoRA control-plane (#1464). loraCfg was resolved once at the top of RunE (for
+		// the KV HBM reservation); here we cross-validate every workload adapter
+		// reference against the declared registry (unknown id / base-model mismatch =>
+		// Fatalf, never a silent no-op). With no adapters and no workload adapter
+		// references this is inert (INV-6).
+		var loraRegistry sim.AdapterRegistry
+		if loraCfg.HasAdapters() {
+			r, regErr := sim.NewAdapterRegistryFunc(loraCfg.Adapters)
+			if regErr != nil {
+				logrus.Fatalf("Invalid LoRA adapter registry: %v", regErr)
+			}
+			loraRegistry = r
+		}
+		if err := workload.ValidateAdapterReferences(spec, loraRegistry); err != nil {
+			logrus.Fatalf("LoRA workload validation: %v", err)
+		}
+
 		startTime := time.Now() // Get current time (start)
 
 		// Unified cluster path (used for all values of numInstances).
@@ -2119,8 +2494,9 @@ var runCmd = &cobra.Command{
 					kvOffloadThreshold, kvTransferBandwidth, kvTransferBaseLatency),
 				BatchConfig:          sim.NewBatchConfig(maxRunningReqs, maxScheduledTokens, longPrefillTokenThreshold),
 				LatencyCoeffs:        sim.NewLatencyCoeffs(lr.BetaCoeffs, lr.AlphaCoeffs),
-				ModelHardwareConfig:  sim.NewModelHardwareConfig(lr.ModelConfig, lr.HWConfig, model, gpu, tensorParallelism, dataParallelism, enableExpertParallel, lr.Backend, maxModelLen),
+				ModelHardwareConfig:  sim.NewModelHardwareConfig(lr.ModelConfig, lr.HWConfig, model, gpu, tensorParallelism, dataParallelism, enableExpertParallel, moeCommBackend, lr.Backend, maxModelLen),
 				PolicyConfig:         sim.NewPolicyConfig(scheduler, preemptionPolicy),
+				LoRAConfig:           loraCfg,
 				SLOPriorityOverrides: sloPriorityOverrides,
 			},
 			NumInstances:                        numInstances,
@@ -2238,7 +2614,16 @@ var runCmd = &cobra.Command{
 				return followUps
 			}
 		}
-		cs := cluster.NewClusterSimulator(config, preGeneratedRequests, onRequestDone)
+		// RequestSource: streaming in lazy mode, eager-slice otherwise.
+		// The workload package's lazy source satisfies cluster.RequestSource
+		// via structural typing — both define the same Next() method.
+		var clusterRequestSource cluster.RequestSource
+		if lazyRequestSource != nil {
+			clusterRequestSource = lazyRequestSource
+		} else {
+			clusterRequestSource = cluster.NewSliceRequestSource(preGeneratedRequests)
+		}
+		cs := cluster.NewClusterSimulator(config, clusterRequestSource, onRequestDone)
 		if pdOutcomeTracePath != "" {
 			cs.SetRecordPDOutcomes(true)
 		}
@@ -2248,8 +2633,52 @@ var runCmd = &cobra.Command{
 		if edppAdmissionTracePath != "" {
 			cs.EnableAdmissionTrace(config.EDPPCoeffs)
 		}
+
+		// Arrival hook: capture trace-emission references at the cluster's
+		// single arrival boundary so the trace exporter no longer relies on
+		// the eager preGeneratedRequests + followUpRequests list assembly
+		// (issue #1440). The hook fires once per fresh arrival in
+		// clock-monotonic order — see ClusterArrivalEvent.Execute. We hold
+		// pointers (not copies) so the request's final state (set by the
+		// event loop) is visible at export time.
+		//
+		// Only install when --trace-output is set (BC-1: zero overhead when
+		// trace is disabled). Saturation analysis continues to use the
+		// preGeneratedRequests + followUpRequests path below — those slices
+		// remain populated for that purpose only.
+		//
+		// Install/export coupling: traceArrivals is declared nil here and
+		// assigned a non-nil empty slice ONLY inside the install branch.
+		// A nil traceArrivals at the export site below with traceOutput
+		// non-empty means the install branch was dropped — we fail loudly
+		// rather than write a silent empty trace (R1).
+		// The arrival hook captures fresh-arrival references at the single
+		// cluster boundary. It powers trace export (#1440) and, in lazy mode
+		// where preGeneratedRequests is nil, also feeds saturation analysis.
+		// In eager mode without --trace-output, the hook stays uninstalled
+		// (BC-1 zero overhead) and saturation falls back to the
+		// preGeneratedRequests + followUpRequests path.
+		var traceArrivals []*sim.Request
+		arrivalHookNeeded := traceOutput != "" || (lazyRequestSource != nil && saturationReport != "")
+		if arrivalHookNeeded {
+			traceArrivals = make([]*sim.Request, 0)
+			cs.SetArrivalHook(func(req *sim.Request) {
+				traceArrivals = append(traceArrivals, req)
+			})
+		}
 		if err := cs.Run(); err != nil {
 			logrus.Fatalf("Simulation failed: %v", err)
+		}
+
+		// Surface any terminal sampler / generator error the lazy source
+		// recorded on a per-client state during the run. Eager mode would
+		// have hit logrus.Fatalf inside cmd on the same invalid spec;
+		// without this check, lazy mode would exit 0 with reduced traffic
+		// and misleading capacity numbers (PR #1453 review round 3).
+		if lazyRequestSource != nil {
+			if err := lazyRequestSource.Err(); err != nil {
+				logrus.Fatalf("Lazy workload sampler failure: %v", err)
+			}
 		}
 
 		// Wall-clock timing on stderr (BC-6); stdout remains deterministic (BC-7)
@@ -2278,21 +2707,53 @@ var runCmd = &cobra.Command{
 		}
 		goodputTargets := mergeGoodputTargets(cliTTFT, cliITL, cliE2E, nil, specTargets)
 
-		// Assemble allRequests if trace export or saturation analysis requested (BC-12, issue #1298)
+		// Assemble allRequests for saturation analysis (BC-12, issue #1298).
+		// Trace export is now driven by the arrival hook above and no longer
+		// shares this slice (issue #1440). allRequests is nil when
+		// --saturation-report is not set.
+		//
+		// In lazy mode (#1441), preGeneratedRequests is nil — the arrival hook
+		// captures every fresh arrival in clock-monotonic order (already sorted
+		// by INV-3), so we use traceArrivals directly. In eager mode we keep
+		// the existing append+sort path for backward compatibility.
 		var allRequests []*sim.Request
-		if traceOutput != "" || saturationReport != "" {
-			allRequests = make([]*sim.Request, 0, len(preGeneratedRequests)+len(followUpRequests))
-			allRequests = append(allRequests, preGeneratedRequests...)
-			allRequests = append(allRequests, followUpRequests...)
-			// Sort by arrival time so RequestIDs (array indices) are arrival-ordered
-			sort.SliceStable(allRequests, func(i, j int) bool {
-				return allRequests[i].ArrivalTime < allRequests[j].ArrivalTime
-			})
+		if saturationReport != "" {
+			if lazyRequestSource != nil {
+				// traceArrivals already contains every fresh arrival in
+				// clock-monotonic order — no separate followUpRequests merge
+				// or post-sort required (the cluster delivers them in arrival
+				// order via the hook).
+				//
+				// SAFETY: allRequests aliases the same backing array as
+				// traceArrivals. Both downstream consumers (trace export
+				// below + saturation analysis) MUST be read-only of this
+				// slice — neither appends, reorders, nor mutates element
+				// contents. If a future consumer needs to mutate, copy
+				// first: `allRequests = append([]*sim.Request(nil), traceArrivals...)`.
+				allRequests = traceArrivals
+			} else {
+				allRequests = make([]*sim.Request, 0, len(preGeneratedRequests)+len(followUpRequests))
+				allRequests = append(allRequests, preGeneratedRequests...)
+				allRequests = append(allRequests, followUpRequests...)
+				// Sort by arrival time so RequestIDs (array indices) are arrival-ordered
+				sort.SliceStable(allRequests, func(i, j int) bool {
+					return allRequests[i].ArrivalTime < allRequests[j].ArrivalTime
+				})
+			}
 		}
 
-		// Export trace if requested (BC-1, BC-7)
+		// Export trace if requested (BC-1, BC-7). Records are sourced from
+		// the arrival hook (issue #1440) — already in clock-monotonic order
+		// per INV-3, so no sort is required.
 		if traceOutput != "" {
-			records := workload.RequestsToTraceRecords(allRequests)
+			// Install/export coupling guard (R1): traceArrivals is a non-nil
+			// empty slice when SetArrivalHook ran above. A nil here means
+			// the install branch was dropped or moved without updating this
+			// site — refuse to write a silent empty trace.
+			if traceArrivals == nil {
+				logrus.Fatalf("Trace export: arrival hook was not installed but --trace-output=%q is set — install/export branches diverged (issue #1440)", traceOutput)
+			}
+			records := workload.RequestsToTraceRecords(traceArrivals)
 			header := &workload.TraceHeader{
 				Version:           3,
 				TimeUnit:          "microseconds",
@@ -2736,6 +3197,7 @@ func init() {
 	runCmd.Flags().IntVar(&outputTokensMin, "output-tokens-min", defaultOutputMin, "Min Output Token Count")
 	runCmd.Flags().IntVar(&outputTokensMax, "output-tokens-max", defaultOutputMax, "Max Output Token Count")
 	runCmd.Flags().StringVar(&workloadSpecPath, "workload-spec", "", "Path to YAML workload specification file (overrides --workload)")
+	runCmd.Flags().BoolVar(&lazyGeneration, "lazy-generation", false, "Alpha (#1441): stream requests from the workload generator instead of pre-generating the full slice. Default off. Supports every workload class — single-shot, single- and multi-session reasoning (#1458), concurrency clients (#1459), and time-varying / per-window workloads (#1460); no eager fallback.")
 	runCmd.Flags().IntVar(&requestTimeoutSecs, "timeout", 300, "Per-request deadline in seconds (default 300s matches the session-client default in computeDeadline). Negative = disabled; 0 is rejected. Consistent with blis observe: both commands reject 0.")
 	runCmd.Flags().StringVar(&goodputSLOTTFT, "slo-ttft", "", "Per-class TTFT goodput thresholds (e.g. \"critical=100ms,standard=500ms\"). Precedence: CLI > trace header > workload spec.")
 	runCmd.Flags().StringVar(&goodputSLOITL, "slo-itl", "", "Per-class mean ITL goodput thresholds (e.g. \"critical=50ms,standard=150ms\").")

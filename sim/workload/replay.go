@@ -59,7 +59,7 @@ func LoadTraceV2Requests(trace *TraceV2, seed int64) ([]*sim.Request, error) {
 	rng := rand.New(rand.NewSource(seed))
 
 	// Generate shared prefix tokens per prefix group using trace-specified length
-	prefixTokens := make(map[string][]int)
+	prefixTokens := make(map[string][]sim.TokenID)
 	for _, rec := range trace.Records {
 		if rec.PrefixGroup != "" && rec.PrefixLength > 0 {
 			if _, exists := prefixTokens[rec.PrefixGroup]; !exists {
@@ -76,7 +76,7 @@ func LoadTraceV2Requests(trace *TraceV2, seed int64) ([]*sim.Request, error) {
 		// Prepend prefix if in a group
 		if rec.PrefixGroup != "" {
 			if prefix, ok := prefixTokens[rec.PrefixGroup]; ok {
-				inputTokens = append(append([]int{}, prefix...), inputTokens...)
+				inputTokens = append(append([]sim.TokenID{}, prefix...), inputTokens...)
 			}
 		}
 
@@ -107,6 +107,7 @@ func LoadTraceV2Requests(trace *TraceV2, seed int64) ([]*sim.Request, error) {
 			PrefixGroup:      rec.PrefixGroup,
 			PrefixLength:     rec.PrefixLength,
 			Streaming:        rec.Streaming,
+			Adapter:          rec.Adapter, // #1464: adapter identity from trace; "" = base-model-only
 		}
 		requests = append(requests, req)
 	}
@@ -139,7 +140,7 @@ func LoadTraceV2SessionBlueprints(trace *TraceV2, seed int64, thinkTimeSampler L
 	rng := rand.New(rand.NewSource(seed))
 
 	// Generate shared prefix tokens per prefix group (same as LoadTraceV2Requests)
-	prefixTokens := make(map[string][]int)
+	prefixTokens := make(map[string][]sim.TokenID)
 	for _, rec := range trace.Records {
 		if rec.PrefixGroup != "" && rec.PrefixLength > 0 {
 			if _, exists := prefixTokens[rec.PrefixGroup]; !exists {
@@ -227,12 +228,12 @@ func LoadTraceV2SessionBlueprints(trace *TraceV2, seed int64, thinkTimeSampler L
 		inputTokens := sim.GenerateRandomTokenIDs(sessionRNG, effectiveInputTokenCount(r0.InputTokens, r0.ServerInputTokens, r0.PrefixGroup))
 		if r0.PrefixGroup != "" {
 			if prefix, ok := prefixTokens[r0.PrefixGroup]; ok {
-				inputTokens = append(append([]int{}, prefix...), inputTokens...)
+				inputTokens = append(append([]sim.TokenID{}, prefix...), inputTokens...)
 			}
 		}
 		outputTokens := sim.GenerateRandomTokenIDs(sessionRNG, r0.OutputTokens)
 
-		var prefix []int
+		var prefix []sim.TokenID
 		if r0.PrefixGroup != "" {
 			prefix = prefixTokens[r0.PrefixGroup]
 		}
@@ -261,6 +262,7 @@ func LoadTraceV2SessionBlueprints(trace *TraceV2, seed int64, thinkTimeSampler L
 			PrefixGroup:     r0.PrefixGroup,
 			PrefixLength:    r0.PrefixLength,
 			Streaming:       r0.Streaming,
+			Adapter:         r0.Adapter, // #1464: adapter identity from trace; "" = base-model-only
 		}
 		requests = append(requests, req)
 
@@ -278,6 +280,7 @@ func LoadTraceV2SessionBlueprints(trace *TraceV2, seed int64, thinkTimeSampler L
 			SLOClass:         r0.SLOClass,
 			Model:            r0.Model,
 			SLOTargetUs:      r0.SLOTargetUs,
+			Adapter:          r0.Adapter, // #1464: adapter threads through session follow-up rounds
 		}
 		blueprints = append(blueprints, bp)
 	}
@@ -287,7 +290,7 @@ func LoadTraceV2SessionBlueprints(trace *TraceV2, seed int64, thinkTimeSampler L
 		inputTokens := sim.GenerateRandomTokenIDs(rng, effectiveInputTokenCount(rec.InputTokens, rec.ServerInputTokens, rec.PrefixGroup))
 		if rec.PrefixGroup != "" {
 			if prefix, ok := prefixTokens[rec.PrefixGroup]; ok {
-				inputTokens = append(append([]int{}, prefix...), inputTokens...)
+				inputTokens = append(append([]sim.TokenID{}, prefix...), inputTokens...)
 			}
 		}
 		outputTokens := sim.GenerateRandomTokenIDs(rng, rec.OutputTokens)
@@ -314,6 +317,7 @@ func LoadTraceV2SessionBlueprints(trace *TraceV2, seed int64, thinkTimeSampler L
 			PrefixGroup:     rec.PrefixGroup,
 			PrefixLength:    rec.PrefixLength,
 			Streaming:       rec.Streaming,
+			Adapter:         rec.Adapter, // #1464: adapter identity from trace; "" = base-model-only
 		}
 		requests = append(requests, req)
 	}

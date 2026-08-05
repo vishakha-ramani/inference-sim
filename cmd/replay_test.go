@@ -434,6 +434,26 @@ func TestReplayCmd_RoutingDecisionTraceFlag_Registered(t *testing.T) {
 	}
 }
 
+// TestReplayCmd_LazyGenerationFlag_AcceptedAsNoOp pins BC-9 of #1441:
+// --lazy-generation is registered on replay for CLI symmetry with
+// `blis run` but has no effect (replay reads requests from a captured
+// trace and never invokes the workload generator).
+func TestReplayCmd_LazyGenerationFlag_AcceptedAsNoOp(t *testing.T) {
+	f := replayCmd.Flags().Lookup("lazy-generation")
+	if f == nil {
+		t.Fatal("replayCmd missing --lazy-generation flag (BC-9, #1441)")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--lazy-generation default = %q, want %q", f.DefValue, "false")
+	}
+	// Flag value must parse without error.
+	if err := replayCmd.Flags().Set("lazy-generation", "true"); err != nil {
+		t.Errorf("flag parse failed: %v", err)
+	}
+	// Reset for other tests.
+	_ = replayCmd.Flags().Set("lazy-generation", "false")
+}
+
 func TestReplayCmd_TraceHeaderFlag_Registered(t *testing.T) {
 	// GIVEN the replay command
 	// WHEN checking for --trace-header flag
@@ -1967,7 +1987,7 @@ func TestINV13_RunReplayParity_PD(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(1000, 16, 0, 0.9, 100.0, 0),
 			BatchConfig:         sim.NewBatchConfig(64, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs(betaCfg, alphaCfg),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(*mc, hwCfg, "test-model", "H100", 1, 1, false, "trained-physics", 4096),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(*mc, hwCfg, "test-model", "H100", 1, 1, false, "", "trained-physics", 4096),
 			PolicyConfig:        sim.NewPolicyConfig("fcfs", ""),
 		},
 		NumInstances:            2,
@@ -1981,7 +2001,7 @@ func TestINV13_RunReplayParity_PD(t *testing.T) {
 	}
 
 	// WHEN: direct run.
-	cs1 := cluster.NewClusterSimulator(cfg, requests, nil)
+	cs1 := cluster.NewClusterSimulator(cfg, cluster.NewSliceRequestSource(requests), nil)
 	if err := cs1.Run(); err != nil {
 		t.Fatalf("direct run failed: %v", err)
 	}
@@ -2009,7 +2029,7 @@ func TestINV13_RunReplayParity_PD(t *testing.T) {
 		t.Fatalf("LoadTraceV2Requests: %v", err)
 	}
 
-	cs2 := cluster.NewClusterSimulator(cfg, replayReqs, nil)
+	cs2 := cluster.NewClusterSimulator(cfg, cluster.NewSliceRequestSource(replayReqs), nil)
 	if err := cs2.Run(); err != nil {
 		t.Fatalf("replay run failed: %v", err)
 	}
@@ -2041,13 +2061,13 @@ func makeMinimalPDRequests(t *testing.T) []*sim.Request {
 	t.Helper()
 	reqs := make([]*sim.Request, 3)
 	for i := range reqs {
-		inputToks := make([]int, 10)
+		inputToks := make([]sim.TokenID, 10)
 		for j := range inputToks {
-			inputToks[j] = 100 + i*10 + j
+			inputToks[j] = sim.TokenID(100 + i*10 + j)
 		}
-		outputToks := make([]int, 5)
+		outputToks := make([]sim.TokenID, 5)
 		for j := range outputToks {
-			outputToks[j] = 200 + j
+			outputToks[j] = sim.TokenID(200 + j)
 		}
 		reqs[i] = &sim.Request{
 			ID:           fmt.Sprintf("request_%d", i),
@@ -2105,7 +2125,7 @@ func TestINV13_RunReplayParity_PD_CLI(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(1000, 16, 0, 0.9, 100.0, 0),
 			BatchConfig:         sim.NewBatchConfig(64, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs(betaCfg, alphaCfg),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(*mc, hwCfg, "test-model", "H100", 1, 1, false, "trained-physics", 4096),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(*mc, hwCfg, "test-model", "H100", 1, 1, false, "", "trained-physics", 4096),
 			PolicyConfig:        sim.NewPolicyConfig("fcfs", ""),
 		},
 		NumInstances:            2,
@@ -2117,7 +2137,7 @@ func TestINV13_RunReplayParity_PD_CLI(t *testing.T) {
 		PDTransferBandwidthGBps: 25.0,
 		PDTransferBaseLatencyMs: 0.05,
 	}
-	cs1 := cluster.NewClusterSimulator(cfg, requests, nil)
+	cs1 := cluster.NewClusterSimulator(cfg, cluster.NewSliceRequestSource(requests), nil)
 	if err := cs1.Run(); err != nil {
 		t.Fatalf("direct run failed: %v", err)
 	}

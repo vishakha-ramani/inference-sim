@@ -16,14 +16,14 @@ func TestClusterSimulator_TraceLevelNone_NilTrace(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances: 2,
 		TraceLevel:   "none",
 	}
 	requests := testGenerateRequests(42, 1000000, 1.0/1e6, 3,
 		0, 10, 0, 10, 10, 5, 0, 5, 5)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)
@@ -43,7 +43,7 @@ func TestClusterSimulator_TraceLevelDecisions_RecordsAllEvents(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances:    2,
 		TraceLevel:      "decisions",
@@ -51,7 +51,7 @@ func TestClusterSimulator_TraceLevelDecisions_RecordsAllEvents(t *testing.T) {
 	}
 	requests := testGenerateRequests(42, 10000000, 1.0/1e6, 5,
 		0, 10, 0, 10, 10, 5, 0, 5, 5)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)
@@ -85,7 +85,7 @@ func TestClusterSimulator_TraceLevelDecisions_WithCounterfactual(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances:         2,
 		RoutingPolicy:        "weighted",
@@ -95,7 +95,7 @@ func TestClusterSimulator_TraceLevelDecisions_WithCounterfactual(t *testing.T) {
 	}
 	requests := testGenerateRequests(42, 10000000, 1.0/1e6, 3,
 		0, 10, 0, 10, 10, 5, 0, 5, 5)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)
@@ -124,7 +124,7 @@ func TestClusterSimulator_TraceWithTokenBucket_RecordsRejections(t *testing.T) {
 			KVCacheConfig:       sim.NewKVCacheConfig(100, 16, 0, 0, 0, 0),
 			BatchConfig:         sim.NewBatchConfig(10, 2048, 0),
 			LatencyCoeffs:       sim.NewLatencyCoeffs([]float64{1000, 10, 5}, []float64{100, 50, 25}),
-			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "roofline", 0),
+			ModelHardwareConfig: sim.NewModelHardwareConfig(testRooflineModelConfig(), testRooflineHWCalib(), "", "", 1, 1, false, "", "roofline", 0),
 		},
 		NumInstances:          1,
 		AdmissionPolicy:       "token-bucket",
@@ -134,7 +134,7 @@ func TestClusterSimulator_TraceWithTokenBucket_RecordsRejections(t *testing.T) {
 	}
 	requests := testGenerateRequests(42, 5000000, 5.0/1e6, 10,
 		0, 10, 0, 10, 10, 5, 0, 5, 5)
-	cs := NewClusterSimulator(config, requests, nil)
+	cs := NewClusterSimulator(config, NewSliceRequestSource(requests), nil)
 
 	// WHEN run
 	mustRun(t, cs)

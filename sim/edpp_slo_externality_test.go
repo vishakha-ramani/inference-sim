@@ -8,7 +8,7 @@ import (
 func newSLOExternalityTestDecider(
 	t *testing.T,
 	cfgMutate func(*EDPPConfig),
-	cache map[string]func([]int) int,
+	cache map[string]func([]TokenID) int,
 	prefill func() []RoutingSnapshot,
 ) *EDPPDecider {
 	t.Helper()
@@ -191,8 +191,8 @@ func TestSLOCapacityQueueDrainsByElapsedServiceNotAdmission(t *testing.T) {
 }
 
 func TestSLOCapacityFullyCachedRequestStillBooksDecodeWork(t *testing.T) {
-	cache := map[string]func([]int) int{
-		"D0": func(tokens []int) int { return len(tokens) / 16 },
+	cache := map[string]func([]TokenID) int{
+		"D0": func(tokens []TokenID) int { return len(tokens) / 16 },
 	}
 	d := newSLOExternalityTestDecider(t, nil, cache, nil)
 	d.refreshSLOCapacity(0, []RoutingSnapshot{{ID: "D0"}}, nil)

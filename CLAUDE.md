@@ -84,6 +84,16 @@ go build -o blis main.go
   --think-time-dist "lognormal:mu=2.0,sigma=0.6,min=3s,max=30s" \
   --trace-header trace.yaml --trace-data trace.csv
 
+# Observe with system prewarm (recommended for cold systems, #1430)
+# --prewarm-duration: warms infrastructure (EPP/gateway connections, TCP pools)
+#   before measurement. Use for cold systems. Shape-independent.
+# --warmup-requests: excludes first N real-workload requests from trace.
+#   Use for statistical trimming. Rarely needed if --prewarm-duration is set.
+./blis observe --server-url http://localhost:8000 --model qwen/qwen3-14b \
+  --prewarm-duration 60s \
+  --workload chatbot --rate 10 --num-requests 100 \
+  --trace-header trace.yaml --trace-data trace.csv
+
 # Observe with ITL (inter-token latency) recording for streaming requests
 # --record-itl forces streaming on non-streaming workloads to capture per-chunk timestamps
 ./blis observe --server-url http://localhost:8000 --model qwen/qwen3-14b \
@@ -103,6 +113,51 @@ go build -o blis main.go
 # when ITL is configured but absent.
 ./blis calibrate --trace-header t.yaml --trace-data d.csv --sim-results results.json \
   --slo-ttft "critical=100ms" --slo-e2e "critical=5s" --report calibration.json
+
+# Compare LoRA adapter-cost fidelity vs a Digital Twin reference (#1470, US5).
+# Standalone mode: BLIS aggregate (from blis run --metrics-path) vs a committed DT
+# reference (per-config adapter_aware/adapter_blind), per-metric MAPE on TTFT +
+# throughput. --sim-metrics-blind enables the delta-normalized (aware/blind)
+# diagnostic that isolates the ported adapter physics. Does not use --trace-*.
+./blis calibrate --adapter-reference dt-ref.json \
+  --sim-metrics aware.json --sim-metrics-blind blind.json \
+  --adapter-mape-threshold 0.20 --report adapter-fidelity.json
+
+# Run with lazy request generation (alpha, #1441). Streams requests from the
+# workload generator into the cluster instead of pre-generating the full
+# slice — reduces peak generator memory from O(total_requests) to the
+# concurrent working set: the global heap holds one entry per client;
+# single-session reasoning holds at most one session's pending rounds, while
+# multi-session reasoning (#1458) holds its live (overlapping) sessions,
+# bounded by ~ arrival_rate x session_duration (Little's law) — independent
+# of horizon. (Cluster-side memory still scales with in-flight cluster
+# requests, which this PR does not change.)
+# Supports EVERY workload class — there is NO eager fallback (#1460):
+# single-shot; single-session AND multi-session reasoning (SingleSession=false,
+# #1458 — per-client live-session merge); concurrency clients (Concurrency > 0,
+# #1459 — seeds merged as individual heap entries; the win is modest for
+# pure-concurrency specs since the seed set is O(N virtual users)); time-varying
+# / per-window workloads (trace_rate/arrival/input_distribution/output_distribution
+# overrides, #1460 — per-window batches merged via a live-window heap, so resident
+# memory is the concurrent-window working set rather than all windows at once, a
+# real win for the many-small-windows layout typical of spike/servegen/diurnal
+# schedules; note a single huge window materializes one full batch, so it yields
+# no memory win over eager); prefix-group sharing; multi-client / cohort workloads.
+# Behavior with the flag off is unchanged.
+./blis run --model qwen/qwen3-14b --lazy-generation
+
+# Observe with lazy request generation (alpha, #1443). Same flag, default, and
+# semantics as `blis run` — streams requests from the generator into the observe
+# dispatch loop instead of pre-generating the full slice. As of #1460 there is no
+# eager fallback: every class blis run supports (multi-session reasoning #1458,
+# concurrency clients #1459, time-varying / per-window workloads #1460) is
+# streamed. Observe already paces
+# itself against the real server, so the memory win is smaller than run's; the
+# flag mainly makes run and observe share one generation pipeline (#1438). Default
+# (flag off) dispatch behavior is unchanged.
+./blis observe --server-url http://localhost:8000 --model qwen/qwen3-14b \
+  --workload chatbot --rate 10 --num-requests 100 --lazy-generation \
+  --trace-header trace.yaml --trace-data trace.csv
 
 # Convert workload formats
 ./blis convert preset --name chatbot --rate 10 --num-requests 100
@@ -246,6 +301,7 @@ Full details (verification strategies, evidence): see [`docs/contributing/standa
 - **INV-11 Session completeness**: Every session reaches exactly one terminal state: completed, cancelled, horizon-interrupted, or budget-exhausted (concurrency mode: global request cap reached). No session is silently abandoned. See `docs/contributing/standards/invariants.md`.
 - **INV-12 Phase 1 Completeness**: After Phase 1 of `FormBatch`, every non-preempted running request in decode phase has `NumNewTokens > 0`. No request silently skipped due to index drift from non-tail eviction. Trivially satisfied for FCFS. See `docs/contributing/standards/invariants.md`.
 - **INV-13 Run/Replay parity**: For any configuration supported by both `blis run` and `blis replay`, a trace exported via `--trace-output` and replayed with identical flags MUST produce identical per-request metrics. Unsupported replay features (autoscaler, node pools) MUST `logrus.Fatalf` at startup — never silent degradation. See `docs/contributing/standards/invariants.md`.
+- **INV-BC-DP1 Dense DP=1 step-time byte-identity**: For a dense model at `DP=1` (EP off), `trained-physics` `StepTime` MUST be byte-identical to the pre-#1419 value across the TP matrix (the DP/EP term split is value-preserving for dense). MoE step time intentionally changes (B1 expert-weight scoping + newly-charged MoE-FFN reduction) — a deliberate fidelity gain. See `docs/contributing/standards/invariants.md`.
 
 ### Engineering Principles
 
@@ -273,7 +329,9 @@ Full details: see [`docs/contributing/standards/principles.md`](docs/contributin
 
 ### Current Implementation Focus
 
-Composable Scorer Framework completed: PR17 (scorer framework + stateless scorers) and PR18 (prefix-affinity scorer + router-side cache). Default weighted routing profile: `precise-prefix-cache:2,queue-depth:1,kv-utilization:1` (llm-d parity). Precise prefix scoring (#883): `precise-prefix-cache` scorer queries actual instance KV cache state with min-max normalization (llm-d production parity); `no-hit-lru` scorer distributes cold requests to least-recently-used endpoints. Valid scorer names: `prefix-affinity`, `precise-prefix-cache`, `no-hit-lru`, `queue-depth`, `kv-utilization`, `load-balance`, `active-requests`, `running-requests`, `load-aware`, `vllm-dp`.
+Composable Scorer Framework completed: PR17 (scorer framework + stateless scorers) and PR18 (prefix-affinity scorer + router-side cache). Default weighted routing profile: `precise-prefix-cache:2,queue-depth:1,kv-utilization:1` (llm-d parity). Precise prefix scoring (#883): `precise-prefix-cache` scorer queries actual instance KV cache state with min-max normalization (llm-d production parity); `no-hit-lru` scorer distributes cold requests to least-recently-used endpoints. Valid scorer names: `prefix-affinity`, `precise-prefix-cache`, `no-hit-lru`, `queue-depth`, `kv-utilization`, `load-balance`, `active-requests`, `running-requests`, `load-aware`, `vllm-dp`, `lora-affinity` (#1469, off by default; scores instances with the request's adapter already resident higher, min-max normalized).
+
+LoRA control-plane subsystem (#1464, epic PRs 1–7): adapter identity + pre-declared `id→rank` registry, per-instance resident set (capacity-bounded LRU), three DT-derived cost terms (cold-load latency, per-step compute overhead, static HBM reservation), the `lora-affinity` scorer, and per-adapter metrics. No-op by default (`lora:` absent ⇒ byte-identical output, INV-6). Adapter ids round-trip through TraceV2 (trailing conditional `adapter` column) for run/replay parity (INV-13). Fidelity vs the Agullo Digital Twin (#1470, `blis calibrate --adapter-reference`): the compute-overhead (throughput) term validates ≤20% MAPE for both calibrated configs (Llama-3.1-8B-Instruct, Qwen-2.5-7B-Instruct); the absolute-TTFT leg is bounded but unsupported (BLIS ports adapter *deltas* onto its own separately-calibrated base, which differs from the DT's H100 base fit) — reported honestly, never silently passed.
 
 Phase 0 workload unification complete (see issue #420): W0-1 (spec v2 schema + SLO tiers), W0-2 (binary rename + converters), W0-3 (cohort population dynamics), W0-4 (legacy retirement). All workload generation now flows through `sim/workload/GenerateRequests()`. SLO tiers: critical, standard, sheddable, batch, background. Arrival processes: poisson, gamma, weibull, constant. CLI binary renamed from `simulation_worker` to `blis`.
 
