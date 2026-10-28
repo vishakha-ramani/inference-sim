@@ -14,7 +14,7 @@
         <link rel="prev" href="../results/">
       
       
-        <link rel="next" href="../experimentation/">
+        <link rel="next" href="../kv-offload-calibration/">
       
       
         
@@ -318,6 +318,28 @@
     
     
       <li class="md-tabs__item">
+        <a href="../../validation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Validation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
         <a href="../../reference/" class="md-tabs__link">
           
   
@@ -373,6 +395,25 @@
         </a>
       </li>
     
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
   
 
       
@@ -655,8 +696,6 @@
       
         
       
-        
-      
     
     
     
@@ -797,34 +836,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/roofline/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Roofline Estimation
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -845,6 +856,8 @@
       
         
           
+        
+      
         
       
         
@@ -940,7 +953,7 @@
   <span class="md-ellipsis">
     
   
-    Routing Policies
+    Routing (llm-d router)
   
 
     
@@ -1024,7 +1037,7 @@
   <span class="md-ellipsis">
     
   
-    Latency Models
+    Latency Kernel
   
 
     
@@ -1228,15 +1241,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#blis-observe" class="md-nav__link">
+  <a href="#blis-observe-deprecated" class="md-nav__link">
     <span class="md-ellipsis">
       
-        blis observe
+        blis observe (deprecated)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="blis observe">
+    <nav class="md-nav" aria-label="blis observe (deprecated)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1294,6 +1307,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#system-prewarming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Prewarming
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1339,15 +1363,93 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#blis-calibrate" class="md-nav__link">
+  <a href="#replaying-otel-agentic-traces" class="md-nav__link">
     <span class="md-ellipsis">
       
-        blis calibrate
+        Replaying OTel agentic traces
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="blis calibrate">
+    <nav class="md-nav" aria-label="Replaying OTel agentic traces">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#driving-the-corpus-against-a-real-server-blis-observe-deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Driving the corpus against a real server (blis observe, deprecated)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Driving the corpus against a real server (blis observe, deprecated)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#session-id-header-for-session-aware-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session-id header for session-aware routing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weka-cc-traces-blis-convert-weka" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weka CC traces (blis convert weka)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weka-subagent-replay-as-aiperf-runs-it-agentic-scenario-inferencex-agentx-mvp-1937" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weka subagent replay as aiperf runs it: --agentic-scenario inferencex-agentx-mvp (#1937)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#faithful-high-concurrency-replay-session-mode-fixed-accumulate-1692" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Faithful high-concurrency replay: --session-mode fixed-accumulate (#1692)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#blis-calibrate-deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        blis calibrate (deprecated)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="blis calibrate (deprecated)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1548,14 +1650,42 @@
   
   
     <li class="md-nav__item">
-      <a href="../experimentation/" class="md-nav__link">
+      <a href="../kv-offload-calibration/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Hypothesis Experimentation
+    KV Hit-Rate Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../archon-pr-review/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Archon PR Review
   
 
     
@@ -1644,14 +1774,14 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../reference/" class="md-nav__link ">
+            <a href="../../validation/" class="md-nav__link ">
               
   
   
   <span class="md-ellipsis">
     
   
-    Reference
+    Validation
   
 
     
@@ -1670,6 +1800,202 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Validation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/inferencex-agentic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    InferenceX DSV4.1 Agentic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/inferencex-single-turn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    InferenceX Single-Turn
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/internal-deployments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Internal llm-d Deployments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../validation/llm-d-prism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    llm-d Prism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1832,7 +2158,7 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1854,14 +2180,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1965,6 +2291,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -1980,7 +2314,7 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -2002,14 +2336,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2036,6 +2370,34 @@
     
   
     Extension Recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/llm-d-router-fork/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The llm-d Router Fork
   
 
     
@@ -2084,14 +2446,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/design-process/" class="md-nav__link">
+      <a href="../../contributing/cross-repo-changes/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design Process
+    Changes Across the BLIS Repositories
   
 
     
@@ -2112,14 +2474,70 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/macro-planning/" class="md-nav__link">
+      <a href="../../contributing/automated-delivery/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Macro Planning
+    Automated Delivery (L1)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/external-pr-review/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External PR Review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/rfc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RFC Template
   
 
     
@@ -2168,14 +2586,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/convergence/" class="md-nav__link">
+      <a href="../../contributing/perspectives/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Convergence Protocol
+    Review Perspectives
   
 
     
@@ -2197,8 +2615,6 @@
   
     
     
-      
-        
       
         
       
@@ -2221,17 +2637,17 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_8" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_11" >
         
           
-          <label class="md-nav__link" for="__nav_7_8" id="__nav_7_8_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_8_11" id="__nav_8_11_label" tabindex="0">
             
   
   
   <span class="md-ellipsis">
     
   
-    Standards
+    Archon
   
 
     
@@ -2242,12 +2658,12 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_8_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_8">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_11">
             <span class="md-nav__icon md-icon"></span>
             
   
-    Standards
+    Archon
   
 
           </label>
@@ -2260,14 +2676,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/standards/rules/" class="md-nav__link">
+      <a href="../../contributing/archon/baseline-analysis/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Antipattern Rules (R1-R23)
+    Baseline Analysis
   
 
     
@@ -2288,14 +2704,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/standards/invariants/" class="md-nav__link">
+      <a href="../../contributing/archon/encode-plan/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    System Invariants (INV-1-INV-11)
+    Encode Plan
   
 
     
@@ -2316,42 +2732,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/standards/principles/" class="md-nav__link">
+      <a href="../../contributing/archon/pr-review-context/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Engineering Principles
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../contributing/standards/experiments/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Experiment Standards
+    PR Review Context
   
 
     
@@ -2405,10 +2793,194 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7_9" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_12" >
         
           
-          <label class="md-nav__link" for="__nav_7_9" id="__nav_7_9_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_8_12" id="__nav_8_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standards
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Standards
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/standards/experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experiment Standards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/standards/rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Antipattern Rules (R1-R23)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/standards/invariants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System Invariants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/standards/principles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engineering Principles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_13" id="__nav_8_13_label" tabindex="0">
             
   
   
@@ -2426,8 +2998,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_9_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_9">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_13">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2472,14 +3044,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/templates/macro-plan/" class="md-nav__link">
+      <a href="../../contributing/templates/micro-plan/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Macro Plan
+    Micro Plan
   
 
     
@@ -2500,14 +3072,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/templates/micro-plan/" class="md-nav__link">
+      <a href="../../contributing/templates/archon-issue-examples/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Micro Plan
+    Archon Issue Examples
   
 
     
@@ -2570,6 +3142,33 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
       
@@ -2596,7 +3195,7 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_10" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -2618,14 +3217,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_8">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2663,10 +3262,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_2" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_10_2" >
         
           
-          <label class="md-nav__link" for="__nav_8_2" id="__nav_8_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_10_2" id="__nav_10_2_label" tabindex="0">
             
   
   
@@ -2684,8 +3283,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_8_2">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_10_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10_2">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2765,10 +3364,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_3" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_10_3" >
         
           
-          <label class="md-nav__link" for="__nav_8_3" id="__nav_8_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_10_3" id="__nav_10_3_label" tabindex="0">
             
   
   
@@ -2786,8 +3385,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_8_3">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_10_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2970,15 +3569,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#blis-observe" class="md-nav__link">
+  <a href="#blis-observe-deprecated" class="md-nav__link">
     <span class="md-ellipsis">
       
-        blis observe
+        blis observe (deprecated)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="blis observe">
+    <nav class="md-nav" aria-label="blis observe (deprecated)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3036,6 +3635,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#system-prewarming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Prewarming
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3081,15 +3691,93 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#blis-calibrate" class="md-nav__link">
+  <a href="#replaying-otel-agentic-traces" class="md-nav__link">
     <span class="md-ellipsis">
       
-        blis calibrate
+        Replaying OTel agentic traces
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="blis calibrate">
+    <nav class="md-nav" aria-label="Replaying OTel agentic traces">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#driving-the-corpus-against-a-real-server-blis-observe-deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Driving the corpus against a real server (blis observe, deprecated)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Driving the corpus against a real server (blis observe, deprecated)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#session-id-header-for-session-aware-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session-id header for session-aware routing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weka-cc-traces-blis-convert-weka" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weka CC traces (blis convert weka)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#weka-subagent-replay-as-aiperf-runs-it-agentic-scenario-inferencex-agentx-mvp-1937" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weka subagent replay as aiperf runs it: --agentic-scenario inferencex-agentx-mvp (#1937)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#faithful-high-concurrency-replay-session-mode-fixed-accumulate-1692" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Faithful high-concurrency replay: --session-mode fixed-accumulate (#1692)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#blis-calibrate-deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        blis calibrate (deprecated)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="blis calibrate (deprecated)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3295,17 +3983,25 @@
 
 
 <h1 id="observe-replay-calibrate">Observe / Replay / Calibrate<a class="headerlink" href="#observe-replay-calibrate" title="Permanent link">&para;</a></h1>
-<p>This guide covers the end-to-end pipeline for validating BLIS simulator accuracy against real inference servers: observe real latencies, replay the captured trace through the DES, and calibrate by comparing results.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Quick example: observe a real server, replay through the simulator, compare</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>./blis<span class="w"> </span>observe<span class="w"> </span>--server-url<span class="w"> </span>http://localhost:8000<span class="w"> </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--workload-spec<span class="w"> </span>workload.yaml<span class="w"> </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span>--trace-data<span class="w"> </span>trace.csv
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>./blis<span class="w"> </span>replay<span class="w"> </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span>--results-path<span class="w"> </span>results.json
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>./blis<span class="w"> </span>calibrate<span class="w"> </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span>--sim-results<span class="w"> </span>results.json<span class="w"> </span>--report<span class="w"> </span>calibration.json
+<p>This guide covers trace workloads: replaying a captured or converted TraceV2 through the DES (<code>blis replay</code>), and the older pipeline that records a real server's latencies (<code>blis observe</code>) and compares them with the simulator's (<code>blis calibrate</code>).</p>
+<div class="admonition warning">
+<p class="admonition-title"><code>blis observe</code> and <code>blis calibrate</code> are deprecated</p>
+<p>Both commands are deprecated (<a href="https://github.com/inference-sim/inference-sim/issues/1901">#1901</a>) and documented here for existing users only. <code>blis replay</code> is <strong>not</strong> deprecated: it is the command for every trace workload — a trace exported by <code>blis run --trace-output</code>, or one produced by <code>blis convert weka|otel|inference-perf|servegen</code> — and runs on blis-latency-kernel through the same deployment path as <code>blis run</code>.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Replay a trace through the simulator (the scenario states the deployment)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>./blis<span class="w"> </span>replay<span class="w"> </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--scenario<span class="w"> </span>llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>--scenarios<span class="w"> </span>&lt;dir<span class="w"> </span>of<span class="w"> </span>scenario<span class="w"> </span>files&gt;<span class="w"> </span>--registry<span class="w"> </span><span class="nv">$PWD</span>/blis-registry<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span>--results-path<span class="w"> </span>results.json
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Deprecated (#1901): observe a real server, then compare it with the replay</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>./blis<span class="w"> </span>observe<span class="w"> </span>--server-url<span class="w"> </span>http://localhost:8000<span class="w"> </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span>--workload-spec<span class="w"> </span>workload.yaml<span class="w"> </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span>--trace-data<span class="w"> </span>trace.csv
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>./blis<span class="w"> </span>calibrate<span class="w"> </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span>--sim-results<span class="w"> </span>results.json<span class="w"> </span>--report<span class="w"> </span>calibration.json
 </code></pre></div>
 <h2 id="pipeline-overview">Pipeline Overview<a class="headerlink" href="#pipeline-overview" title="Permanent link">&para;</a></h2>
-<p>The observe/replay/calibrate pipeline has three stages:</p>
+<p>The observe/replay/calibrate pipeline has three stages (observe and calibrate are deprecated, #1901):</p>
 <table>
 <thead>
 <tr>
@@ -3350,7 +4046,10 @@
 </code></pre></div>
 <p><strong>Why three separate commands?</strong> Each stage is independently useful. You can observe without replaying (to collect latency baselines), replay without calibrating (to test simulator behavior on real traces), or re-calibrate with different simulator configs without re-observing.</p>
 <hr />
-<h2 id="blis-observe"><code>blis observe</code><a class="headerlink" href="#blis-observe" title="Permanent link">&para;</a></h2>
+<h2 id="blis-observe-deprecated"><code>blis observe</code> (deprecated)<a class="headerlink" href="#blis-observe-deprecated" title="Permanent link">&para;</a></h2>
+<div class="admonition warning">
+<p class="admonition-title">Deprecated (<a href="https://github.com/inference-sim/inference-sim/issues/1901">#1901</a>)</p>
+</div>
 <p>Dispatches requests to a real inference server, records per-request timing (TTFT, E2E latency, token counts), and exports the results as a TraceV2 file pair.</p>
 <h3 id="required-flags">Required Flags<a class="headerlink" href="#required-flags" title="Permanent link">&para;</a></h3>
 <table>
@@ -3403,7 +4102,7 @@
 <tr>
 <td><strong>Named preset</strong></td>
 <td><code>--workload &lt;name&gt; --rate &lt;N&gt;</code></td>
-<td>Standard workload from <code>defaults.yaml</code>; identical token distributions to <code>blis run --workload &lt;name&gt;</code></td>
+<td>Standard workload from the catalog (<code>&lt;catalog&gt;/workloads/&lt;name&gt;.yaml</code>, #1769); identical token distributions to <code>blis run --workload &lt;name&gt;</code>, which reads the same file</td>
 </tr>
 <tr>
 <td><strong>Workload spec</strong></td>
@@ -3530,6 +4229,12 @@
 <td>Number of initial requests to exclude from trace</td>
 </tr>
 <tr>
+<td><code>--prewarm-duration</code></td>
+<td><code>duration</code></td>
+<td><code>0</code></td>
+<td>System priming phase before real workload (e.g., <code>60s</code>). Sends small fixed requests at low concurrency to warm CUDA/EPP/memory. 0 = disabled</td>
+</tr>
+<tr>
 <td><code>--no-streaming</code></td>
 <td><code>bool</code></td>
 <td><code>false</code></td>
@@ -3554,6 +4259,12 @@
 <td>Maximum requests to generate (0 = from spec or unlimited)</td>
 </tr>
 <tr>
+<td><code>--lazy-generation</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Alpha (#1441/#1443): stream requests from the generator instead of pre-generating the full slice (same flag/semantics as <code>blis run</code>). Supports every workload class — multi-session reasoning (<code>SingleSession=false</code>, #1458), concurrency clients (<code>concurrency &gt; 0</code>, #1459), and time-varying / per-window workloads (#1460); there is no eager fallback. Default (off) dispatch behavior is unchanged</td>
+</tr>
+<tr>
 <td><code>--think-time-ms</code></td>
 <td><code>int</code></td>
 <td><code>0</code></td>
@@ -3569,13 +4280,7 @@
 <td><code>--unconstrained-output</code></td>
 <td><code>bool</code></td>
 <td><code>false</code></td>
-<td>Do not set <code>max_tokens</code> (let server decide output length)</td>
-</tr>
-<tr>
-<td><code>--min-tokens</code></td>
-<td><code>int</code></td>
-<td><code>0</code></td>
-<td>Set <code>min_tokens</code> in request body; requests server to generate at least N tokens before EOS. Set equal to <code>--output-tokens</code> for exact output length control (0 = omit). Compatible with <code>--unconstrained-output</code>: <code>min_tokens</code> is still sent, <code>max_tokens</code> is still omitted</td>
+<td>Do not constrain output length: omit <code>min_tokens</code>, and omit <code>max_tokens</code> (chat) or send MaxInt32 (completions). Without it each request sends <code>min_tokens</code> = <code>max_tokens</code> = its sampled output length, so the server generates exactly that many tokens (there is no separate <code>--min-tokens</code> flag)</td>
 </tr>
 <tr>
 <td><code>--timeout</code></td>
@@ -3590,16 +4295,16 @@
 <td>Measured network round-trip time in milliseconds</td>
 </tr>
 <tr>
-<td><code>--defaults-filepath</code></td>
+<td><code>--catalog</code></td>
 <td><code>string</code></td>
-<td><code>"defaults.yaml"</code></td>
-<td>Path to <code>defaults.yaml</code> containing preset definitions (preset mode only)</td>
+<td><code>""</code></td>
+<td>Catalog clone root holding <code>workloads/&lt;name&gt;.yaml</code> (preset mode only). No default; <code>BLIS_CATALOG</code> is the fallback, and the flag wins when both are set (#1769 replaced <code>--defaults-filepath</code> here)</td>
 </tr>
 <tr>
 <td><code>--record-itl</code></td>
 <td><code>bool</code></td>
 <td><code>false</code></td>
-<td>Record per-chunk timestamps for ITL calibration (streaming only; use with <code>--itl-output</code>)</td>
+<td>Record per-chunk timestamps for ITL calibration (forces streaming per request; mutually exclusive with <code>--no-streaming</code>; use with <code>--itl-output</code>)</td>
 </tr>
 <tr>
 <td><code>--itl-output</code></td>
@@ -3720,9 +4425,19 @@
 <p class="admonition-title">Session support</p>
 <p>If the workload spec contains session clients, observe runs in closed-loop mode: each completed request may trigger follow-up requests from the session manager, interleaved with pre-generated arrivals by arrival time.</p>
 </div>
+<h3 id="system-prewarming">System Prewarming<a class="headerlink" href="#system-prewarming" title="Permanent link">&para;</a></h3>
+<p>When targeting a cold system (fresh vLLM restart, new EPP connections), the first 30-60s of requests typically see 20-25x worse latency due to CUDA kernel compilation, memory allocator priming, and connection establishment. At high target rates, this cold-start transient can even trigger queue collapse.</p>
+<p>The <code>--prewarm-duration</code> flag addresses this by running a fixed priming phase before measurement begins:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>./blis<span class="w"> </span>observe<span class="w"> </span>--server-url<span class="w"> </span>http://localhost:8000<span class="w"> </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>--prewarm-duration<span class="w"> </span>60s<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>--workload<span class="w"> </span>chatbot<span class="w"> </span>--rate<span class="w"> </span><span class="m">20</span><span class="w"> </span>--num-requests<span class="w"> </span><span class="m">500</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span>--trace-data<span class="w"> </span>trace.csv
+</code></pre></div>
+<p>The prewarm phase sends small, fixed requests (256 input tokens, 64 output tokens) at low concurrency (4 simultaneous requests). This exercises the full request path without risking overload, regardless of the real workload's rate or token sizes. Prewarm requests never appear in <code>trace_data.csv</code>.</p>
+<p><strong>Which warmup flag?</strong> Use <code>--prewarm-duration</code> when targeting a cold system (fresh restart, new connections). Use <code>--warmup-requests</code> only if you need to exclude initial requests for other reasons (e.g., rate ramp-up). You typically don't need both.</p>
 <hr />
 <h2 id="blis-replay"><code>blis replay</code><a class="headerlink" href="#blis-replay" title="Permanent link">&para;</a></h2>
-<p>Replays a captured TraceV2 file through the BLIS discrete-event simulator. Instead of generating synthetic requests, replay loads real request timing and token counts from the trace.</p>
+<p>Replays a TraceV2 file through the BLIS discrete-event simulator. Instead of generating synthetic requests, replay loads request timing and token counts from the trace. It takes the same deployment inputs as <code>blis run</code> — <code>--scenario</code>, <code>--scenarios</code>, <code>--registry</code> and the catalog (<code>--catalog</code> or <code>BLIS_CATALOG</code>) — and builds the deployment and its kernels through the same code path.</p>
 <h3 id="replay-specific-flags">Replay-Specific Flags<a class="headerlink" href="#replay-specific-flags" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3753,10 +4468,22 @@
 <td>File to write SimResult JSON for <code>blis calibrate</code> consumption</td>
 </tr>
 <tr>
-<td><code>--model</code></td>
+<td><code>--scenario</code></td>
 <td><code>string</code></td>
 <td><code>""</code></td>
-<td>LLM name (required)</td>
+<td>Scenario file name within <code>--scenarios</code> (required)</td>
+</tr>
+<tr>
+<td><code>--scenarios</code></td>
+<td><code>string</code></td>
+<td><code>""</code></td>
+<td>Directory of scenario YAMLs (required)</td>
+</tr>
+<tr>
+<td><code>--registry</code></td>
+<td><code>string</code></td>
+<td><code>""</code></td>
+<td>blis-registry clone root (required)</td>
 </tr>
 <tr>
 <td><code>--trace-output</code></td>
@@ -3766,7 +4493,36 @@
 </tr>
 </tbody>
 </table>
-<p>Replay also accepts all shared simulation config flags (<code>--latency-model</code>, <code>--total-kv-blocks</code>, <code>--max-num-running-reqs</code>, etc.) — the same flags available in <code>blis run</code>. See <a href="../../reference/configuration/">Configuration</a> for the full list.</p>
+<p>Replay also accepts the shared simulation flags <code>blis run</code> keeps — the llm-d router's environment flags (<code>--gateway-latency</code>, <code>--epp-scrape-jitter</code>, <code>--kv-event-delay</code>; its deployment inputs are the scenario's <code>router:</code> block and pool labels), scheduling, saturation detection, <code>--num-instances</code>, P/D topology, LoRA, the speculative acceptance flags (<code>--speculative-acceptance-rate</code>/<code>-length</code> and the selectors; a run's <code>--workload</code> preset terms are not in the trace, so a replay passes them as selectors), KV offload, seed and horizon. Engine settings (block size, batch limits, max model length, prefix caching, cache dtype, parallelism, speculative draft length) come from the scenario. See <a href="../../reference/configuration/">Configuration</a> for the full list.</p>
+<p>A trace exported by <code>blis run</code> records the router inputs in its header (with any
+configuration inlined). Replay rebuilds that router. A replay scenario that states a router
+(<code>router:</code> block or pool labels) must state the recorded one, and router environment flags must
+match the recorded ones; a difference is refused. A scenario that states no router replays the
+recorded one. A trace without a recorded router (one from <code>blis observe</code> or <code>blis convert</code>)
+routes with the router the scenario states, or the router's default configuration.</p>
+<div class="admonition note">
+<p class="admonition-title">Replay with the same scenario and flags as the run</p>
+<p>The deployment is not round-tripped through the trace header: replay rebuilds it from
+<code>--scenario</code> (and the kernel's KV budget) exactly as <code>blis run</code> does. A trace exported by
+<code>blis run</code> and replayed with the <strong>same scenario and identical flags, including
+<code>--horizon</code></strong>, produces byte-identical stdout (INV-13). Pass <code>--horizon</code> on both legs:
+<code>blis run</code> defaults it to unlimited while <code>blis replay</code> auto-computes 2x the max arrival
+time (see the table below), so a default-horizon replay may truncate a run that was still
+draining. An MoE scenario with <code>dp &gt; 1</code> replays the same way — one replica per
+data-parallel rank on both legs. The autoscaler and node pools are rejected by
+<code>blis replay</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># 9223372036854775807 is 2^63-1 — `blis run`'s own --horizon default, i.e. unlimited.</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>./blis<span class="w"> </span>run<span class="w"> </span>--scenario<span class="w"> </span>llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span>--scenarios<span class="w"> </span>&lt;dir<span class="w"> </span>of<span class="w"> </span>scenario<span class="w"> </span>files&gt;<span class="w"> </span>--registry<span class="w"> </span><span class="nv">$PWD</span>/blis-registry<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span>--rate<span class="w"> </span><span class="m">10</span><span class="w"> </span>--num-requests<span class="w"> </span><span class="m">40</span><span class="w"> </span>--seed<span class="w"> </span><span class="m">42</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span>--horizon<span class="w"> </span><span class="m">9223372036854775807</span><span class="w"> </span>--trace-output<span class="w"> </span>traces/run1
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>./blis<span class="w"> </span>replay<span class="w"> </span>--trace-header<span class="w"> </span>traces/run1.yaml<span class="w"> </span>--trace-data<span class="w"> </span>traces/run1.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">  </span>--scenario<span class="w"> </span>llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">  </span>--scenarios<span class="w"> </span>&lt;dir<span class="w"> </span>of<span class="w"> </span>scenario<span class="w"> </span>files&gt;<span class="w"> </span>--registry<span class="w"> </span><span class="nv">$PWD</span>/blis-registry<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">  </span>--seed<span class="w"> </span><span class="m">42</span><span class="w"> </span>--horizon<span class="w"> </span><span class="m">9223372036854775807</span>
+</code></pre></div>
+</div>
 <h3 id="how-replay-differs-from-blis-run">How Replay Differs from <code>blis run</code><a class="headerlink" href="#how-replay-differs-from-blis-run" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3799,8 +4555,8 @@
 </tr>
 <tr>
 <td><strong>Output format</strong></td>
-<td>Full <code>MetricsOutput</code> JSON</td>
-<td><code>SimResult</code> JSON array (request_id, ttft_us, e2e_us, input_tokens, output_tokens)</td>
+<td>Full <code>MetricsOutput</code> JSON on stdout</td>
+<td>Same full <code>MetricsOutput</code> JSON on stdout; <code>--results-path</code> additionally writes a <code>SimResult</code> JSON array (request_id, ttft_us, e2e_us, input_tokens, output_tokens) for <code>blis calibrate</code></td>
 </tr>
 <tr>
 <td><strong>Session support</strong></td>
@@ -3810,16 +4566,367 @@
 <tr>
 <td><strong>Trace export</strong></td>
 <td><code>--trace-output</code> (header <code>mode: "generated"</code>)</td>
-<td><code>--trace-output</code> (header <code>mode: "replayed"</code>)</td>
+<td><code>--trace-output</code> (header <code>mode: "replayed"</code>); see restrictions below</td>
 </tr>
 </tbody>
 </table>
+<div class="admonition note">
+<p class="admonition-title"><code>--trace-output</code> faithfully re-exports closed-loop follow-up rounds (#1630)</p>
+<p>A closed-loop replay's <code>--trace-output</code> captures <strong>every</strong> round — the round-0
+requests <strong>and</strong> the follow-up rounds the session manager / pool driver generate
+during the run (previously only the round-0 wave was exported, #1621):</p>
+<ul>
+<li><strong>Accumulate corpus</strong> (<code>session_context_growth: accumulate</code> — e.g. a
+  <code>blis convert otel</code> / <code>blis convert weka</code> corpus): the re-export re-derives per-round
+  <code>input_tokens</code> <strong>deltas</strong> and <code>input_tokens_reset</code> compaction markers from the
+  replayed absolute inputs, sets <code>session_context_growth: accumulate</code> on the header,
+  and records the per-round think time. Re-replaying it (closed-loop) reproduces the
+  original run's per-request per-round input and metrics (INV-13 round-trip).</li>
+<li><strong>Non-accumulate multi-round corpus</strong>: the re-export carries absolute per-round
+  <code>input_tokens</code> (follow-ups inherit their session's <code>prefix_group</code>/<code>prefix_length</code>,
+  so the prefix is not double-counted) plus the captured <code>think_time_us</code>.</li>
+<li><strong>Pool mode</strong> (<code>--concurrent-sessions N</code>): the re-export is a <strong>complete</strong> session
+  corpus — all sessions (originals + clones) with every round, as a closed-loop
+  corpus. Replay it with <code>--session-mode closed-loop</code> (it is not re-cloned). Aggregate
+  <strong>conservation</strong> metrics (completed/injected requests, total input/output tokens)
+  reproduce; per-request and cache/latency aggregates are not guaranteed — pool
+  admission timing is data-dependent, and a non-accumulate clone's cache-busting
+  divergence is not preserved when it shares a <code>prefix_group</code>.</li>
+</ul>
+<p>Fixed-mode (<code>--session-mode fixed</code>) re-export is unchanged. Known boundary: a
+length-capped round (output truncated by the scenario's <code>max_model_len</code>) reproduces its
+input length but may diverge in prefix-cache token <em>content</em> across the cap boundary —
+replay huge-ISL agentic corpora with a scenario whose <code>max_model_len</code> is large enough to
+avoid capping.</p>
+</div>
 <div class="admonition warning">
-<p class="admonition-title">Latency model matters</p>
-<p>The replay command simulates token generation using the configured latency model. For accurate calibration, choose the latency model that best matches the server's behavior. See <a href="../latency-models/">Latency Models</a> for guidance on selecting between roofline and trained-physics modes.</p>
+<p class="admonition-title">The scenario must match the server</p>
+<p>Replay prices every step with blis-latency-kernel for the deployment the scenario states. To compare against a real server, the scenario's model, hardware, parallelism and engine settings must match that server's. See <a href="../latency-models/">Latency Model</a>.</p>
 </div>
 <hr />
-<h2 id="blis-calibrate"><code>blis calibrate</code><a class="headerlink" href="#blis-calibrate" title="Permanent link">&para;</a></h2>
+<h2 id="replaying-otel-agentic-traces">Replaying OTel agentic traces<a class="headerlink" href="#replaying-otel-agentic-traces" title="Permanent link">&para;</a></h2>
+<p>BLIS can replay captured OpenTelemetry agent traces (e.g. the Exgentic
+<code>agent-llm-traces</code> dataset) as a fixed pool of N concurrent closed-loop sessions.
+Each session is a linear chain of LLM calls: BLIS waits for call N to complete,
+applies the recorded think/tool gap, then sends call N+1 — whose prompt reuses
+call N's entire prompt plus its output plus new tokens (a strictly-growing shared
+prefix for realistic KV-cache reuse).</p>
+<p>The dataset ships as Parquet, so first explode it to per-session OTel JSON:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow.parquet</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pq</span><span class="o">,</span><span class="w"> </span><span class="nn">json</span><span class="o">,</span><span class="w"> </span><span class="nn">os</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="s2">"otel_json"</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">t</span> <span class="o">=</span> <span class="n">pq</span><span class="o">.</span><span class="n">read_table</span><span class="p">(</span><span class="s2">"data/train-00001-of-00039.parquet"</span><span class="p">)</span><span class="o">.</span><span class="n">to_pylist</span><span class="p">()</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>    <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">({</span><span class="s2">"spans"</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="s2">"spans"</span><span class="p">]},</span> <span class="nb">open</span><span class="p">(</span><span class="sa">f</span><span class="s2">"otel_json/trace_</span><span class="si">{</span><span class="n">i</span><span class="si">:</span><span class="s2">04d</span><span class="si">}</span><span class="s2">.json"</span><span class="p">,</span> <span class="s2">"w"</span><span class="p">))</span>
+</code></pre></div>
+<p>Then convert and replay:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Convert the trace corpus to a TraceV2 pair (accumulate = growing shared prefix).</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>blis<span class="w"> </span>convert<span class="w"> </span>otel<span class="w"> </span>--input<span class="w"> </span>otel_json<span class="w"> </span>--trace-output<span class="w"> </span>corpus<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span>--context-growth<span class="w"> </span>accumulate<span class="w"> </span>--max-think-time<span class="w"> </span>15s
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="c1"># Replay a fixed pool of 8 concurrent sessions, 200 total (corpus duplicated to fill).</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>blis<span class="w"> </span>replay<span class="w"> </span>--trace-header<span class="w"> </span>corpus.yaml<span class="w"> </span>--trace-data<span class="w"> </span>corpus.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">  </span>--scenario<span class="w"> </span>llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span>--scenarios<span class="w"> </span>&lt;dir<span class="w"> </span>of<span class="w"> </span>scenario<span class="w"> </span>files&gt;<span class="w"> </span>--registry<span class="w"> </span><span class="nv">$PWD</span>/blis-registry<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span>--concurrent-sessions<span class="w"> </span><span class="m">8</span><span class="w"> </span>--total-sessions<span class="w"> </span><span class="m">200</span>
+</code></pre></div>
+<p>The recorded source model names are pure provenance and are dropped during
+conversion — all calls are simulated under the scenario's model. (They are deliberately not
+written into the trace: <code>TraceRecord.Model</code> becomes the request's model at replay, and
+a name that differs from the simulated model would report every request under a model
+the run never simulated.)
+<code>--concurrent-sessions</code> implies closed-loop session semantics; without it,
+replay behaves as a standard fixed/closed-loop replay.</p>
+<h3 id="driving-the-corpus-against-a-real-server-blis-observe-deprecated">Driving the corpus against a real server (<code>blis observe</code>, deprecated)<a class="headerlink" href="#driving-the-corpus-against-a-real-server-blis-observe-deprecated" title="Permanent link">&para;</a></h3>
+<p><code>blis observe</code> and <code>blis calibrate</code> are deprecated (<a href="https://github.com/inference-sim/inference-sim/issues/1901">#1901</a>).</p>
+<p>The same corpus can be driven against a <strong>live inference server</strong> — the
+observe-side twin of <code>blis replay --concurrent-sessions</code>. This records real
+observed timing so <code>blis calibrate</code> can compare the real server against the
+simulator over the <em>identical</em> session set:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Drive the corpus as a fixed pool of 8 concurrent sessions, 200 total, against</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="c1"># a live server, recording observed timing into observed.{yaml,csv}.</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>blis<span class="w"> </span>observe<span class="w"> </span>--server-url<span class="w"> </span>http://localhost:8000<span class="w"> </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span>--corpus-header<span class="w"> </span>corpus.yaml<span class="w"> </span>--corpus-data<span class="w"> </span>corpus.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span>--concurrent-sessions<span class="w"> </span><span class="m">8</span><span class="w"> </span>--total-sessions<span class="w"> </span><span class="m">200</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">  </span>--trace-header<span class="w"> </span>observed.yaml<span class="w"> </span>--trace-data<span class="w"> </span>observed.csv
+</code></pre></div>
+<p><code>--corpus-header</code> / <code>--corpus-data</code> name the <strong>input</strong> corpus (the pair produced
+by <code>convert otel</code>); <code>--trace-header</code> / <code>--trace-data</code> remain the <strong>output</strong>
+observed trace. Corpus-mode (<code>--concurrent-sessions &gt; 0</code>) is mutually exclusive
+with the spec-mode inputs (<code>--workload</code>, <code>--workload-spec</code>, <code>--rate</code>,
+<code>--concurrency</code>) — a corpus <em>is</em> the workload. <code>--max-concurrency</code> is
+auto-raised to the pool size if set lower, so the pool is never throttled. The
+pool self-drains all <code>--total-sessions</code> sessions (observe bounds the run by the
+session count, not a clock). Because of that self-draining, the spec-mode
+bounding flags <code>--horizon</code> and <code>--num-requests</code> have no meaning in corpus-mode
+and are rejected rather than silently ignored — size the run with
+<code>--total-sessions</code>.</p>
+<p><code>--shuffle-corpus</code> works in corpus-mode here too, and draws the <strong>same</strong> seeded
+permutation as <code>blis replay --shuffle-corpus</code> (both salt the master <code>--seed</code>
+identically). So observe and replay of one corpus under the same <code>--seed</code> select
+the identical subset and admission order — exactly what you want when calibrating
+the simulator against the real server over a matched session set. See the
+subsetting tip below for the selection semantics.</p>
+<h4 id="session-id-header-for-session-aware-routing">Session-id header for session-aware routing<a class="headerlink" href="#session-id-header-for-session-aware-routing" title="Permanent link">&para;</a></h4>
+<p>Each round is an independent HTTP request, so a session-aware gateway/EPP
+(session-affinity or predictive-least-loaded pinning) needs the session id on
+the wire to keep a session's rounds on one instance (issue #1505). <code>blis observe</code>
+emits it on the <code>--session-id-header</code> header — default <code>x-session-id</code> — for every request carrying a session id:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>blis<span class="w"> </span>observe<span class="w"> </span>--server-url<span class="w"> </span>http://localhost:8000<span class="w"> </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--corpus-header<span class="w"> </span>corpus.yaml<span class="w"> </span>--corpus-data<span class="w"> </span>corpus.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span>--concurrent-sessions<span class="w"> </span><span class="m">8</span><span class="w"> </span>--total-sessions<span class="w"> </span><span class="m">200</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span>--session-id-header<span class="w"> </span>x-session-id<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span>--trace-header<span class="w"> </span>observed.yaml<span class="w"> </span>--trace-data<span class="w"> </span>observed.csv
+</code></pre></div>
+<p>Set <code>--session-id-header</code> to match your deployment's session-id-producer, or to
+the empty string to disable emission. It applies to any session-bearing request
+— corpus-mode (<code>--concurrent-sessions</code>) and spec-mode closed-loop
+(<code>--concurrency</code>) alike. Closed-loop replay is the wire producer of this header:
+real captured clients carry the session in telemetry, not on the request.</p>
+<p>To calibrate real vs simulated over the same corpus:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>blis<span class="w"> </span>replay<span class="w"> </span>--trace-header<span class="w"> </span>corpus.yaml<span class="w"> </span>--trace-data<span class="w"> </span>corpus.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>--scenario<span class="w"> </span>llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span>--scenarios<span class="w"> </span>&lt;dir<span class="w"> </span>of<span class="w"> </span>scenario<span class="w"> </span>files&gt;<span class="w"> </span>--registry<span class="w"> </span><span class="nv">$PWD</span>/blis-registry<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span>--concurrent-sessions<span class="w"> </span><span class="m">8</span><span class="w"> </span>--total-sessions<span class="w"> </span><span class="m">200</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">  </span>--results-path<span class="w"> </span>sim.results.json
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>blis<span class="w"> </span>calibrate<span class="w"> </span>--trace-header<span class="w"> </span>observed.yaml<span class="w"> </span>--trace-data<span class="w"> </span>observed.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">  </span>--sim-results<span class="w"> </span>sim.results.json<span class="w"> </span>--report<span class="w"> </span>calibration.json
+</code></pre></div>
+<p>By default the pool is <strong>self-draining</strong>: it runs until all <code>--total-sessions</code>
+sessions complete, regardless of how many waves that takes. For <strong><code>blis replay</code></strong>
+corpus-mode you may pass <code>--horizon</code> to impose a hard wall-clock cap on the
+simulated run — sessions still queued when the cap is reached are reported as
+un-admitted (a warning is logged) rather than silently dropped. <strong><code>blis observe</code></strong>
+corpus-mode has no such cap: it always self-drains on session count and rejects
+<code>--horizon</code> / <code>--num-requests</code> (see above), since a live run is bounded by the
+corpus, not a clock.</p>
+<div class="admonition tip">
+<p class="admonition-title">Subsetting a large corpus: add <code>--shuffle-corpus</code></p>
+<p><code>--total-sessions N</code> on its own is <strong>deterministic, ordered selection</strong>, not a
+random sample: with <code>N</code> below the corpus size it replays the <strong>first <code>N</code>
+sessions in file order</strong> and never touches the tail — a biased sample for a
+time-sorted or harness-grouped corpus. To draw a <em>representative</em> subset, add
+<code>--shuffle-corpus</code>, which applies a seeded Fisher-Yates permutation (reproducible
+from <code>--seed</code>, on a stream independent of token generation) before selection:
+<code>--total-sessions N --shuffle-corpus</code> yields a seeded-random <code>N</code>-of-corpus
+subset, while <code>--total-sessions ≥ corpus</code> simply randomizes the admission order
+with every session still running.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Size the context window to the trace</p>
+<p>Real agentic traces (e.g. Exgentic <code>agent-llm-traces</code>) often carry very large
+prompts — tens of thousands to well over 100K input tokens per call, growing
+further each round as the shared prefix accumulates — which can exceed a
+scenario's <code>max_model_len</code>. If the run completes cleanly but reports
+<code>completed_requests: 0</code> with a matching <code>dropped_unservable</code> count, the prompts
+didn't fit: use a scenario whose <code>max_model_len</code> covers the largest round, on a
+deployment whose KV budget (computed by the kernel from the scenario) can hold the
+growing sessions.</p>
+</div>
+<h3 id="weka-cc-traces-blis-convert-weka">Weka CC traces (<code>blis convert weka</code>)<a class="headerlink" href="#weka-cc-traces-blis-convert-weka" title="Permanent link">&para;</a></h3>
+<p>The <a href="https://huggingface.co/datasets/semianalysisai/cc-traces-weka-with-subagents-051926">SemiAnalysis WekaTrace</a>
+datasets are a second agentic-trace family. Unlike the OTel/Exgentic corpus they ship
+as <strong>JSONL</strong> — one proxy session per line — so no Parquet explosion step is needed:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Convert (one session per JSONL line) to the same TraceV2 corpus format.</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="c1"># --drop-subagents: this dataset's sessions carry sub-agent groups (see below).</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>blis<span class="w"> </span>convert<span class="w"> </span>weka<span class="w"> </span>--input<span class="w"> </span>traces.jsonl<span class="w"> </span>--trace-output<span class="w"> </span>corpus<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span>--context-growth<span class="w"> </span>accumulate<span class="w"> </span>--max-think-time<span class="w"> </span><span class="m">0</span><span class="w"> </span>--drop-subagents
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="c1"># Replay closed-loop (or as a concurrent pool, exactly as for OTel above).</span>
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>blis<span class="w"> </span>replay<span class="w"> </span>--trace-header<span class="w"> </span>corpus.yaml<span class="w"> </span>--trace-data<span class="w"> </span>corpus.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="w">  </span>--scenario<span class="w"> </span>llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="w">  </span>--scenarios<span class="w"> </span>&lt;dir<span class="w"> </span>of<span class="w"> </span>scenario<span class="w"> </span>files&gt;<span class="w"> </span>--registry<span class="w"> </span><span class="nv">$PWD</span>/blis-registry<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="w">  </span>--session-mode<span class="w"> </span>closed-loop
+</code></pre></div>
+<p>Weka sessions grow to very long contexts; use a scenario whose pools' <code>max_model_len</code> covers
+them (a round longer than it is length-capped).</p>
+<p>The reader converts each session's <strong>linear main-agent stream</strong>. Sub-agent fan-out —
+<code>type:"subagent"</code> groups, whose nested requests run concurrently with the main agent — is
+<strong>not modelled yet</strong> (<a href="https://github.com/inference-sim/inference-sim/issues/1477">#1477</a>), so a
+session containing one is <strong>refused</strong> by default, naming the session and the work it carries.
+<code>--drop-subagents</code> converts such sessions anyway: the groups are dropped and their wall-clock is
+absorbed into the following main turn's think gap, which keeps the main agent's pacing but
+offers the engine none of the children's load, overlap or KV state — the replay
+<strong>under-loads</strong> the deployment, and the converter warns with the number of dropped groups and
+requests. Per-round <strong>pure client think</strong> is
+recomputed as <code>max(0, t_i − t_{i-1} − api_time_{i-1})</code> between consecutive main turns
+(carried in the <code>think_time_us</code> column, <code>--max-think-time</code> default <code>0</code> = uncapped,
+since Weka gaps are genuine away-from-keyboard times). The column is <strong>non-lossy</strong>
+(#1608): a genuinely-zero recomputed think (an overlapping turn) is recorded as <code>&amp;0</code>,
+distinct from a not-recorded (empty) cell, so an all-overlap session replays with the
+recorded zeros rather than degrading to arrival-gap think. The recorded <code>claude-*</code>
+model names are dropped during conversion (same reason as OTel: no phantom per-model metrics).</p>
+<div class="admonition note">
+<p class="admonition-title">Context compaction is represented (#1609)</p>
+<p>Weka input token counts are very large (p50 ≈ 110K, p90 ≈ 395K), so the
+<code>max_model_len</code> / KV-budget sizing warning above applies with extra
+force. Real Claude Code traffic <strong>compacts/trims context constantly</strong> — ~30% of
+rounds on the full <code>051926</code> dataset have <code>in_N &lt; in_{N-1}+out_{N-1}</code> (the model
+summarized or trimmed). The shared agentic-trace encoder emits a per-round
+<code>input_tokens_reset</code> marker (the recorded absolute) on exactly those non-monotone
+rounds, and accumulate closed-loop replay <strong>re-seeds its growing buffer to that
+absolute at the compaction boundary</strong>. The reconstructed cumulative input therefore
+tracks the recorded total — previously the buffer could only grow, clamped the delta
+to 0, and <strong>over-counted by ≈3–4×</strong> (+312% on that dataset). The re-seed intentionally
+breaks strict prefix identity across the boundary (a summary is not a literal prefix of
+the pre-compaction context), which also corrects the prefix-cache hit-rate over-estimate.
+The marker is a trailing conditional CSV column: absent for monotone sessions and for
+<code>blis run</code>, so a trace with no compaction round replays byte-identically to before
+(INV-6). Traces converted by an <strong>older build</strong> (no marker column) still over-count —
+re-run <code>convert</code> to get compaction-aware output. (The separate think-time lossy-0
+sentinel was resolved in #1608 — see the non-lossy note above.)</p>
+</div>
+<h3 id="weka-subagent-replay-as-aiperf-runs-it-agentic-scenario-inferencex-agentx-mvp-1937">Weka subagent replay as aiperf runs it: <code>--agentic-scenario inferencex-agentx-mvp</code> (#1937)<a class="headerlink" href="#weka-subagent-replay-as-aiperf-runs-it-agentic-scenario-inferencex-agentx-mvp-1937" title="Permanent link">&para;</a></h3>
+<p><code>blis convert weka</code> keeps only the main agent. To replay a Weka v7 corpus <strong>with</strong> its
+subagents, exactly as aiperf 0.12.0's <code>aiperf profile --scenario inferencex-agentx-mvp</code>
+does, give replay the raw corpus instead of a TraceV2 file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>blis<span class="w"> </span>replay<span class="w"> </span>--agentic-scenario<span class="w"> </span>inferencex-agentx-mvp<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span>--corpus<span class="w"> </span>traces.jsonl<span class="w"> </span>--corpus-sha256<span class="w"> </span>&lt;hex&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">  </span>--concurrency<span class="w"> </span><span class="m">64</span><span class="w"> </span>--seed<span class="w"> </span><span class="m">42</span><span class="w"> </span>--benchmark-duration<span class="w"> </span>900s<span class="w"> </span>--grace-period<span class="w"> </span>30s<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">  </span>--max-context-length<span class="w"> </span>max_model_len<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span>--scenario<span class="w"> </span>&lt;scenario.yaml&gt;<span class="w"> </span>--scenarios<span class="w"> </span>&lt;dir&gt;<span class="w"> </span>--registry<span class="w"> </span>&lt;blis-registry&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">  </span>--metrics-path<span class="w"> </span>out.json
+</code></pre></div>
+<p><code>examples/agentx-dsv41-flash-h100-2x-tp8-dspark5.yaml</code> is a two-replica DeepSeek-V4.1-Flash
+H100 deployment to run it on. A sweep over concurrencies can add <code>--corpus-cache &lt;dir&gt;</code>:
+the first run writes a binary snapshot of the parsed corpus (keyed by the corpus digest,
+the max-context filter, chain splitting and the build), later runs load it in well under a
+second instead of re-parsing the JSON, and a missing, damaged or mismatched snapshot is
+ignored, logged and rewritten -- output is byte-identical either way.</p>
+<p>Not supported: the accelerated cache-pressure warm-up (<code>warmup: cache_pressure</code>, refused),
+<code>--synthesis-max-osl</code> (no such cap is applied; the descriptor has no field for it),
+<code>--trace-output</code> (refused), a trace-idle or per-turn delay cap (forbidden by the scenario),
+and model mapping (every request goes to the scenario's model). A warm-up request that ends
+in an error, which makes aiperf abort, is counted and warned about.</p>
+<p>The workload can also be given as <code>--workload-spec &lt;file&gt;</code> with a blis-schemas replay descriptor (<code>replay:</code>), which the
+flags override; the descriptor is validated as aiperf's scenario validator validates the
+scenario (a window under 900 s, another cache bust or idle cap, a missing corpus digest are
+refused). The corpus is streamed once and refused on a digest mismatch.</p>
+<p>What is replayed, each step a port of aiperf's code and checked send for send against
+aiperf's own runtime (<code>TestAgentXRuntimeMatchesAiperf</code>):</p>
+<ul>
+<li><strong>Session trees.</strong> Each trace is rebuilt as aiperf rebuilds it: flattened-agent chain
+  detection on the top-level requests and inside every subagent, SPAWN branches and
+  SPAWN_JOIN gates, end-to-start delays <code>max(0, t_k - t_{k-1} - api_{k-1})</code>, and the
+  recorded cross-stream replay barriers. Traces whose peak <code>in + max(out, 1)</code> (parent and
+  subagents) exceeds <code>--max-context-length</code> are dropped; <code>max_model_len</code> is the
+  deployment's resolved value.</li>
+<li><strong>Lanes.</strong> <code>--concurrency</code> counts session trees, not requests. Lane <em>i</em> replays root
+  <code>pool[i mod N]</code> from a snapshot instant t* drawn as aiperf draws it (numpy
+  <code>default_rng(sha256("{seed}:{trace}:{lane}")[:8]).uniform</code> over the trace's span). A
+  drained tree recycles its lane into the next root at turn 0.</li>
+<li><strong>Warm-up, window, grace.</strong> Every stream live at t* first sends its last pre-t* request
+  with max_tokens 1, aligned so every lane reaches t* together; profiling starts when the
+  warm-up drains and sends for <code>--benchmark-duration</code>; requests in flight then have
+  <code>--grace-period</code> to finish, after which they are cancelled and leave no aiperf record.
+  A 10 s global idle cap pulls in pending timers whenever nothing is in flight.</li>
+<li><strong>Prompts.</strong> A turn's prompt is its full message list (aiperf re-sends the whole history
+  every turn), split into user and assistant messages as aiperf's reconstructor splits it,
+  rendered through DeepSeek-V3-family chat-template tokens (BOS, a header per message, EOS
+  after assistant messages, the generation prompt) with the tree's cache-bust marker (10
+  tokens) at the head of the first user message. Message content is exactly the recorded
+  <code>in</code> tokens: hash blocks (equal across the tree's conversations) and per-turn synthetic
+  tails. So prefixes are shared within a tree up to the first message boundary two
+  conversations place differently, never across trees. The template adds 0.09% to the
+  content (median 27 messages per prompt). Outputs are <code>max(out, 1)</code> tokens (ignore_eos);
+  generated tokens are never fed back.</li>
+<li><strong>Outcomes.</strong> A cluster refusal (admission, routing, flow-control rejection or shed, queue
+  TTL, eviction, P/D decode-KV drop) or a client timeout is an error and the stream goes on;
+  a prompt past <code>max_model_len</code> is a context overflow and ends the stream; a request still in
+  flight at the grace end is cancelled. P/D, flow control and REDIRECT drains are supported.</li>
+<li><strong><code>--horizon</code>.</strong> The replay sets the run's end itself (the grace end, or the profiling
+  phase's completion when that comes first); a smaller <code>--horizon</code> cuts the run there, and
+  the measured window then ends at it.</li>
+</ul>
+<p>Every request carries <code>Phase</code> (<code>warmup</code> / <code>profile</code>, <code>grace</code> once it completes after the
+window) and an <code>agentic</code> tag (lane, tree, trace, stream, kind, turn, outcome:
+<code>completed</code>, <code>error</code>, <code>context_overflow</code>, <code>cancelled</code>), echoed per request in the results
+file, which also gets the measured window (the profiling phase's start and completion) and an
+<code>agentic</code> summary block. The laws are INV-AX1 … INV-AX4 in the invariant registry.</p>
+<h3 id="faithful-high-concurrency-replay-session-mode-fixed-accumulate-1692">Faithful high-concurrency replay: <code>--session-mode fixed-accumulate</code> (#1692)<a class="headerlink" href="#faithful-high-concurrency-replay-session-mode-fixed-accumulate-1692" title="Permanent link">&para;</a></h3>
+<p>An accumulate corpus can be replayed three ways. Only the third is faithful at
+concurrency &gt; 1:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Arrivals</th>
+<th>Accumulate inputs</th>
+<th>Faithful high-conc?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--session-mode closed-loop</code></td>
+<td>regenerated (<code>completion + think</code>)</td>
+<td>✅ reconstructed</td>
+<td>❌ self-throttles — arrivals chain to sim completion, so the queue drains instead of piling up and TTFT collapses to compute-only (30–100× low at conc ≥ 8)</td>
+</tr>
+<tr>
+<td><code>--session-mode fixed</code></td>
+<td>recorded</td>
+<td>❌ <strong>hard-rejected</strong> on an accumulate corpus (reads deltas as absolutes)</td>
+<td>❌ not usable</td>
+</tr>
+<tr>
+<td><code>--session-mode fixed-accumulate</code></td>
+<td><strong>recorded</strong></td>
+<td>✅ reconstructed</td>
+<td>✅ recorded arrivals carry the real cross-session overlap, so N large prefills pile into the scheduler at the real clock and produce genuine queue wait</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Convert once, then replay with recorded arrivals AND reconstructed growing context.</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="c1"># The motivating shape is a large MLA MoE on H200; any scenario works, as long as its</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="c1"># max_model_len covers the corpus's longest context.</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>blis<span class="w"> </span>convert<span class="w"> </span>weka<span class="w"> </span>--input<span class="w"> </span>traces.jsonl<span class="w"> </span>--trace-output<span class="w"> </span>corpus<span class="w"> </span>--context-growth<span class="w"> </span>accumulate<span class="w"> </span>--drop-subagents
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>blis<span class="w"> </span>replay<span class="w"> </span>--trace-header<span class="w"> </span>corpus.yaml<span class="w"> </span>--trace-data<span class="w"> </span>corpus.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">  </span>--scenario<span class="w"> </span>llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">  </span>--scenarios<span class="w"> </span>&lt;dir<span class="w"> </span>of<span class="w"> </span>scenario<span class="w"> </span>files&gt;<span class="w"> </span>--registry<span class="w"> </span><span class="nv">$PWD</span>/blis-registry<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="w">  </span>--session-mode<span class="w"> </span>fixed-accumulate
+</code></pre></div>
+<p>The arrival timestamps are already in the corpus (<code>ArrivalTimeUs</code>, written per round by
+the converter) — this mode consumes data that exists today; no trace-format change. It
+requires an accumulate corpus, and is mutually exclusive with <code>--concurrent-sessions</code>
+(open-loop, so there is no session pool to maintain) and <code>--think-time-*</code> (arrivals are
+recorded, not regenerated). INV-10 (session causality) is <strong>scoped to closed-loop</strong> and
+does not apply — chaining arrivals to sim completion is exactly the feedback loop this
+mode breaks.</p>
+<div class="admonition warning">
+<p class="admonition-title">Intra-session overlap: recorded arrivals ignore sim completion</p>
+<p>Each round is injected at its recorded arrival regardless of when the previous round
+of the <strong>same</strong> session finishes in the sim. A real agentic client is serial (round N
+waits for round N−1's response), but the recorded inter-round gap includes the <em>real</em>
+server time; the moment sim service time exceeds that real time — exactly the
+queueing regime this mode creates — round N is injected while round N−1 is still
+decoding. Two consequences to keep in mind when reading results:</p>
+<ol>
+<li><strong>Measured concurrency is inflated</strong> above what a real serial client produces,
+   because same-session rounds can be in flight at once.</li>
+<li><strong>Prefix-cache hit rate is partly fictional</strong>: round N's prompt contains round
+   N−1's output tokens, which (under overlap) round N−1 has not finished emitting —
+   so part of the modeled prefix hit corresponds to tokens that did not yet exist.</li>
+</ol>
+<p>This is a distinct effect from the (faithful) <em>cross</em>-session overlap the mode
+reproduces, and it is not covered by the INV-10 exemption (which is about the arrival
+<em>source</em>). It is inherent to open-loop replay of a serial workload; closed-loop avoids
+it but at the cost of the self-throttling feedback loop this mode exists to break.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title"><code>--trace-output</code> produces an absolute (non-accumulate) corpus</p>
+<p>fixed-accumulate reconstructs each round's growing context in memory, so
+<code>--trace-output</code> re-exports the <strong>already-reconstructed absolute</strong> per-round inputs —
+the exported header carries <strong>no</strong> <code>session_context_growth</code>, and the CSV records
+absolute <code>input_tokens</code> (not deltas). This export is a faithful absolute-mode corpus:
+re-replay it with <code>--session-mode fixed</code> (the default). It is <strong>not</strong> an accumulate
+corpus, so <code>--session-mode fixed-accumulate</code> will reject it (the accumulate-corpus
+guard) — re-run the original <code>convert</code> step if you need to re-export deltas. This is
+lossless: the absolute inputs are exactly what fixed-accumulate reconstructed.</p>
+</div>
+<hr />
+<h2 id="blis-calibrate-deprecated"><code>blis calibrate</code> (deprecated)<a class="headerlink" href="#blis-calibrate-deprecated" title="Permanent link">&para;</a></h2>
+<div class="admonition warning">
+<p class="admonition-title">Deprecated (<a href="https://github.com/inference-sim/inference-sim/issues/1901">#1901</a>)</p>
+</div>
 <p>Compares real observed latencies (from <code>blis observe</code>) against simulator predictions (from <code>blis replay</code>) and produces a calibration report.</p>
 <h3 id="flags">Flags<a class="headerlink" href="#flags" title="Permanent link">&para;</a></h3>
 <table>
@@ -3880,6 +4987,24 @@
 <td><code>""</code></td>
 <td>Path to ITL CSV from <code>blis observe --record-itl</code> to include ITL metric in the calibration report</td>
 </tr>
+<tr>
+<td><code>--throughput-tolerance-pct</code></td>
+<td><code>float64</code></td>
+<td><code>0</code></td>
+<td>Within-tolerance verdict (percent) on real-vs-sim output-token throughput (#1647). Verdict emitted only when &gt; 0</td>
+</tr>
+<tr>
+<td><code>--num-gpus</code></td>
+<td><code>int</code></td>
+<td><code>0</code></td>
+<td>GPU count (TP×PP×DP×instances) for per-GPU throughput normalization (#1647). Per-GPU fields emitted only when &gt; 0</td>
+</tr>
+<tr>
+<td><code>--replay-mode</code></td>
+<td><code>string</code></td>
+<td><code>"fixed"</code></td>
+<td>Replay mode the SimResults were produced under: <code>fixed</code> or <code>closed-loop</code> (#1647). The throughput makespan is valid only for <code>fixed</code>; calibrate <strong>refuses</strong> the throughput block under <code>closed-loop</code> (or a delta corpus). Operator-affirmed since calibrate cannot observe the <code>blis replay --session-mode</code> choice (durable auto-stamp: #1652)</td>
+</tr>
 </tbody>
 </table>
 <div class="admonition info">
@@ -3889,14 +5014,14 @@
 <h3 id="interpreting-the-calibration-report">Interpreting the Calibration Report<a class="headerlink" href="#interpreting-the-calibration-report" title="Permanent link">&para;</a></h3>
 <p>The calibration report JSON contains four sections:</p>
 <p><strong><code>trace_info</code></strong> — Summary of the input data:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">&quot;num_requests&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">&quot;warm_up_excluded&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">&quot;matched_pairs&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">95</span><span class="p">,</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">&quot;token_mismatches&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span><span class="nt">&quot;itl_dropped&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">  </span><span class="nt">&quot;duration&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2m30s&quot;</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="p">{</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nt">"num_requests"</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">  </span><span class="nt">"warm_up_excluded"</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">  </span><span class="nt">"matched_pairs"</span><span class="p">:</span><span class="w"> </span><span class="mi">95</span><span class="p">,</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="w">  </span><span class="nt">"token_mismatches"</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">  </span><span class="nt">"itl_dropped"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="w">  </span><span class="nt">"duration"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2m30s"</span>
+<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="p">}</span>
 </code></pre></div>
 <ul>
 <li><code>matched_pairs</code>: Requests matched by ID between trace and sim results</li>
@@ -3904,36 +5029,36 @@
 <li><code>itl_dropped</code>: Requests dropped from ITL computation because all inter-chunk deltas were negative (clock skew); only present when greater than 0</li>
 </ul>
 <p><strong><code>metrics</code></strong> — Per-metric comparison. Keys are <code>ttft</code>, <code>e2e</code>, and (if <code>--itl-data</code> was supplied) <code>itl</code>. Each entry has two sub-objects and a top-level <code>count</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">&quot;ttft&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nt">&quot;workload_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">      </span><span class="nt">&quot;real_mean&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1534.2</span><span class="p">,</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">      </span><span class="nt">&quot;sim_mean&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1498.0</span><span class="p">,</span>
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">      </span><span class="nt">&quot;mean_error&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-36.2</span><span class="p">,</span>
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">      </span><span class="nt">&quot;mean_percent_error&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.024</span><span class="p">,</span>
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">      </span><span class="nt">&quot;real_median&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1234.5</span><span class="p">,</span>
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">      </span><span class="nt">&quot;sim_median&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1200.0</span><span class="p">,</span>
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">      </span><span class="nt">&quot;median_error&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-34.5</span><span class="p">,</span>
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">      </span><span class="nt">&quot;median_percent_error&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.028</span><span class="p">,</span>
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">      </span><span class="nt">&quot;real_p50&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1234.5</span><span class="p">,</span>
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">      </span><span class="nt">&quot;sim_p50&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1200.0</span><span class="p">,</span>
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">      </span><span class="nt">&quot;real_p90&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">3200.0</span><span class="p">,</span>
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">      </span><span class="nt">&quot;sim_p90&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">3150.0</span><span class="p">,</span>
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">      </span><span class="nt">&quot;real_p95&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4000.0</span><span class="p">,</span>
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">      </span><span class="nt">&quot;sim_p95&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">3950.0</span><span class="p">,</span>
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="w">      </span><span class="nt">&quot;real_p99&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4567.8</span><span class="p">,</span>
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="w">      </span><span class="nt">&quot;sim_p99&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4500.0</span>
-<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="w">    </span><span class="p">},</span>
-<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">    </span><span class="nt">&quot;request_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">      </span><span class="nt">&quot;mape&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.05</span><span class="p">,</span>
-<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="w">      </span><span class="nt">&quot;pearson_r&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.95</span><span class="p">,</span>
-<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a><span class="w">      </span><span class="nt">&quot;bias_direction&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;under-predict&quot;</span><span class="p">,</span>
-<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a><span class="w">      </span><span class="nt">&quot;quality&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;good&quot;</span>
-<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a><span class="w">    </span><span class="p">},</span>
-<a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a><span class="w">    </span><span class="nt">&quot;count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">95</span>
-<a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a><span class="w">  </span><span class="p">},</span>
-<a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a><span class="w">  </span><span class="nt">&quot;e2e&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span>
-<a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="p">{</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">"ttft"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">    </span><span class="nt">"workload_level"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">      </span><span class="nt">"real_mean"</span><span class="p">:</span><span class="w"> </span><span class="mf">1534.2</span><span class="p">,</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">      </span><span class="nt">"sim_mean"</span><span class="p">:</span><span class="w"> </span><span class="mf">1498.0</span><span class="p">,</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="w">      </span><span class="nt">"mean_error"</span><span class="p">:</span><span class="w"> </span><span class="mf">-36.2</span><span class="p">,</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="w">      </span><span class="nt">"mean_percent_error"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.024</span><span class="p">,</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="w">      </span><span class="nt">"real_median"</span><span class="p">:</span><span class="w"> </span><span class="mf">1234.5</span><span class="p">,</span>
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a><span class="w">      </span><span class="nt">"sim_median"</span><span class="p">:</span><span class="w"> </span><span class="mf">1200.0</span><span class="p">,</span>
+<a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a><span class="w">      </span><span class="nt">"median_error"</span><span class="p">:</span><span class="w"> </span><span class="mf">-34.5</span><span class="p">,</span>
+<a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a><span class="w">      </span><span class="nt">"median_percent_error"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.028</span><span class="p">,</span>
+<a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a><span class="w">      </span><span class="nt">"real_p50"</span><span class="p">:</span><span class="w"> </span><span class="mf">1234.5</span><span class="p">,</span>
+<a id="__codelineno-19-13" name="__codelineno-19-13" href="#__codelineno-19-13"></a><span class="w">      </span><span class="nt">"sim_p50"</span><span class="p">:</span><span class="w"> </span><span class="mf">1200.0</span><span class="p">,</span>
+<a id="__codelineno-19-14" name="__codelineno-19-14" href="#__codelineno-19-14"></a><span class="w">      </span><span class="nt">"real_p90"</span><span class="p">:</span><span class="w"> </span><span class="mf">3200.0</span><span class="p">,</span>
+<a id="__codelineno-19-15" name="__codelineno-19-15" href="#__codelineno-19-15"></a><span class="w">      </span><span class="nt">"sim_p90"</span><span class="p">:</span><span class="w"> </span><span class="mf">3150.0</span><span class="p">,</span>
+<a id="__codelineno-19-16" name="__codelineno-19-16" href="#__codelineno-19-16"></a><span class="w">      </span><span class="nt">"real_p95"</span><span class="p">:</span><span class="w"> </span><span class="mf">4000.0</span><span class="p">,</span>
+<a id="__codelineno-19-17" name="__codelineno-19-17" href="#__codelineno-19-17"></a><span class="w">      </span><span class="nt">"sim_p95"</span><span class="p">:</span><span class="w"> </span><span class="mf">3950.0</span><span class="p">,</span>
+<a id="__codelineno-19-18" name="__codelineno-19-18" href="#__codelineno-19-18"></a><span class="w">      </span><span class="nt">"real_p99"</span><span class="p">:</span><span class="w"> </span><span class="mf">4567.8</span><span class="p">,</span>
+<a id="__codelineno-19-19" name="__codelineno-19-19" href="#__codelineno-19-19"></a><span class="w">      </span><span class="nt">"sim_p99"</span><span class="p">:</span><span class="w"> </span><span class="mf">4500.0</span>
+<a id="__codelineno-19-20" name="__codelineno-19-20" href="#__codelineno-19-20"></a><span class="w">    </span><span class="p">},</span>
+<a id="__codelineno-19-21" name="__codelineno-19-21" href="#__codelineno-19-21"></a><span class="w">    </span><span class="nt">"request_level"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-19-22" name="__codelineno-19-22" href="#__codelineno-19-22"></a><span class="w">      </span><span class="nt">"mape"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.05</span><span class="p">,</span>
+<a id="__codelineno-19-23" name="__codelineno-19-23" href="#__codelineno-19-23"></a><span class="w">      </span><span class="nt">"pearson_r"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.95</span><span class="p">,</span>
+<a id="__codelineno-19-24" name="__codelineno-19-24" href="#__codelineno-19-24"></a><span class="w">      </span><span class="nt">"bias_direction"</span><span class="p">:</span><span class="w"> </span><span class="s2">"under-predict"</span><span class="p">,</span>
+<a id="__codelineno-19-25" name="__codelineno-19-25" href="#__codelineno-19-25"></a><span class="w">      </span><span class="nt">"quality"</span><span class="p">:</span><span class="w"> </span><span class="s2">"good"</span>
+<a id="__codelineno-19-26" name="__codelineno-19-26" href="#__codelineno-19-26"></a><span class="w">    </span><span class="p">},</span>
+<a id="__codelineno-19-27" name="__codelineno-19-27" href="#__codelineno-19-27"></a><span class="w">    </span><span class="nt">"count"</span><span class="p">:</span><span class="w"> </span><span class="mi">95</span>
+<a id="__codelineno-19-28" name="__codelineno-19-28" href="#__codelineno-19-28"></a><span class="w">  </span><span class="p">},</span>
+<a id="__codelineno-19-29" name="__codelineno-19-29" href="#__codelineno-19-29"></a><span class="w">  </span><span class="nt">"e2e"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-19-30" name="__codelineno-19-30" href="#__codelineno-19-30"></a><span class="p">}</span>
 </code></pre></div>
 <p>The report uses two levels of analysis because they catch different problems. <strong>Workload-level</strong> aggregates (mean, median, percentiles) reveal systematic bias — the simulator consistently over- or under-predicting. <strong>Request-level</strong> prediction quality (MAPE, Pearson) captures per-request variance — how tightly the simulator tracks individual latencies regardless of any overall offset.</p>
 <p><strong><code>workload_level</code> fields:</strong></p>
@@ -4009,6 +5134,39 @@
 <p><strong>Top-level:</strong> <code>count</code> — number of matched request pairs used for this metric.</p>
 <p><strong><code>config_match</code></strong> — Tracks which simulator config parameters matched the observed server config (currently reports <code>matched</code> and <code>defaulted</code> arrays).</p>
 <p><strong><code>known_limitations</code></strong> — Documents known sources of sim/real divergence (batch step granularity, synthetic prefix tokens, speculative decoding).</p>
+<p><strong><code>throughput</code></strong> (optional, #1647) — Aggregate throughput comparison over the <code>request_id</code>-matched set, further restricted to real records with <code>status == "ok"</code> and a positive client-frame duration (a superset filter of the latency leg: latency matches on request-ID alone, throughput additionally drops failed and zero-duration records). Present automatically whenever (a) replay-mode provenance confirms the makespan is valid — <code>--replay-mode fixed</code> (the default) <strong>and</strong> no delta-corpus header marker (see the validity boundary below) — and (b) it is derivable from the required inputs (a positive real <em>and</em> sim makespan and non-zero matched output tokens); omitted otherwise, so a refused or non-derivable run keeps the legacy report shape and no <code>Inf</code>/<code>NaN</code> value is ever written. Matched requests that failed in the real trace but completed in the sim are excluded and reported via a stderr warning <strong>unconditionally</strong> — including when <em>every</em> matched request failed (so the block collapses to nil) — so the completion-rate mismatch is never swallowed even though the throughput numbers cannot reflect it.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="p">{</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span><span class="nt">"matched_requests"</span><span class="p">:</span><span class="w"> </span><span class="mi">95</span><span class="p">,</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">  </span><span class="nt">"real_runtime_sec"</span><span class="p">:</span><span class="w"> </span><span class="mf">148.2</span><span class="p">,</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">  </span><span class="nt">"sim_runtime_sec"</span><span class="p">:</span><span class="w"> </span><span class="mf">132.7</span><span class="p">,</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="w">  </span><span class="nt">"real_output_tokens"</span><span class="p">:</span><span class="w"> </span><span class="mi">12040</span><span class="p">,</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="w">  </span><span class="nt">"sim_output_tokens"</span><span class="p">:</span><span class="w"> </span><span class="mi">12040</span><span class="p">,</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="w">  </span><span class="nt">"real_output_tokens_per_sec"</span><span class="p">:</span><span class="w"> </span><span class="mf">81.2</span><span class="p">,</span>
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="w">  </span><span class="nt">"sim_output_tokens_per_sec"</span><span class="p">:</span><span class="w"> </span><span class="mf">90.7</span><span class="p">,</span>
+<a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="w">  </span><span class="nt">"output_tokens_per_sec_error"</span><span class="p">:</span><span class="w"> </span><span class="mf">9.5</span><span class="p">,</span>
+<a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a><span class="w">  </span><span class="nt">"output_tokens_per_sec_percent_error"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.117</span><span class="p">,</span>
+<a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a><span class="w">  </span><span class="nt">"real_requests_per_sec"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.64</span><span class="p">,</span>
+<a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a><span class="w">  </span><span class="nt">"sim_requests_per_sec"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.72</span><span class="p">,</span>
+<a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a><span class="w">  </span><span class="nt">"requests_per_sec_error"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.08</span><span class="p">,</span>
+<a id="__codelineno-20-14" name="__codelineno-20-14" href="#__codelineno-20-14"></a><span class="w">  </span><span class="nt">"requests_per_sec_percent_error"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.117</span><span class="p">,</span>
+<a id="__codelineno-20-15" name="__codelineno-20-15" href="#__codelineno-20-15"></a><span class="w">  </span><span class="nt">"num_gpus"</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-20-16" name="__codelineno-20-16" href="#__codelineno-20-16"></a><span class="w">  </span><span class="nt">"real_output_tokens_per_sec_per_gpu"</span><span class="p">:</span><span class="w"> </span><span class="mf">20.3</span><span class="p">,</span>
+<a id="__codelineno-20-17" name="__codelineno-20-17" href="#__codelineno-20-17"></a><span class="w">  </span><span class="nt">"sim_output_tokens_per_sec_per_gpu"</span><span class="p">:</span><span class="w"> </span><span class="mf">22.7</span><span class="p">,</span>
+<a id="__codelineno-20-18" name="__codelineno-20-18" href="#__codelineno-20-18"></a><span class="w">  </span><span class="nt">"tolerance_pct"</span><span class="p">:</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span>
+<a id="__codelineno-20-19" name="__codelineno-20-19" href="#__codelineno-20-19"></a><span class="w">  </span><span class="nt">"within"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-20-20" name="__codelineno-20-20" href="#__codelineno-20-20"></a><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><strong>Makespan (both sides in the client frame).</strong> <code>real_runtime_sec</code> = latest client last-chunk − earliest client send; <code>sim_runtime_sec</code> = latest (client send + client-frame sim E2E) − earliest send, where the sim E2E is normalized with the <em>same</em> network shift (<code>+ network-rtt-us + upload + download</code>) the latency comparison applies. Both share the identical earliest-send origin, so the block isolates the batching/contention difference between real and sim rather than a frame offset — and stays consistent with the <code>e2e</code> metric block.</li>
+<li><strong>Why throughput and latency can disagree.</strong> A sim can track per-request latency ordering well (high Pearson) yet mispredict aggregate throughput if it mismodels batching/contention. This block is the throughput counterpart to the latency verdicts.</li>
+<li><strong><code>num_gpus</code> / <code>*_per_gpu</code></strong> appear only with <code>--num-gpus N</code> (the standard normalized benchmark metric; lets a 70B/TP4 run be compared against a 7B/TP1 run). Since one GPU count divides both sides, the per-GPU <code>percent_error</code> equals the raw <code>percent_error</code> — the per-GPU figures add comparability, not a new tolerance dimension.</li>
+<li><strong><code>tolerance_pct</code> / <code>within</code></strong> appear only with <code>--throughput-tolerance-pct P</code>; <code>within</code> tests the raw output-token-throughput percent error against <code>P</code>. <strong>Units:</strong> <code>*_percent_error</code> fields are stored as a <strong>fraction</strong> (<code>0.117</code> = 11.7%, the BLIS-wide convention shared with <code>mean_percent_error</code> etc.), whereas <code>tolerance_pct</code> is a <strong>percentage</strong> (<code>15</code> = 15%). The verdict compares them correctly (<code>percent_error × 100 ≤ tolerance_pct</code>); a consumer reading both must apply the ×100.</li>
+<li><strong>Only <code>status == "ok"</code> records contribute</strong> (matching the goodput numerator). Failed/timed-out records are excluded on both the numerator and the makespan. If the sim completes only a fraction of the eligible real requests, calibrate logs a coverage warning (real throughput would otherwise be measured over the survivor subset and understate the gap); cross-check <code>trace_info.matched_pairs</code> against <code>num_requests</code>.</li>
+<li><strong>Validity boundary (enforced by refusal).</strong> The reconstructed sim makespan (<code>send + simE2E</code>) is a physical sim timeline only for <strong>fixed-mode replay</strong> (the standard observe→replay→calibrate path, arrivals pinned from the trace). Under <strong>closed-loop / concurrent-session replay</strong> the sim regenerates the arrival schedule (round N+1 depends on the sim's completion of round N), so the real send schedule is not the sim's arrival schedule and the makespan-based throughput is meaningless.<ul>
+<li><strong><code>calibrate</code> refuses the throughput block unless provenance confirms fixed mode.</strong> The block is emitted <strong>only</strong> when <code>--replay-mode fixed</code> (the default) <strong>and</strong> the trace header carries no delta-corpus marker (<code>session_context_growth</code>). Under <code>--replay-mode closed-loop</code>, or when the header betrays a delta/accumulate corpus, calibrate <strong>omits the throughput block and logs a loud <code>REFUSED</code> warning</strong> rather than emitting a silently-invalid verdict — turning the earlier documented blind spot into a fail-loud guard (R1). Because calibrate cannot itself observe the <code>blis replay --session-mode</code> choice (it is recorded in neither the trace header nor <code>SimResult</code>), the operator affirms it via <code>--replay-mode</code>; if you replayed closed-loop, pass <code>--replay-mode closed-loop</code> (or simply do not request a throughput verdict). The durable fix — stamping the replay mode into <code>SimResult</code> so calibrate can auto-detect it without the operator flag — is tracked in <strong><a href="https://github.com/inference-sim/inference-sim/issues/1652">#1652</a></strong>.</li>
+</ul>
+</li>
+</ul>
 <h3 id="known-gap-scheduling-delay">Known Gap: Scheduling Delay<a class="headerlink" href="#known-gap-scheduling-delay" title="Permanent link">&para;</a></h3>
 <div class="admonition note">
 <p class="admonition-title">Scheduling delay cannot be calibrated</p>
@@ -4027,70 +5185,80 @@ instrumentation outside BLIS's scope.</p>
 <li>Scheduling delay is already <strong>factored into E2E and TTFT</strong>. A real server's TTFT includes queue wait implicitly — it cannot be decomposed from execution time externally. Mathematically, <code>SchedulingDelay = (batch selection time) − ArrivalTime</code> and <code>TTFT ≥ SchedulingDelay</code> always (per INV-5 Causality: <code>arrival_time ≤ enqueue_time ≤ schedule_time ≤ completion_time</code>). <code>blis calibrate</code> compares E2E and TTFT end-to-end; a good MAPE on those metrics confirms the scheduling model is correct, even without a direct scheduling delay comparison.</li>
 <li><strong>Do not expect</strong> <code>SchedulingDelay</code> to appear as a separately calibratable field in the calibration report. <code>blis calibrate</code> compares E2E and TTFT only — <code>scheduling_delay_ms</code> is not in <code>SimResult</code> (the format <code>blis replay</code> writes to <code>--results-path</code>). It is a simulator-internal diagnostic only.</li>
 <li>
-<p><strong>When scheduling delay matters:</strong> If <code>blis run</code> or <code>blis replay</code> shows high scheduling delay (e.g., P99 &gt; 500ms — exact thresholds are workload-dependent) <strong>and</strong> calibration MAPE is high, the root cause is likely queue buildup rather than the execution latency model. Enable flow control to add explicit queue depth gating that better models servers with admission backpressure, then re-calibrate:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>./blis<span class="w"> </span>replay<span class="w"> </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span>--flow-control<span class="w"> </span>--saturation-detector<span class="w"> </span>utilization<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>--queue-depth-threshold<span class="w"> </span><span class="m">5</span><span class="w"> </span>--kv-cache-util-threshold<span class="w"> </span><span class="m">0</span>.8
+<p><strong>When scheduling delay matters:</strong> If <code>blis run</code> or <code>blis replay</code> shows high scheduling delay (e.g., P99 &gt; 500ms — exact thresholds are workload-dependent) <strong>and</strong> calibration MAPE is high, the root cause is likely queue buildup rather than the execution latency model. When the observed deployment runs llm-d flow control, replay it in a cluster with the same
+  EndpointPickerConfig (<code>featureGates: [flowControl]</code> and the deployment's <code>utilization-detector</code>
+  parameters, e.g. <code>queueDepthThreshold: 5</code>, <code>kvCacheUtilThreshold: 0.8</code>), named by the scenario's
+  <code>router.endpoint_picker_config</code> (here <code>flow-control.yaml</code> beside a copy of the scenario in
+  <code>my-scenarios/</code>), then re-calibrate:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>./blis<span class="w"> </span>replay<span class="w"> </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span>--scenario<span class="w"> </span>llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">  </span>--scenarios<span class="w"> </span>my-scenarios<span class="w"> </span>--registry<span class="w"> </span><span class="nv">$PWD</span>/blis-registry<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span>--num-instances<span class="w"> </span><span class="m">2</span>
 </code></pre></div>
+<p>See <a href="../admission/">Admission Control</a> for the flow-control configuration.</p>
 </li>
 </ul>
 <hr />
 <h2 id="worked-example">Worked Example<a class="headerlink" href="#worked-example" title="Permanent link">&para;</a></h2>
+<div class="admonition warning">
+<p class="admonition-title">Uses deprecated commands</p>
+<p>Steps 2 and 4 use <code>blis observe</code> and <code>blis calibrate</code>, deprecated in <a href="https://github.com/inference-sim/inference-sim/issues/1901">#1901</a>.</p>
+</div>
 <p>This walkthrough demonstrates the full pipeline: define a workload, observe a real vLLM server, replay through the simulator, and interpret the calibration report.</p>
 <h3 id="step-1-define-a-workload">Step 1: Define a workload<a class="headerlink" href="#step-1-define-a-workload" title="Permanent link">&para;</a></h3>
 <p>Create a workload spec (<code>workload.yaml</code>):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">rate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nt">num_requests</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nt">clients</span><span class="p">:</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;chat-user&quot;</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span><span class="nt">rate_fraction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="nt">slo_class</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;standard&quot;</span>
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">    </span><span class="nt">arrival</span><span class="p">:</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">      </span><span class="nt">process</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">poisson</span>
-<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">    </span><span class="nt">input_distribution</span><span class="p">:</span>
-<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gaussian</span>
-<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">      </span><span class="nt">params</span><span class="p">:</span>
-<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="w">        </span><span class="nt">mean</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">256</span>
-<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="w">        </span><span class="nt">std_dev</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">64</span>
-<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="w">        </span><span class="nt">min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span>
-<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="w">        </span><span class="nt">max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span>
-<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a><span class="w">    </span><span class="nt">output_distribution</span><span class="p">:</span>
-<a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gaussian</span>
-<a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a><span class="w">      </span><span class="nt">params</span><span class="p">:</span>
-<a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="w">        </span><span class="nt">mean</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">128</span>
-<a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a><span class="w">        </span><span class="nt">std_dev</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span>
-<a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a><span class="w">        </span><span class="nt">min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span>
-<a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a><span class="w">        </span><span class="nt">max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nt">rate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="nt">num_requests</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="nt">clients</span><span class="p">:</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">"chat-user"</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="w">    </span><span class="nt">rate_fraction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="w">    </span><span class="nt">slo_class</span><span class="p">:</span><span class="w"> </span><span class="s">"standard"</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="w">    </span><span class="nt">arrival</span><span class="p">:</span>
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="w">      </span><span class="nt">process</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">poisson</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="w">    </span><span class="nt">input_distribution</span><span class="p">:</span>
+<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gaussian</span>
+<a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="w">      </span><span class="nt">params</span><span class="p">:</span>
+<a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a><span class="w">        </span><span class="nt">mean</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">256</span>
+<a id="__codelineno-22-13" name="__codelineno-22-13" href="#__codelineno-22-13"></a><span class="w">        </span><span class="nt">std_dev</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">64</span>
+<a id="__codelineno-22-14" name="__codelineno-22-14" href="#__codelineno-22-14"></a><span class="w">        </span><span class="nt">min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span>
+<a id="__codelineno-22-15" name="__codelineno-22-15" href="#__codelineno-22-15"></a><span class="w">        </span><span class="nt">max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span>
+<a id="__codelineno-22-16" name="__codelineno-22-16" href="#__codelineno-22-16"></a><span class="w">    </span><span class="nt">output_distribution</span><span class="p">:</span>
+<a id="__codelineno-22-17" name="__codelineno-22-17" href="#__codelineno-22-17"></a><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gaussian</span>
+<a id="__codelineno-22-18" name="__codelineno-22-18" href="#__codelineno-22-18"></a><span class="w">      </span><span class="nt">params</span><span class="p">:</span>
+<a id="__codelineno-22-19" name="__codelineno-22-19" href="#__codelineno-22-19"></a><span class="w">        </span><span class="nt">mean</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">128</span>
+<a id="__codelineno-22-20" name="__codelineno-22-20" href="#__codelineno-22-20"></a><span class="w">        </span><span class="nt">std_dev</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span>
+<a id="__codelineno-22-21" name="__codelineno-22-21" href="#__codelineno-22-21"></a><span class="w">        </span><span class="nt">min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span>
+<a id="__codelineno-22-22" name="__codelineno-22-22" href="#__codelineno-22-22"></a><span class="w">        </span><span class="nt">max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512</span>
 </code></pre></div>
 <h3 id="step-2-observe-the-real-server">Step 2: Observe the real server<a class="headerlink" href="#step-2-observe-the-real-server" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>./blis<span class="w"> </span>observe<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>--server-url<span class="w"> </span>http://localhost:8000<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span>--workload-spec<span class="w"> </span>workload.yaml<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span>--warmup-requests<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">  </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">  </span>--trace-data<span class="w"> </span>trace.csv
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>./blis<span class="w"> </span>observe<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="w">  </span>--server-url<span class="w"> </span>http://localhost:8000<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="w">  </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="w">  </span>--workload-spec<span class="w"> </span>workload.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="w">  </span>--warmup-requests<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a><span class="w">  </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="w">  </span>--trace-data<span class="w"> </span>trace.csv
 </code></pre></div>
 <p>This sends 50 requests to the server at ~5 req/s, excludes the first 5 from the trace (warmup), and writes the TraceV2 files.</p>
 <h3 id="step-3-replay-through-the-simulator">Step 3: Replay through the simulator<a class="headerlink" href="#step-3-replay-through-the-simulator" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>./blis<span class="w"> </span>replay<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span>--model<span class="w"> </span>qwen/qwen3-14b<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span>--latency-model<span class="w"> </span>roofline<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">  </span>--results-path<span class="w"> </span>results.json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>./blis<span class="w"> </span>replay<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">  </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">  </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="w">  </span>--scenario<span class="w"> </span>&lt;scenario<span class="w"> </span>matching<span class="w"> </span>the<span class="w"> </span>server&gt;.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="w">  </span>--scenarios<span class="w"> </span>&lt;dir<span class="w"> </span>of<span class="w"> </span>scenario<span class="w"> </span>files&gt;<span class="w"> </span>--registry<span class="w"> </span><span class="nv">$PWD</span>/blis-registry<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="w">  </span>--results-path<span class="w"> </span>results.json
 </code></pre></div>
-<p>The simulator replays the same requests (arrival times, token counts) through the DES using the roofline latency model and writes per-request results.</p>
+<p>The simulator replays the same requests (arrival times, token counts) through the DES, priced by blis-latency-kernel for the scenario's deployment, and writes per-request results.</p>
 <h3 id="step-4-calibrate">Step 4: Calibrate<a class="headerlink" href="#step-4-calibrate" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>./blis<span class="w"> </span>calibrate<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span>--sim-results<span class="w"> </span>results.json<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">  </span>--report<span class="w"> </span>calibration.json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>./blis<span class="w"> </span>calibrate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">  </span>--trace-header<span class="w"> </span>trace.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">  </span>--trace-data<span class="w"> </span>trace.csv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">  </span>--sim-results<span class="w"> </span>results.json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">  </span>--report<span class="w"> </span>calibration.json
 </code></pre></div>
 <p>The calibration command matches requests by ID, applies warmup exclusion and RTT normalization from the trace header, and produces the report.</p>
 <h3 id="step-5-interpret-results">Step 5: Interpret results<a class="headerlink" href="#step-5-interpret-results" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>cat<span class="w"> </span>calibration.json<span class="w"> </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-m<span class="w"> </span>json.tool
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>cat<span class="w"> </span>calibration.json<span class="w"> </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-m<span class="w"> </span>json.tool
 </code></pre></div>
 <p>Look for:</p>
 <ul>
@@ -4100,11 +5268,10 @@ instrumentation outside BLIS's scope.</p>
 <li><strong><code>request_level.bias_direction</code> = <code>"under-predict"</code></strong> → simulator latencies are lower than reality (optimistic — may need latency model tuning)</li>
 <li><strong>High <code>token_mismatches</code></strong> → data quality issue; check if the server truncated outputs</li>
 </ul>
-<p>Low MAPE with high <code>mean_percent_error</code> indicates low per-request variance but a systematic offset — the simulator is consistently biased in one direction on every request. High MAPE with high <code>mean_percent_error</code> suggests widespread per-request inaccuracy with an additional systematic component; consider switching latency models.</p>
+<p>Low MAPE with high <code>mean_percent_error</code> indicates low per-request variance but a systematic offset — the simulator is consistently biased in one direction on every request. High MAPE with high <code>mean_percent_error</code> suggests widespread per-request inaccuracy with an additional systematic component.</p>
 <p>If calibration quality is poor, try:</p>
 <ol>
-<li><strong>Different latency model:</strong> Switch from <code>roofline</code> to <code>trained-physics</code> (see <a href="../latency-models/">Latency Models</a>)</li>
-<li><strong>Adjust server config flags:</strong> Match <code>--max-num-running-reqs</code> and <code>--max-num-scheduled-tokens</code> to the real server's settings</li>
+<li><strong>Match the scenario to the server:</strong> the scenario's parallelism and engine settings (<code>max_num_seqs</code>, <code>max_num_batched_tokens</code>, <code>block_size</code>, <code>gpu_memory_utilization</code>, <code>cudagraph_mode</code>, ...) should be the server's own (see <a href="../latency-models/">Latency Model</a>)</li>
 <li><strong>Increase sample size:</strong> Use more requests (<code>--num-requests</code>) for statistical stability</li>
 </ol>
 <hr />
@@ -4132,6 +5299,11 @@ instrumentation outside BLIS's scope.</p>
 </tbody>
 </table>
 <p>Headers are only sent when the field is non-empty, so non-GIE servers are unaffected.</p>
+<p>These are the router's deprecated header names, which it still accepts as aliases of
+<code>x-llm-d-inference-objective</code> and <code>x-llm-d-inference-fairness-id</code>. The simulated cluster's
+embedded llm-d router receives the same two fields under the current names and takes
+priorities from the <code>InferenceObjective</code> manifests it is given; see
+<a href="../admission/">Admission Control</a>.</p>
 <h3 id="how-gie-resolves-priority">How GIE resolves priority<a class="headerlink" href="#how-gie-resolves-priority" title="Permanent link">&para;</a></h3>
 <p>GIE does not accept a priority integer directly from the client. Instead, priority is resolved server-side through a CRD lookup:</p>
 <ol>
@@ -4143,34 +5315,34 @@ instrumentation outside BLIS's scope.</p>
 <p>If no matching CRD exists, EPP defaults to priority 0.</p>
 <h3 id="prerequisite-deploy-inferenceobjective-crds">Prerequisite: deploy InferenceObjective CRDs<a class="headerlink" href="#prerequisite-deploy-inferenceobjective-crds" title="Permanent link">&para;</a></h3>
 <p>For GIE headers to have any effect, matching <code>InferenceObjective</code> CRDs must exist on the target cluster. The CRD names must match the <code>slo_class</code> values in your workload spec:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># On your Kubernetes cluster:</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inference.networking.x-k8s.io/v1alpha2</span>
-<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">InferenceObjective</span>
-<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">critical</span><span class="w">              </span><span class="c1"># must match slo_class in workload spec</span>
-<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">  </span><span class="nt">priority</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">               </span><span class="c1"># higher = more important; negative = sheddable</span>
-<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="w">  </span><span class="nt">poolRef</span><span class="p">:</span>
-<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-pool</span>
-<a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="nn">---</span>
-<a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inference.networking.x-k8s.io/v1alpha2</span>
-<a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">InferenceObjective</span>
-<a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">background</span>
-<a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="w">  </span><span class="nt">priority</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-10</span><span class="w">               </span><span class="c1"># negative priority → shed under load (HTTP 503)</span>
-<a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a><span class="w">  </span><span class="nt">poolRef</span><span class="p">:</span>
-<a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-pool</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># On your Kubernetes cluster:</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inference.networking.x-k8s.io/v1alpha2</span>
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">InferenceObjective</span>
+<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">critical</span><span class="w">              </span><span class="c1"># must match slo_class in workload spec</span>
+<a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="w">  </span><span class="nt">priority</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">               </span><span class="c1"># higher = more important; negative = sheddable</span>
+<a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a><span class="w">  </span><span class="nt">poolRef</span><span class="p">:</span>
+<a id="__codelineno-27-9" name="__codelineno-27-9" href="#__codelineno-27-9"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-pool</span>
+<a id="__codelineno-27-10" name="__codelineno-27-10" href="#__codelineno-27-10"></a><span class="nn">---</span>
+<a id="__codelineno-27-11" name="__codelineno-27-11" href="#__codelineno-27-11"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inference.networking.x-k8s.io/v1alpha2</span>
+<a id="__codelineno-27-12" name="__codelineno-27-12" href="#__codelineno-27-12"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">InferenceObjective</span>
+<a id="__codelineno-27-13" name="__codelineno-27-13" href="#__codelineno-27-13"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-27-14" name="__codelineno-27-14" href="#__codelineno-27-14"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">background</span>
+<a id="__codelineno-27-15" name="__codelineno-27-15" href="#__codelineno-27-15"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-27-16" name="__codelineno-27-16" href="#__codelineno-27-16"></a><span class="w">  </span><span class="nt">priority</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-10</span><span class="w">               </span><span class="c1"># negative priority → shed under load (HTTP 503)</span>
+<a id="__codelineno-27-17" name="__codelineno-27-17" href="#__codelineno-27-17"></a><span class="w">  </span><span class="nt">poolRef</span><span class="p">:</span>
+<a id="__codelineno-27-18" name="__codelineno-27-18" href="#__codelineno-27-18"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-pool</span>
 </code></pre></div>
 <h3 id="workload-spec-example">Workload spec example<a class="headerlink" href="#workload-spec-example" title="Permanent link">&para;</a></h3>
 <p>Set <code>slo_class</code> and <code>tenant_id</code> on your clients to activate GIE headers. The <code>slo_class</code> value must match an <code>InferenceObjective</code> CRD name on the target cluster:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nt">clients</span><span class="p">:</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;realtime-api&quot;</span>
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">    </span><span class="nt">slo_class</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;critical&quot;</span><span class="w">       </span><span class="c1"># → sent as x-gateway-inference-objective header</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">    </span><span class="nt">tenant_id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;team-alpha&quot;</span><span class="w">     </span><span class="c1"># → sent as x-gateway-inference-fairness-id header</span>
-<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;batch-job&quot;</span>
-<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">    </span><span class="nt">slo_class</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;background&quot;</span><span class="w">     </span><span class="c1"># → GIE resolves to negative priority via CRD</span>
-<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">    </span><span class="nt">tenant_id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;team-beta&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="nt">clients</span><span class="p">:</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">"realtime-api"</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">    </span><span class="nt">slo_class</span><span class="p">:</span><span class="w"> </span><span class="s">"critical"</span><span class="w">       </span><span class="c1"># → sent as x-gateway-inference-objective header</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">    </span><span class="nt">tenant_id</span><span class="p">:</span><span class="w"> </span><span class="s">"team-alpha"</span><span class="w">     </span><span class="c1"># → sent as x-gateway-inference-fairness-id header</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">"batch-job"</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="w">    </span><span class="nt">slo_class</span><span class="p">:</span><span class="w"> </span><span class="s">"background"</span><span class="w">     </span><span class="c1"># → GIE resolves to negative priority via CRD</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="w">    </span><span class="nt">tenant_id</span><span class="p">:</span><span class="w"> </span><span class="s">"team-beta"</span>
 </code></pre></div>
 <p>Note: The GIE API version (<code>v1alpha2</code>) shown above may differ on your cluster. Check your installed CRD version with <code>kubectl get crd inferenceobjectives.inference.networking.x-k8s.io</code>.</p>
 <h3 id="direct-vllm-priority-injection">Direct vLLM priority injection<a class="headerlink" href="#direct-vllm-priority-injection" title="Permanent link">&para;</a></h3>
@@ -4237,13 +5409,13 @@ instrumentation outside BLIS's scope.</p>
         
         
           
-          <a href="../experimentation/" class="md-footer__link md-footer__link--next" aria-label="Next: Hypothesis Experimentation">
+          <a href="../kv-offload-calibration/" class="md-footer__link md-footer__link--next" aria-label="Next: KV Hit-Rate Calibration">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Hypothesis Experimentation
+                KV Hit-Rate Calibration
               </div>
             </div>
             <div class="md-footer__button md-icon">
