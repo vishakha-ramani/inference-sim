@@ -137,8 +137,10 @@ import (
 //     O(N) in prefill, O(state) per token in decode (context-independent). No-op for
 //     non-hybrid models (numKVBearingLayers == numLayers). See numKVBearingLayers.
 type TrainedPhysicsModel struct {
-	Alpha [3]float64 // [α₀, α₁, α₂]
-	Beta  []float64  // [β₁..β_EP] — length 11 (7→β₈=0, 8→MoE, 9→pf split, 10→dc split, 11→β_EP; β_EP defaults to β₄)
+	studyShadow   *TrainedPhysicsModel // study-only: prices every executed batch under an alternate config
+	studyIsShadow bool
+	Alpha         [3]float64 // [α₀, α₁, α₂]
+	Beta          []float64  // [β₁..β_EP] — length 11 (7→β₈=0, 8→MoE, 9→pf split, 10→dc split, 11→β_EP; β_EP defaults to β₄)
 
 	// Mode flags.
 	prefillSplit bool // true when ≥9 betas: β₁ₐ·compute + β₁ᵦ·kv instead of β₁·max
@@ -922,7 +924,48 @@ func (m *TrainedPhysicsModel) StepTime(batch []*sim.Request) int64 {
 		m.Beta[6] +
 		m.Beta[7]*moeScaling*float64(m.numMoELayers) // β₈: per-MoE-layer overhead (interleaved archs only)
 
-	return applyAdapterOverhead(max(1, clampToInt64(stepTime)), batch, m.adapterCost)
+	returned := applyAdapterOverhead(max(1, clampToInt64(stepTime)), batch, m.adapterCost)
+	if studyLedger != nil {
+		// Unsplit (max) forms attribute the whole term to whichever side binds.
+		pfC, pfK := m.Beta[0]*tPfCompute, m.Beta[8]*tPfKv
+		if !m.prefillSplit {
+			pfC, pfK = 0, 0
+			if tPfCompute >= tPfKv {
+				pfC = prefillTerm
+			} else {
+				pfK = prefillTerm
+			}
+		}
+		dcC, dcK := m.Beta[1]*tDcCompute, m.Beta[9]*tDcKv
+		if !m.decodeSplit {
+			dcC, dcK = 0, 0
+			if tDcCompute >= tDcKv {
+				dcC = decodeTerm
+			} else {
+				dcK = decodeTerm
+			}
+		}
+		terms := []float64{
+			pfC, pfK, dcC, dcK,
+			m.Beta[2] * tWeight,
+			m.Beta[3] * (tTpAttention + tTpDenseFFN + tMoEReduce),
+			m.Beta[10] * tMoEDispatch,
+			m.Beta[4] * L,
+			m.Beta[5] * batchSize,
+			m.Beta[6],
+			m.Beta[7] * moeScaling * float64(m.numMoELayers),
+			float64(returned) - float64(max(1, clampToInt64(stepTime))),
+		}
+		if m.studyIsShadow {
+			studyLedger.recordShadow(terms, returned, batch)
+		} else {
+			studyLedger.record(terms, returned, batch)
+			if m.studyShadow != nil {
+				m.studyShadow.StepTime(batch) // StepTime is pure: prices the same batch under the shadow config
+			}
+		}
+	}
+	return returned
 }
 
 // sharedExpertCompute returns the shared-expert FFN compute basis (raw FLOPs) for

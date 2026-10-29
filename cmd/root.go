@@ -2914,6 +2914,9 @@ var runCmd = &cobra.Command{
 
 		// Wall-clock timing on stderr (BC-6); stdout remains deterministic (BC-7)
 		logrus.Infof("Simulation wall-clock time: %.3fs", time.Since(startTime).Seconds())
+		if err := latency.FlushStudyTermLedger(); err != nil {
+			logrus.Fatalf("study term ledger: %v", err)
+		}
 
 		// Resolve goodput SLO targets early so the trace export and aggregate metrics
 		// see the same merged map (#1413, BC-1). Run has no trace header; precedence

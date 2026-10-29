@@ -213,6 +213,9 @@ func NewLatencyModel(coeffs sim.LatencyCoeffs, hw sim.ModelHardwareConfig, opts 
 		}
 		model.adapterCost = o.adapterCost
 		model.specTokens = o.specTokens
+		if err := attachStudyShadow(model, coeffs, hw); err != nil {
+			return nil, err
+		}
 		return model, nil
 	default:
 		return nil, fmt.Errorf("latency model: unknown backend %q; valid options: %s",

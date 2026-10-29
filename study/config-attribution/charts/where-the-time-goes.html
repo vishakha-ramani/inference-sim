@@ -1,0 +1,214 @@
+<title>Where the Time Goes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one readable column; the chart is the centrepiece, with controls directly above it and the table view below. */
+:root {
+  --bg: #f6f7f9; --surface: #fcfcfb; --fg: #14161a; --fg-2: #4b5059; --fg-3: #737a85;
+  --rule: #dfe2e7; --accent: #2a5fb0; --chip: #e9edf3;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121418; --surface: #1a1a19; --fg: #f2f3f5; --fg-2: #c0c4cc; --fg-3: #8d939d;
+  --rule: #2c3038; --accent: #7aa7ec; --chip: #242830;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121418; --surface: #1a1a19; --fg: #f2f3f5; --fg-2: #c0c4cc; --fg-3: #8d939d;
+  --rule: #2c3038; --accent: #7aa7ec; --chip: #242830;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--body); }
+.wrap { max-width: 860px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 64px; display: grid; gap: 32px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+h1 { font: 600 clamp(28px, 5vw, 40px)/1.1 var(--display); margin: 0; text-wrap: balance; }
+h2 { font: 600 21px/1.25 var(--display); margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 66ch; }
+.lede { color: var(--fg-2); font-size: 16.5px; }
+section { display: grid; gap: 14px; }
+code, .mono { font-family: var(--mono); font-size: .9em; }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; }
+.group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.group > span { font: 500 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); margin-right: 4px; }
+.seg { font: 500 13px/1 var(--body); padding: 7px 11px; border-radius: 6px; border: 1px solid var(--rule); background: transparent; color: var(--fg-2); cursor: pointer; }
+.seg[aria-pressed="true"] { background: var(--fg); color: var(--surface); border-color: var(--fg); }
+.seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.charthead { display: grid; gap: 4px; }
+.charthead b { font: 600 17px/1.3 var(--display); }
+.charthead small { color: var(--fg-3); font-size: 13px; }
+.chart { position: relative; min-width: 0; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--fg-2); font: 12px var(--mono); }
+.chart .total { fill: var(--fg); font: 500 13px var(--mono); }
+.chart .xl { fill: var(--fg); font: 600 14px var(--display); }
+.chart .note { fill: var(--fg-3); font: 11.5px var(--body); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--fg-2); }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--surface); font: 12.5px/1.45 var(--body); padding: 7px 9px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, calc(-100% - 10px)); }
+.tip b { font-weight: 600; }
+.findings { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; }
+.findings li { display: grid; grid-template-columns: 7.5rem 1fr; gap: 4px 16px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.findings li > b { font: 600 15px/1.4 var(--display); }
+.findings li > div { min-width: 0; }
+@media (max-width: 560px) { .findings li { grid-template-columns: 1fr; } }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; font: 12.5px var(--mono); font-variant-numeric: tabular-nums; width: 100%; }
+th, td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font: 500 11px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--fg-3); }
+tfoot td { font-weight: 500; color: var(--fg); }
+.caveats { display: grid; gap: 8px; padding-left: 18px; margin: 0; max-width: 70ch; }
+.meta { color: var(--fg-3); font-size: 13px; }
+@media (prefers-reduced-motion: no-preference) { .bar rect, .bar path { transition: opacity .12s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">BLIS · llama-3.1-70b-instruct · H100 · chatbot preset</p>
+    <h1>Where the time goes, by tensor parallelism</h1>
+    <p class="lede">Each bar splits one metric into pieces that add up exactly to the value BLIS reports. Switch the metric and the load to see which piece dominates and how it changes with TP.</p>
+  </header>
+
+  <div class="panel">
+    <div class="controls">
+      <div class="group" role="group" aria-label="Metric"><span>Metric</span>
+        <button class="seg" id="m-TTFT" data-m="TTFT">TTFT</button>
+        <button class="seg" id="m-ITL" data-m="ITL">ITL</button>
+        <button class="seg" id="m-E2E" data-m="E2E">E2E latency</button>
+        <button class="seg" id="m-COST" data-m="COST">Cost per token</button>
+      </div>
+      <div class="group" role="group" aria-label="Load"><span>Load (req/s)</span>
+        <button class="seg" id="r-8" data-r="8">8</button>
+        <button class="seg" id="r-16" data-r="16">16</button>
+        <button class="seg" id="r-32" data-r="32">32</button>
+        <button class="seg" id="r-48" data-r="48">48</button>
+        <button class="seg" id="r-64" data-r="64">64</button>
+      </div>
+      <div class="group" role="group" aria-label="Scale"><span>Show</span>
+        <button class="seg" id="v-share" data-v="share">Share of total</button>
+        <button class="seg" id="v-abs" data-v="abs">Absolute</button>
+      </div>
+    </div>
+    <div class="charthead"><b id="ctitle"></b><small id="csub"></small></div>
+    <div class="chart" id="chart"><div class="tip" id="tip" hidden></div></div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <section>
+    <h2>What stands out</h2>
+    <ul class="findings">
+      <li><b>TP2 doesn't fit</b><div>The 70B weights leave two H100s little room for KV cache. The batch caps at about 44 requests, with about 620 preemption events per 800 requests. TTFT is tens of seconds at every load, and 99% of it is <em>waiting for a batch slot</em>; work thrown away by preemption is only about 0.2 s per request. The breakdown shows the symptom (waiting), and the capped batch size points to the cause (KV capacity).</div></li>
+      <li><b>ITL is mostly weight reads</b><div>At TP4 and TP8, reading the weights is about half to three-quarters of each decode step (52–78%, falling as batches grow). TP halves that per step, which is why ITL nearly halves from TP4 to TP8. Fixed per-step overhead (about 3 ms) does not shrink with TP, so its share grows at TP8.</div></li>
+      <li><b>TTFT is mostly fixed API overhead</b><div>Below saturation, about 15.6 ms of TTFT is a fixed per-request API cost, and the prompt step itself is small (chatbot prompts are short). Once TP4 saturates (48 req/s and up), its TTFT becomes almost entirely waiting for a batch slot, while TP8 still has headroom.</div></li>
+      <li><b>Cost per token tracks batch size</b><div>Weight reads dominate GPU time per token. TP8 runs smaller batches at the same load, so each weight read is shared by fewer tokens and it costs more per token. The gap narrows as load rises and batches fill.</div></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Table view</h2>
+    <p class="meta" id="tcap"></p>
+    <div class="tablewrap"><table id="table"></table></div>
+  </section>
+
+  <section>
+    <h2>How to read this, and its limits</h2>
+    <ul class="caveats">
+      <li>This is the breakdown <b>as BLIS models it</b>, not a GPU measurement. "Weight reads" means BLIS's bytes ÷ bandwidth × a learned correction. It shows where the model thinks time goes.</li>
+      <li><b>Decode compute shows as roughly zero.</b> BLIS's trained-physics model currently prices decode compute at zero (issue #1123), so large-batch decode likely understates compute.</li>
+      <li>A step's full time is charged to every request in it, since that is the wall-clock time each one experiences. A request's prefill step therefore also contains other requests' decode work.</li>
+      <li>"Waiting for a batch slot" is the time a request spends outside any step that includes it, including time re-queued after a preemption. Where nothing is preempted, it matches BLIS's independent scheduling-delay metric.</li>
+      <li>BLIS fully resets a preempted request, so its TTFT is measured to the first token of the <em>final</em> attempt. Steps from abandoned attempts appear as "Work discarded by preemption" inside TTFT. A real streaming client would already have seen tokens from the first attempt, so this is worth a second look.</li>
+      <li>API overhead is BLIS's three fixed constants, applied in whole microseconds: 15.563 ms per request on arrival, 0.777 ms at completion, and 0.045 ms per output token.</li>
+    </ul>
+    <p class="meta">BLIS upstream main (adfca981) plus a local, uncommitted per-term ledger. blis-catalog 0.1.1. Trained-physics latency model, <code>--workload chatbot --num-requests 800 --seed 7</code>. TP1 is omitted because 70B weights do not fit on one H100.</p>
+  </section>
+</div>
+
+<script>
+const DATA = [{"tp":2,"rate":8,"pre":615,"batch":43.7,"TTFT":{"wait":22467.735,"api":15.608,"compute":6.177,"weights":29.734,"kv":1.785,"comm":0.37,"overhead":3.091,"preempt":205.125},"ITL":{"wait":0.0,"api":0.045,"compute":0.734,"weights":27.84,"kv":1.749,"comm":0.067,"overhead":2.896,"preempt":0.0},"E2E":{"wait":22467.735,"api":27.876,"compute":192.158,"weights":7138.908,"kv":447.989,"comm":17.495,"overhead":742.377,"preempt":205.125},"COST":{"wait":0.0,"api":0.0,"compute":33.25,"weights":1304.83,"kv":79.033,"comm":3.042,"overhead":135.294,"preempt":0.0},"tps":1285},{"tp":4,"rate":8,"pre":0,"batch":34.1,"TTFT":{"wait":8.569,"api":15.608,"compute":1.4,"weights":13.92,"kv":0.675,"comm":0.263,"overhead":2.851,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":0.19,"weights":13.92,"kv":0.691,"comm":0.063,"overhead":2.85,"preempt":0.0},"E2E":{"wait":8.569,"api":27.876,"compute":49.88,"weights":3568.461,"kv":176.946,"comm":16.291,"overhead":730.672,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":1632.269,"kv":77.941,"comm":7.178,"overhead":333.519,"preempt":0.0},"tps":1927},{"tp":8,"rate":8,"pre":0,"batch":19.8,"TTFT":{"wait":4.913,"api":15.608,"compute":0.7,"weights":6.96,"kv":0.192,"comm":0.292,"overhead":2.784,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":0.054,"weights":6.96,"kv":0.199,"comm":0.042,"overhead":2.784,"preempt":0.0},"E2E":{"wait":4.913,"api":27.876,"compute":14.468,"weights":1784.192,"kv":50.992,"comm":10.975,"overhead":713.578,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":2810.446,"kv":77.941,"comm":16.75,"overhead":1123.005,"preempt":0.0},"tps":1973},{"tp":2,"rate":16,"pre":623,"batch":44.1,"TTFT":{"wait":45842.142,"api":15.608,"compute":6.522,"weights":30.54,"kv":1.833,"comm":0.39,"overhead":3.176,"preempt":193.853},"ITL":{"wait":0.0,"api":0.045,"compute":0.75,"weights":27.84,"kv":1.758,"comm":0.069,"overhead":2.897,"preempt":0.0},"E2E":{"wait":45842.142,"api":27.876,"compute":195.877,"weights":7139.714,"kv":450.163,"comm":17.737,"overhead":742.731,"preempt":193.853},"COST":{"wait":0.0,"api":0.0,"compute":33.806,"weights":1290.606,"kv":78.956,"comm":3.071,"overhead":133.906,"preempt":0.0},"tps":1298},{"tp":4,"rate":16,"pre":0,"batch":67.8,"TTFT":{"wait":9.239,"api":15.608,"compute":1.4,"weights":13.92,"kv":1.398,"comm":0.297,"overhead":3.017,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":0.4,"weights":13.92,"kv":1.434,"comm":0.132,"overhead":3.02,"preempt":0.0},"E2E":{"wait":9.239,"api":27.876,"compute":102.976,"weights":3568.467,"kv":367.665,"comm":33.787,"overhead":774.194,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":821.469,"kv":77.941,"comm":7.178,"overhead":176.626,"preempt":0.0},"tps":3614},{"tp":8,"rate":16,"pre":0,"batch":39.8,"TTFT":{"wait":5.002,"api":15.608,"compute":0.7,"weights":6.96,"kv":0.396,"comm":0.314,"overhead":2.877,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":0.112,"weights":6.96,"kv":0.405,"comm":0.086,"overhead":2.878,"preempt":0.0},"E2E":{"wait":5.002,"api":27.876,"compute":29.206,"weights":1784.195,"kv":103.777,"comm":22.284,"overhead":737.641,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":1398.931,"kv":77.941,"comm":16.75,"overhead":576.735,"preempt":0.0},"tps":3818},{"tp":2,"rate":32,"pre":613,"batch":44.5,"TTFT":{"wait":57468.566,"api":15.608,"compute":6.308,"weights":29.804,"kv":1.787,"comm":0.377,"overhead":3.099,"preempt":195.535},"ITL":{"wait":0.0,"api":0.045,"compute":0.745,"weights":27.84,"kv":1.764,"comm":0.068,"overhead":2.898,"preempt":0.0},"E2E":{"wait":57468.566,"api":27.876,"compute":194.035,"weights":7138.978,"kv":451.612,"comm":17.664,"overhead":742.871,"preempt":195.535},"COST":{"wait":0.0,"api":0.0,"compute":33.47,"weights":1279.664,"kv":78.953,"comm":3.052,"overhead":132.849,"preempt":0.0},"tps":1309},{"tp":4,"rate":32,"pre":0,"batch":130.6,"TTFT":{"wait":10.106,"api":15.608,"compute":1.4,"weights":13.92,"kv":2.926,"comm":0.369,"overhead":3.377,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":0.861,"weights":13.92,"kv":3.085,"comm":0.284,"overhead":3.4,"preempt":0.0},"E2E":{"wait":10.106,"api":27.876,"compute":217.839,"weights":3568.478,"kv":792.721,"comm":72.257,"overhead":871.447,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":426.463,"kv":77.941,"comm":7.178,"overhead":100.19,"preempt":0.0},"tps":6302},{"tp":8,"rate":32,"pre":0,"batch":79.0,"TTFT":{"wait":5.364,"api":15.608,"compute":0.7,"weights":6.96,"kv":0.826,"comm":0.36,"overhead":3.076,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":0.238,"weights":6.96,"kv":0.851,"comm":0.182,"overhead":3.081,"preempt":0.0},"E2E":{"wait":5.364,"api":27.876,"compute":60.882,"weights":1784.202,"kv":218.251,"comm":46.712,"overhead":789.884,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":704.663,"kv":77.941,"comm":16.75,"overhead":308.046,"preempt":0.0},"tps":7072},{"tp":2,"rate":48,"pre":630,"batch":44.5,"TTFT":{"wait":61493.308,"api":15.608,"compute":6.597,"weights":30.575,"kv":1.831,"comm":0.394,"overhead":3.179,"preempt":210.691},"ITL":{"wait":0.0,"api":0.045,"compute":0.744,"weights":27.84,"kv":1.764,"comm":0.068,"overhead":2.898,"preempt":0.0},"E2E":{"wait":61493.308,"api":27.876,"compute":194.824,"weights":7139.749,"kv":451.46,"comm":17.709,"overhead":742.957,"preempt":210.691},"COST":{"wait":0.0,"api":0.0,"compute":33.641,"weights":1282.399,"kv":79.068,"comm":3.064,"overhead":133.13,"preempt":0.0},"tps":1306},{"tp":4,"rate":48,"pre":0,"batch":168.4,"TTFT":{"wait":635.364,"api":15.608,"compute":2.176,"weights":13.92,"kv":3.869,"comm":0.545,"overhead":3.616,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":1.176,"weights":13.92,"kv":4.249,"comm":0.39,"overhead":3.671,"preempt":0.0},"E2E":{"wait":635.364,"api":27.876,"compute":294.57,"weights":3568.487,"kv":1093.03,"comm":98.814,"overhead":940.711,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":330.721,"kv":77.941,"comm":7.178,"overhead":81.664,"preempt":0.0},"tps":7689},{"tp":8,"rate":48,"pre":0,"batch":116.3,"TTFT":{"wait":5.881,"api":15.608,"compute":0.7,"weights":6.96,"kv":1.279,"comm":0.41,"overhead":3.289,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":0.374,"weights":6.96,"kv":1.339,"comm":0.287,"overhead":3.306,"preempt":0.0},"E2E":{"wait":5.881,"api":27.876,"compute":94.902,"weights":1784.208,"kv":343.835,"comm":73.258,"overhead":847.324,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":478.711,"kv":77.941,"comm":16.75,"overhead":220.601,"preempt":0.0},"tps":9787},{"tp":2,"rate":64,"pre":626,"batch":44.5,"TTFT":{"wait":63416.067,"api":15.608,"compute":6.698,"weights":30.014,"kv":1.794,"comm":0.399,"overhead":3.121,"preempt":200.016},"ITL":{"wait":0.0,"api":0.045,"compute":0.751,"weights":27.84,"kv":1.764,"comm":0.069,"overhead":2.898,"preempt":0.0},"E2E":{"wait":63416.067,"api":27.876,"compute":195.931,"weights":7139.19,"kv":451.643,"comm":17.771,"overhead":742.914,"preempt":200.016},"COST":{"wait":0.0,"api":0.0,"compute":33.825,"weights":1281.305,"kv":78.989,"comm":3.073,"overhead":133.012,"preempt":0.0},"tps":1307},{"tp":4,"rate":64,"pre":0,"batch":175.0,"TTFT":{"wait":1942.17,"api":15.608,"compute":2.593,"weights":13.92,"kv":3.902,"comm":0.617,"overhead":3.631,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":1.206,"weights":13.92,"kv":4.358,"comm":0.401,"overhead":3.699,"preempt":0.0},"E2E":{"wait":1942.17,"api":27.876,"compute":299.268,"weights":3568.489,"kv":1120.755,"comm":100.957,"overhead":947.537,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":318.138,"kv":77.941,"comm":7.178,"overhead":79.229,"preempt":0.0},"tps":7919},{"tp":8,"rate":64,"pre":0,"batch":150.7,"TTFT":{"wait":6.16,"api":15.608,"compute":0.7,"weights":6.96,"kv":1.723,"comm":0.46,"overhead":3.505,"preempt":0.0},"ITL":{"wait":0.0,"api":0.045,"compute":0.515,"weights":6.96,"kv":1.851,"comm":0.397,"overhead":3.543,"preempt":0.0},"E2E":{"wait":6.16,"api":27.876,"compute":129.646,"weights":1784.214,"kv":475.711,"comm":100.826,"overhead":907.949,"preempt":0.0},"COST":{"wait":0.0,"api":0.0,"compute":22.012,"weights":369.565,"kv":77.941,"comm":16.75,"overhead":178.36,"preempt":0.0},"tps":12015}];
+const CATS = [
+  ["weights","Weight reads","--s1"],["kv","KV-cache reads/writes","--s2"],["compute","Compute","--s3"],
+  ["comm","TP communication","--s4"],["overhead","Fixed per-step overhead","--s5"],["api","API overhead","--s6"],
+  ["wait","Waiting for a batch slot","--s7"],["preempt","Work discarded by preemption","--s8"]];
+const METRICS = {
+  TTFT:{title:"Time to first token", unit:"ms", sub:"Mean per request. Arrival to first output token."},
+  ITL:{title:"Inter-token latency", unit:"ms", sub:"Mean per request. Time per output token after the first."},
+  E2E:{title:"End-to-end latency", unit:"ms", sub:"Mean per request. Arrival to last token."},
+  COST:{title:"GPU-time per output token", unit:"GPU-µs", sub:"Total GPU-busy time × GPUs ÷ output tokens. Lower is cheaper."}};
+const TPS = [2,4,8];
+const S = {m:"ITL", r:32, v:"share"};
+try { const s = JSON.parse(localStorage.getItem("wtg-state")||"null"); if (s && METRICS[s.m]) Object.assign(S, s); } catch (e) {}
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = (x, u) => u==="ms" ? (x>=10000 ? (x/1000).toFixed(1)+" s" : x>=100 ? x.toFixed(0)+" ms" : x.toFixed(1)+" ms") : x.toFixed(0)+" GPU-µs";
+const row = (tp, r) => DATA.find(d => d.tp===tp && d.rate===r);
+const NS = "http://www.w3.org/2000/svg";
+const el = (t, a={}, p) => { const e=document.createElementNS(NS,t); for (const k in a) e.setAttribute(k,a[k]); if (p) p.appendChild(e); return e; };
+function niceMax(x){ const p=Math.pow(10,Math.floor(Math.log10(x))); for (const m of [1,2,2.5,5,10]) if (m*p>=x) return m*p; return 10*p; }
+
+function draw(){
+  document.querySelectorAll("[data-m]").forEach(b=>b.setAttribute("aria-pressed", b.dataset.m===S.m));
+  document.querySelectorAll("[data-r]").forEach(b=>b.setAttribute("aria-pressed", +b.dataset.r===S.r));
+  document.querySelectorAll("[data-v]").forEach(b=>b.setAttribute("aria-pressed", b.dataset.v===S.v));
+  const M = METRICS[S.m];
+  document.getElementById("ctitle").textContent = `${M.title} at ${S.r} req/s`;
+  document.getElementById("csub").textContent = M.sub + (S.v==="share" ? " Bars show each piece's share; the label is the total." : "");
+  const chart = document.getElementById("chart"); chart.querySelector("svg")?.remove();
+  const W=640, H=340, L=52, R=16, T=34, B=58, iw=W-L-R, ih=H-T-B;
+  const svg = el("svg",{viewBox:`0 0 ${W} ${H}`, role:"img", "aria-label":`${M.title} breakdown by TP at ${S.r} req/s`});
+  chart.insertBefore(svg, chart.firstChild);
+  const rows = TPS.map(tp=>row(tp,S.r));
+  const totals = rows.map(r=>CATS.reduce((s,[k])=>s+Math.max(0,r[S.m][k]),0));
+  const ymax = S.v==="share" ? 1 : niceMax(Math.max(...totals));
+  const y = v => T + ih - (v/ymax)*ih;
+  const ticks = S.v==="share" ? [0,.25,.5,.75,1] : [0,.25,.5,.75,1].map(f=>f*ymax);
+  ticks.forEach(t=>{ el("line",{x1:L,x2:W-R,y1:y(t),y2:y(t),stroke:css("--rule"),"stroke-width":1},svg);
+    const lab = el("text",{x:L-8,y:y(t)+4,"text-anchor":"end"},svg);
+    lab.textContent = S.v==="share" ? Math.round(t*100)+"%" : (M.unit==="ms" && ymax>=10000 ? (t/1000).toFixed(0)+"s" : t>=1000? (t/1000).toFixed(t%1000?1:0)+"k" : +t.toFixed(1)); });
+  const band = iw/TPS.length, bw = Math.min(110, band*.5), surf = css("--surface"), tip = document.getElementById("tip");
+  rows.forEach((r,i)=>{
+    const cx = L + band*i + band/2, x = cx - bw/2, tot = totals[i];
+    const g = el("g",{class:"bar"},svg); let acc = 0;
+    const segs = CATS.map(([k,name,c])=>({k,name,c,v:Math.max(0,r[S.m][k])})).filter(s=>s.v>0);
+    segs.forEach((s,j)=>{
+      const v0 = S.v==="share" ? acc/tot : acc, v1 = S.v==="share" ? (acc+s.v)/tot : acc+s.v; acc += s.v;
+      const y0=y(v0), y1=y(v1), h=Math.max(0,y0-y1); if (h<0.4) return;
+      const top = j===segs.length-1, rad = top ? Math.min(4,h) : 0;
+      const d = `M${x},${y0} L${x},${y1+rad} Q${x},${y1} ${x+rad},${y1} L${x+bw-rad},${y1} Q${x+bw},${y1} ${x+bw},${y1+rad} L${x+bw},${y0} Z`;
+      const p = el("path",{d, fill:css(s.c), stroke:surf, "stroke-width":2},g);
+      const hit = el("rect",{x:x-8,y:y1,width:bw+16,height:Math.max(h,6),fill:"transparent"},g);
+      const show = ev => { const pt = chart.getBoundingClientRect();
+        tip.innerHTML = `<b>TP${r.tp} · ${s.name}</b><br>${fmt(s.v,M.unit)} · ${(100*s.v/tot).toFixed(1)}% of ${fmt(tot,M.unit)}`;
+        tip.style.left = (ev.clientX-pt.left)+"px"; tip.style.top = (ev.clientY-pt.top)+"px"; tip.hidden=false;
+        g.querySelectorAll("path").forEach(q=>q.style.opacity = q===p ? 1 : .45); };
+      hit.addEventListener("mousemove", show); hit.addEventListener("mouseleave", ()=>{ tip.hidden=true; g.querySelectorAll("path").forEach(q=>q.style.opacity=1); });
+    });
+    const tt = el("text",{x:cx, y:y(S.v==="share"?1:tot)-9, "text-anchor":"middle", class:"total"},svg); tt.textContent = fmt(tot,M.unit);
+    const xl = el("text",{x:cx, y:H-B+22, "text-anchor":"middle", class:"xl"},svg); xl.textContent = `TP${r.tp}`;
+    const nt = el("text",{x:cx, y:H-B+40, "text-anchor":"middle", class:"note"},svg);
+    nt.textContent = `batch ${Math.round(r.batch)} · ${r.pre ? r.pre+" preemptions" : "no preemption"}`;
+  });
+  el("line",{x1:L,x2:W-R,y1:y(0),y2:y(0),stroke:css("--fg-3"),"stroke-width":1},svg);
+  const present = new Set(rows.flatMap(r=>CATS.filter(([k])=>r[S.m][k]>0).map(([k])=>k)));
+  document.getElementById("legend").innerHTML = CATS.filter(([k])=>present.has(k)).map(([k,n,c])=>`<span><i style="background:var(${c})"></i>${n}</span>`).join("");
+  const tb = document.getElementById("table");
+  document.getElementById("tcap").textContent = `${M.title} at ${S.r} req/s, in ${M.unit}. Pieces sum to the total.`;
+  const used = CATS.filter(([k])=>present.has(k));
+  tb.innerHTML = `<thead><tr><th>Piece</th>${TPS.map(t=>`<th>TP${t}</th>`).join("")}</tr></thead><tbody>` +
+    used.map(([k,n])=>`<tr><td>${n}</td>${rows.map(r=>`<td>${r[S.m][k].toFixed(M.unit==="ms"&&r[S.m][k]<10?2:1)}</td>`).join("")}</tr>`).join("") +
+    `</tbody><tfoot><tr><td>Total</td>${totals.map(t=>`<td>${t.toFixed(1)}</td>`).join("")}</tr><tr><td>Throughput (tok/s)</td>${rows.map(r=>`<td>${r.tps}</td>`).join("")}</tr></tfoot>`;
+  try { localStorage.setItem("wtg-state", JSON.stringify(S)); } catch (e) {}
+}
+document.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{S.m=b.dataset.m; draw();});
+document.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>{S.r=+b.dataset.r; draw();});
+document.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{S.v=b.dataset.v; draw();});
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", draw);
+new MutationObserver(draw).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+draw();
+</script>
